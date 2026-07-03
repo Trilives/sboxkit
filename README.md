@@ -28,14 +28,14 @@ Portable `.tar.gz` bundles contain the same two binaries plus an install script.
 Download the package for your architecture from GitHub Releases:
 
 ```bash
-sudo apt install ./sboxkit_0.1.0_amd64.deb
+sudo apt install ./sboxkit_0.1.1_amd64.deb
 ```
 
 Portable install:
 
 ```bash
-tar -xzf sboxkit_0.1.0_amd64_portable.tar.gz
-cd sboxkit_0.1.0_amd64
+tar -xzf sboxkit_0.1.1_amd64_portable.tar.gz
+cd sboxkit_0.1.1_amd64
 sudo ./install.sh
 ```
 
