@@ -135,12 +135,20 @@ func subscriptionTUIItems() []tuiItem {
 func serviceTUIItems() []tuiItem {
 	return []tuiItem{
 		{"Install and start service", "Sync runtime files, install systemd unit, and restart service", commandAction("Install service", func(s *tuiSession) int {
+			if !s.confirmServiceTrafficRisk("install and start sboxkit.service") {
+				fmt.Fprintln(s.tty, "Cancelled.")
+				return 0
+			}
 			return runService([]string{"install"}, s.tty, s.stderr)
 		})},
 		{"Install without starting", "Install unit and runtime files but leave service stopped", commandAction("Install service without start", func(s *tuiSession) int {
 			return runService([]string{"install", "--no-start"}, s.tty, s.stderr)
 		})},
 		{"Sync and restart", "Copy active config/assets into /etc/sboxkit and restart", commandAction("Sync service", func(s *tuiSession) int {
+			if !s.confirmServiceTrafficRisk("sync and restart sboxkit.service") {
+				fmt.Fprintln(s.tty, "Cancelled.")
+				return 0
+			}
 			return runService([]string{"sync"}, s.tty, s.stderr)
 		})},
 		{"Status", "Open systemctl status for sboxkit.service", commandAction("Service status", func(s *tuiSession) int {
@@ -160,6 +168,10 @@ func updateTUIItems() []tuiItem {
 		{"Download optional rules through proxy", "Recommended after the service is running", commandAction("Update runtime assets", func(s *tuiSession) int {
 			args := []string{"--proxy", s.promptDefault("Proxy URL", "http://127.0.0.1:7890")}
 			if s.confirm("Sync assets to service and restart?", true) {
+				if !s.confirmServiceTrafficRisk("sync assets and restart sboxkit.service") {
+					fmt.Fprintln(s.tty, "Service sync skipped.")
+					return runUpdate(args, s.tty, s.stderr)
+				}
 				args = append(args, "--sync-service")
 			}
 			return runUpdate(args, s.tty, s.stderr)
@@ -336,7 +348,7 @@ func runTUIFirstSetup(s *tuiSession) bool {
 				return code
 			}
 		}
-		if s.confirm("Install and start sboxkit.service now?", true) {
+		if s.confirm("Install and start sboxkit.service now?", true) && s.confirmServiceTrafficRisk("install and start sboxkit.service") {
 			code = runService([]string{"install"}, s.tty, s.stderr)
 		}
 		return code
@@ -348,22 +360,30 @@ func runTUIAddRemoteSubscription(s *tuiSession) bool {
 }
 
 func runTUIAddRemoteSubscriptionCommand(s *tuiSession) int {
-	name := s.promptDefault("Name", "main")
-	source := s.promptDefault("Source: clash, sing-box, or base64", "clash")
-	url, ok := s.promptRequired("Subscription URL")
+	args, ok := s.buildRemoteSubscriptionArgs()
 	if !ok {
 		fmt.Fprintln(s.tty, "Cancelled.")
 		return 0
 	}
+	fmt.Fprintln(s.tty)
+	return runSub(args, s.tty, s.stderr)
+}
+
+func (s *tuiSession) buildRemoteSubscriptionArgs() ([]string, bool) {
+	source := s.promptDefault("Source type: clash, sing-box, or base64", "clash")
+	name := s.promptDefault("Name", "main")
+	url, ok := s.promptRequired("Subscription URL")
+	if !ok {
+		return nil, false
+	}
 	args := []string{"add", "--name", name, "--source", source, "--url", url}
-	if proxy := s.promptDefault("Download proxy", ""); proxy != "" {
+	if proxy := s.promptDefault("Download proxy (empty by default)", ""); proxy != "" {
 		args = append(args, "--proxy", proxy)
 	}
 	if !s.confirm("Set as active subscription?", true) {
 		args = append(args, "--no-active")
 	}
-	fmt.Fprintln(s.tty)
-	return runSub(args, s.tty, s.stderr)
+	return args, true
 }
 
 func runTUIAddLocalConfig(s *tuiSession) bool {
@@ -552,6 +572,11 @@ func (s *tuiSession) confirm(label string, fallback bool) bool {
 	default:
 		return fallback
 	}
+}
+
+func (s *tuiSession) confirmServiceTrafficRisk(action string) bool {
+	fmt.Fprintln(s.tty, serviceTrafficWarning())
+	return s.confirm("Continue to "+action+"?", false)
 }
 
 func (s *tuiSession) wait() {

@@ -360,6 +360,7 @@ func runUpdate(args []string, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "active subscription rebuilt: %s\n", active.Name)
 	}
 	if hasFlag(rest, "--sync-service") {
+		printServiceTrafficWarning(stdout)
 		if err := system.NewService(p, system.OSRunner{UseSudo: true}).SyncAndRestart(context.Background()); err != nil {
 			return fail(stderr, "sync service: %v", err)
 		}
@@ -478,6 +479,9 @@ func runService(args []string, stdout io.Writer, stderr io.Writer) int {
 	svc := system.NewService(paths.FromRoot(root), system.OSRunner{UseSudo: true})
 	ctx := context.Background()
 	var err error
+	if serviceCommandStartsOrRestarts(args[0], rest) {
+		printServiceTrafficWarning(stdout)
+	}
 	switch args[0] {
 	case "install":
 		err = svc.Install(ctx, !hasFlag(rest, "--no-start"))
@@ -494,6 +498,25 @@ func runService(args []string, stdout io.Writer, stderr io.Writer) int {
 		return fail(stderr, "service %s: %v", args[0], err)
 	}
 	return 0
+}
+
+func serviceCommandStartsOrRestarts(cmd string, rest []string) bool {
+	switch cmd {
+	case "install":
+		return !hasFlag(rest, "--no-start")
+	case "sync":
+		return true
+	default:
+		return false
+	}
+}
+
+func serviceTrafficWarning() string {
+	return "Warning: starting or restarting sboxkit may interrupt the current SSH connection if TUN or routing changes affect this session."
+}
+
+func printServiceTrafficWarning(stdout io.Writer) {
+	fmt.Fprintln(stdout, serviceTrafficWarning())
 }
 
 func runTimer(args []string, stdout io.Writer, stderr io.Writer) int {

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bufio"
 	"os"
 	"strings"
 	"testing"
@@ -77,5 +78,46 @@ func TestRawModeArgsBlockForInput(t *testing.T) {
 	}
 	if !strings.Contains(got, "min 1") {
 		t.Fatalf("raw mode should request one byte before read returns, got args %q", got)
+	}
+}
+
+func TestRemoteSubscriptionPromptOrderStartsWithSource(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "tui-prompts-*")
+	if err != nil {
+		t.Fatalf("create temp tty: %v", err)
+	}
+	defer file.Close()
+
+	session := &tuiSession{
+		tty:    file,
+		reader: bufio.NewReader(strings.NewReader("sing-box\nwork\nhttps://example.test/config.json\n\n\n")),
+	}
+
+	args, ok := session.buildRemoteSubscriptionArgs()
+	if !ok {
+		t.Fatal("expected remote subscription args")
+	}
+	wantArgs := []string{"add", "--name", "work", "--source", "sing-box", "--url", "https://example.test/config.json"}
+	if strings.Join(args, "\x00") != strings.Join(wantArgs, "\x00") {
+		t.Fatalf("args = %#v, want %#v", args, wantArgs)
+	}
+
+	if _, err := file.Seek(0, 0); err != nil {
+		t.Fatalf("seek prompts: %v", err)
+	}
+	rendered, err := os.ReadFile(file.Name())
+	if err != nil {
+		t.Fatalf("read prompts: %v", err)
+	}
+	text := string(rendered)
+	sourceIndex := strings.Index(text, "Source")
+	nameIndex := strings.Index(text, "Name")
+	urlIndex := strings.Index(text, "URL")
+	proxyIndex := strings.Index(text, "Download proxy (empty by default)")
+	if sourceIndex < 0 || nameIndex < 0 || urlIndex < 0 || proxyIndex < 0 {
+		t.Fatalf("missing expected prompts in %q", text)
+	}
+	if !(sourceIndex < nameIndex && nameIndex < urlIndex && urlIndex < proxyIndex) {
+		t.Fatalf("prompt order = %q, want source before name before URL before proxy", text)
 	}
 }

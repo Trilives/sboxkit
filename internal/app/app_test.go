@@ -158,3 +158,29 @@ func TestUninstallPrintsAptRemovalHint(t *testing.T) {
 		}
 	}
 }
+
+func TestServiceTrafficWarningPolicy(t *testing.T) {
+	tests := []struct {
+		name string
+		cmd  string
+		rest []string
+		want bool
+	}{
+		{name: "install starts by default", cmd: "install", want: true},
+		{name: "install no start", cmd: "install", rest: []string{"--no-start"}, want: false},
+		{name: "sync restarts", cmd: "sync", want: true},
+		{name: "remove does not start", cmd: "remove", want: false},
+		{name: "status does not start", cmd: "status", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := serviceCommandStartsOrRestarts(tt.cmd, tt.rest); got != tt.want {
+				t.Fatalf("serviceCommandStartsOrRestarts() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+	if !strings.Contains(serviceTrafficWarning(), "SSH") {
+		t.Fatalf("warning should mention SSH risk: %q", serviceTrafficWarning())
+	}
+}
