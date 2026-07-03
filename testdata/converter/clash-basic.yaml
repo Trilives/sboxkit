@@ -1,0 +1,21 @@
+proxies:
+  - name: hk-01
+    type: vmess
+    server: hk.example.com
+    port: 443
+    uuid: 00000000-0000-0000-0000-000000000001
+    alterId: 0
+    cipher: auto
+    tls: true
+    network: ws
+    ws-opts:
+      path: /ray
+      headers:
+        Host: hk.example.com
+  - name: sg-01
+    type: ss
+    server: sg.example.com
+    port: 8388
+    cipher: aes-256-gcm
+    password: secret
+    udp: true

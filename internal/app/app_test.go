@@ -1,0 +1,160 @@
+package app
+
+import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestRunPrintsHelpWhenRequested(t *testing.T) {
+	var stdout bytes.Buffer
+	code := Run([]string{"--help"}, &stdout, &bytes.Buffer{})
+
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d", code)
+	}
+
+	out := stdout.String()
+	for _, want := range []string{
+		"sboxkit",
+		"init",
+		"modify",
+		"nettest",
+		"uninstall",
+		"update",
+		"version",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("help output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRunRejectsUnknownCommand(t *testing.T) {
+	var stderr bytes.Buffer
+	code := Run([]string{"missing"}, &bytes.Buffer{}, &stderr)
+
+	if code != 2 {
+		t.Fatalf("expected exit code 2, got %d", code)
+	}
+	if !strings.Contains(stderr.String(), "unknown command") {
+		t.Fatalf("expected unknown command error, got %q", stderr.String())
+	}
+}
+
+func TestRunPrintsVersion(t *testing.T) {
+	var stdout bytes.Buffer
+	code := Run([]string{"version"}, &stdout, &bytes.Buffer{})
+
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d", code)
+	}
+	if !strings.Contains(stdout.String(), "sboxkit dev") {
+		t.Fatalf("expected dev version output, got %q", stdout.String())
+	}
+}
+
+func TestRunRecognizesPlannedCommands(t *testing.T) {
+	var stdout bytes.Buffer
+	code := Run([]string{"sub", "--help"}, &stdout, &bytes.Buffer{})
+	if code != 0 {
+		t.Fatalf("expected sub help exit code 0, got %d", code)
+	}
+	if !strings.Contains(stdout.String(), "add") {
+		t.Fatalf("expected subcommand help, got %q", stdout.String())
+	}
+}
+
+func TestInitNoTunCanWriteProxyEnvironment(t *testing.T) {
+	root := t.TempDir()
+	proxyEnvFile := filepath.Join(t.TempDir(), ".bashrc")
+	var stdout bytes.Buffer
+	code := Run([]string{
+		"init",
+		"--root", root,
+		"--no-tun",
+		"--write-proxy-env",
+		"--proxy-env-file", proxyEnvFile,
+	}, &stdout, &bytes.Buffer{})
+
+	if code != 0 {
+		t.Fatalf("expected init exit code 0, got %d", code)
+	}
+	configData, err := os.ReadFile(filepath.Join(root, "state", "customize.json"))
+	if err != nil {
+		t.Fatalf("read customize: %v", err)
+	}
+	if !strings.Contains(string(configData), `"enable_tun": false`) {
+		t.Fatalf("expected enable_tun false in customize.json:\n%s", string(configData))
+	}
+	envData, err := os.ReadFile(proxyEnvFile)
+	if err != nil {
+		t.Fatalf("read proxy env file: %v", err)
+	}
+	if !strings.Contains(string(envData), `http://127.0.0.1:7890`) {
+		t.Fatalf("expected proxy exports, got:\n%s", string(envData))
+	}
+}
+
+func TestInitDefaultsToStableStateRoot(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("SBOXKIT_ROOT", "")
+	t.Setenv("XDG_STATE_HOME", xdg)
+
+	var stdout bytes.Buffer
+	code := Run([]string{"init"}, &stdout, &bytes.Buffer{})
+	if code != 0 {
+		t.Fatalf("expected init exit code 0, got %d", code)
+	}
+
+	want := filepath.Join(xdg, "sboxkit", "state", "customize.json")
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("expected customize at stable root %s: %v", want, err)
+	}
+	if !strings.Contains(stdout.String(), filepath.Join(xdg, "sboxkit", "state")) {
+		t.Fatalf("expected stable state dir in output, got %q", stdout.String())
+	}
+}
+
+func TestSubAddAcceptsLocalConfigFile(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(source, []byte(`proxies:
+  - {name: "local", type: ss, server: "127.0.0.1", port: 8388, cipher: "aes-128-gcm", password: "secret"}
+`), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	code := Run([]string{
+		"sub", "add",
+		"--root", root,
+		"--name", "file",
+		"--file", source,
+	}, &stdout, &bytes.Buffer{})
+	if code != 0 {
+		t.Fatalf("expected sub add exit code 0, got %d", code)
+	}
+	if !strings.Contains(stdout.String(), "config file file ready") {
+		t.Fatalf("unexpected output %q", stdout.String())
+	}
+	if _, err := os.Stat(filepath.Join(root, "state", "subscriptions", "file", "source.yaml")); err != nil {
+		t.Fatalf("expected copied source: %v", err)
+	}
+}
+
+func TestUninstallPrintsAptRemovalHint(t *testing.T) {
+	var stdout bytes.Buffer
+	code := Run([]string{"uninstall", "--root", t.TempDir(), "--keep-system"}, &stdout, &bytes.Buffer{})
+	if code != 0 {
+		t.Fatalf("expected uninstall exit code 0, got %d", code)
+	}
+	out := stdout.String()
+	for _, want := range []string{"sudo apt remove sboxkit", "sudo apt purge sboxkit"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected uninstall output to contain %q, got:\n%s", want, out)
+		}
+	}
+}

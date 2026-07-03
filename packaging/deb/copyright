@@ -1,0 +1,53 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: sboxkit
+Source: https://github.com/Trilives/sboxkit
+
+Files: *
+Copyright: 2026 Trilives
+License: MIT
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to deal
+ in the Software without restriction, including without limitation the rights
+ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+ .
+ The above copyright notice and this permission notice shall be included in all
+ copies or substantial portions of the Software.
+ .
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ SOFTWARE.
+
+Files: usr/share/sboxkit/base-rules/minimal.json
+Copyright: 2026 Trilives
+License: MIT
+ The minimal bootstrap rules are package data maintained by this project.
+
+Files: usr/lib/sboxkit/sing-box
+Copyright: 2022 nekohasekai and SagerNet/sing-box contributors
+License: GPL-3.0-or-later
+ The sing-box core is included as an independent executable binary. It is not
+ linked into /usr/bin/sboxkit.
+ .
+ Upstream source and release information is documented in:
+ /usr/share/doc/sboxkit/SING_BOX_SOURCE.txt
+ .
+ The upstream project states GPL-3.0-or-later licensing.
+
+Files: third-party-runtime-assets-not-included
+Copyright: none in this package
+License: not-distributed
+ The Debian package does not include large sing-geosite rule sets, large
+ sing-geoip rule sets, subscription data, or public subconverter software or
+ service code. Those assets may be downloaded on user request and remain
+ governed by their own upstream licenses and terms.
+ .
+ Known runtime asset sources:
+ - SagerNet/sing-box: https://github.com/SagerNet/sing-box
+ - SagerNet/sing-geosite: https://github.com/SagerNet/sing-geosite
+ - SagerNet/sing-geoip: https://github.com/SagerNet/sing-geoip

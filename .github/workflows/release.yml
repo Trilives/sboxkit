@@ -1,0 +1,68 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build Debian packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist
+          version="${GITHUB_REF_NAME#v}"
+          chmod +x packaging/deb/build-deb.sh packaging/portable/build-portable.sh packaging/sing-box/download.sh
+          for pair in "amd64 amd64 amd64" "arm64 arm64 arm64"; do
+            set -- ${pair}
+            goarch="$1"
+            debarch="$2"
+            bundlearch="$3"
+            out="dist/build_${debarch}"
+            core="dist/sing-box_${debarch}"
+            env GOOS=linux GOARCH=${goarch} go build \
+              -ldflags="-s -w -X github.com/Trilives/sboxkit/internal/version.Version=${GITHUB_REF_NAME} -X github.com/Trilives/sboxkit/internal/version.Commit=${GITHUB_SHA} -X github.com/Trilives/sboxkit/internal/version.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              -o "${out}/sboxkit" ./cmd/sboxkit
+            packaging/sing-box/download.sh --goarch "${goarch}" --out-dir "${core}"
+            sb_version="$(cat "${core}/VERSION")"
+            sb_source="$(cat "${core}/SOURCE_URL")"
+            packaging/deb/build-deb.sh --binary "${out}/sboxkit" --sing-box "${core}/sing-box" --version "${version}" --arch "${debarch}" --out-dir dist --sing-box-version "${sb_version}" --sing-box-source "${sb_source}"
+            packaging/portable/build-portable.sh --binary "${out}/sboxkit" --sing-box "${core}/sing-box" --version "${version}" --arch "${bundlearch}" --out-dir dist --sing-box-version "${sb_version}" --sing-box-source "${sb_source}"
+          done
+          out="dist/build_armhf"
+          core="dist/sing-box_armhf"
+          env GOOS=linux GOARCH=arm GOARM=7 go build \
+            -ldflags="-s -w -X github.com/Trilives/sboxkit/internal/version.Version=${GITHUB_REF_NAME} -X github.com/Trilives/sboxkit/internal/version.Commit=${GITHUB_SHA} -X github.com/Trilives/sboxkit/internal/version.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -o "${out}/sboxkit" ./cmd/sboxkit
+          packaging/sing-box/download.sh --goarch arm --goarm 7 --out-dir "${core}"
+          sb_version="$(cat "${core}/VERSION")"
+          sb_source="$(cat "${core}/SOURCE_URL")"
+          packaging/deb/build-deb.sh --binary "${out}/sboxkit" --sing-box "${core}/sing-box" --version "${version}" --arch armhf --out-dir dist --sing-box-version "${sb_version}" --sing-box-source "${sb_source}"
+          packaging/portable/build-portable.sh --binary "${out}/sboxkit" --sing-box "${core}/sing-box" --version "${version}" --arch armv7 --out-dir dist --sing-box-version "${sb_version}" --sing-box-source "${sb_source}"
+          cd dist
+          sha256sum *.deb *.tar.gz > checksums.txt
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.deb
+            dist/*.tar.gz
+            dist/checksums.txt
