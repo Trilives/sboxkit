@@ -1,6 +1,10 @@
 package app
 
-import "testing"
+import (
+	"os"
+	"strings"
+	"testing"
+)
 
 func TestClampOffsetKeepsSelectionVisible(t *testing.T) {
 	tests := []struct {
@@ -34,5 +38,44 @@ func TestTruncateKeepsStableWidth(t *testing.T) {
 	}
 	if got := truncate("abc", 10); got != "abc" {
 		t.Fatalf("short truncate() = %q", got)
+	}
+}
+
+func TestRenderMenuUsesCarriageReturnNewlines(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "tui-*")
+	if err != nil {
+		t.Fatalf("create temp tty: %v", err)
+	}
+	defer file.Close()
+
+	session := &tuiSession{tty: file, status: "ready"}
+	session.renderMenu("sboxkit", "Terminal UI", []tuiItem{
+		{Label: "First setup wizard", Detail: "Initialize state"},
+		{Label: "Quit", Detail: "Exit"},
+	}, 0, 0, 2, 80)
+
+	if _, err := file.Seek(0, 0); err != nil {
+		t.Fatalf("seek rendered output: %v", err)
+	}
+	rendered, err := os.ReadFile(file.Name())
+	if err != nil {
+		t.Fatalf("read rendered output: %v", err)
+	}
+	text := string(rendered)
+	if strings.Contains(text, "\n") && !strings.Contains(text, "\r\n") {
+		t.Fatalf("rendered menu uses bare LF newlines: %q", text)
+	}
+	if strings.Contains(strings.ReplaceAll(text, "\r\n", ""), "\n") {
+		t.Fatalf("rendered menu contains a bare LF after CRLF normalization: %q", text)
+	}
+}
+
+func TestRawModeArgsBlockForInput(t *testing.T) {
+	got := strings.Join(rawModeArgs(), " ")
+	if strings.Contains(got, "min 0") || strings.Contains(got, "time 1") {
+		t.Fatalf("raw mode must block for input, got args %q", got)
+	}
+	if !strings.Contains(got, "min 1") {
+		t.Fatalf("raw mode should request one byte before read returns, got args %q", got)
 	}
 }

@@ -501,7 +501,7 @@ func (s *tuiSession) renderMenu(title string, subtitle string, items []tuiItem, 
 	if s.status != "" {
 		b.WriteString(s.status + "\n")
 	}
-	fmt.Fprint(s.tty, b.String())
+	fmt.Fprint(s.tty, terminalLines(b.String()))
 }
 
 func (s *tuiSession) promptRequired(label string) (string, bool) {
@@ -573,7 +573,7 @@ func enterRawMode(tty *os.File) (func(), error) {
 		return nil, err
 	}
 	mode := strings.TrimSpace(string(current))
-	if err := sttyRun(tty, "raw", "-echo", "min", "0", "time", "1"); err != nil {
+	if err := sttyRun(tty, rawModeArgs()...); err != nil {
 		return nil, err
 	}
 	restored := false
@@ -585,6 +585,18 @@ func enterRawMode(tty *os.File) (func(), error) {
 		_ = sttyRun(tty, mode)
 		fmt.Fprint(tty, "\x1b[?25h")
 	}, nil
+}
+
+func rawModeArgs() []string {
+	return []string{"raw", "-echo", "min", "1", "time", "0"}
+}
+
+func escapeReadArgs() []string {
+	return []string{"min", "0", "time", "1"}
+}
+
+func terminalLines(text string) string {
+	return strings.ReplaceAll(text, "\n", "\r\n")
 }
 
 func sttyOutput(tty *os.File, args ...string) ([]byte, error) {
@@ -658,6 +670,11 @@ func readKey(tty *os.File) string {
 }
 
 func readEscapeKey(tty *os.File, buf []byte) string {
+	_ = sttyRun(tty, escapeReadArgs()...)
+	defer func() {
+		_ = sttyRun(tty, rawModeArgs()...)
+	}()
+
 	n, err := tty.Read(buf[:1])
 	if err != nil || n == 0 {
 		return keyEsc
