@@ -148,6 +148,66 @@ func TestFirstSetupUpdatesRulesThroughRunningProxy(t *testing.T) {
 	}
 }
 
+func TestConfigMenuGroupsToggleItems(t *testing.T) {
+	items := configTUIItems()
+	var labels []string
+	for _, item := range items {
+		labels = append(labels, item.Label)
+	}
+	want := []string{
+		"Show config",
+		"TUN and routing",
+		"WebUI and LAN",
+		"Shell proxy environment",
+		"Advanced key/value",
+	}
+	if strings.Join(labels, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("config menu labels = %#v, want %#v", labels, want)
+	}
+
+	for _, label := range labels {
+		for _, flatPrefix := range []string{"Enable ", "Disable ", "Write ", "Remove ", "Set config key"} {
+			if strings.HasPrefix(label, flatPrefix) {
+				t.Fatalf("config top-level item %q should be under a grouped submenu", label)
+			}
+		}
+	}
+}
+
+func TestWebUILANMenuIncludesLANProxyToggle(t *testing.T) {
+	items := webUIConfigTUIItems()
+	var labels []string
+	for _, item := range items {
+		labels = append(labels, item.Label)
+	}
+	for _, want := range []string{"Enable LAN proxy", "Disable LAN proxy"} {
+		if indexOfLabel(labels, want) < 0 {
+			t.Fatalf("WebUI and LAN menu missing %q: %#v", want, labels)
+		}
+	}
+}
+
+func TestNetworkTestActionPrintsProgressPrompt(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "tui-nettest-*")
+	if err != nil {
+		t.Fatalf("create temp tty: %v", err)
+	}
+	defer file.Close()
+
+	printNetworkTestProgress(file)
+
+	if _, err := file.Seek(0, 0); err != nil {
+		t.Fatalf("seek prompt: %v", err)
+	}
+	data, err := os.ReadFile(file.Name())
+	if err != nil {
+		t.Fatalf("read prompt: %v", err)
+	}
+	if !strings.Contains(string(data), "Testing network through 127.0.0.1:7890") {
+		t.Fatalf("missing network test progress prompt: %q", string(data))
+	}
+}
+
 func indexOfLabel(labels []string, label string) int {
 	for i, value := range labels {
 		if value == label {
