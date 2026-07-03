@@ -30,7 +30,7 @@ func editConfigAction() tuiAction {
 				return 0
 			}
 			code := runSub([]string{"rebuild", "--name", active.Name}, s.stdout, s.stderr)
-			if code == 0 && s.confirm("是否同步到服务并重启？", true) && s.confirmServiceTrafficRisk("同步配置并重启 sboxkit.service") {
+			if code == 0 && s.confirmServiceRestart("是否同步配置并重启 sboxkit.service？", true) {
 				code = runService([]string{"sync"}, s.stdout, s.stderr)
 			}
 			return code
@@ -295,6 +295,8 @@ func toggleBoolField(cfg *config.Config, key string) {
 		cfg.GenerateHKGroups = !cfg.GenerateHKGroups
 	case "base64_local_fallback":
 		cfg.Base64LocalFallback = !cfg.Base64LocalFallback
+	case "enable_file_log":
+		cfg.EnableFileLog = !cfg.EnableFileLog
 	}
 }
 
@@ -364,6 +366,8 @@ func scalarField(cfg config.Config, key string) string {
 		return cfg.DownloadProxy
 	case "github_token":
 		return cfg.GitHubToken
+	case "log_max_mb":
+		return strconv.Itoa(cfg.LogMaxMB)
 	default:
 		return ""
 	}

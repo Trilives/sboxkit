@@ -1,7 +1,9 @@
 package webui
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -60,5 +62,58 @@ func TestWriteAssetsWritesEmbeddedIndex(t *testing.T) {
 	}
 	if len(data) == 0 {
 		t.Fatal("expected non-empty index")
+	}
+}
+
+func TestProxyEndpointsForwardToSingBoxClashAPI(t *testing.T) {
+	var switched bytes.Buffer
+	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/proxies":
+			return jsonResponse(http.StatusOK, `{"proxies":{"Proxy":{"name":"Proxy","type":"selector","now":"A","all":["A","B"]}}}`), nil
+		case r.Method == http.MethodPut && r.URL.Path == "/proxies/Proxy":
+			_, _ = switched.ReadFrom(r.Body)
+			return jsonResponse(http.StatusNoContent, ""), nil
+		default:
+			return jsonResponse(http.StatusNotFound, "not found"), nil
+		}
+	})
+
+	server := NewServer(paths.FromRoot(t.TempDir()))
+	server.clashAPIURL = "http://127.0.0.1:9090"
+	server.clashHTTP = &http.Client{Transport: transport}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/proxies", nil)
+	getRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("GET /api/proxies status = %d", getRec.Code)
+	}
+	if !bytes.Contains(getRec.Body.Bytes(), []byte(`"Proxy"`)) {
+		t.Fatalf("GET /api/proxies body missing group: %s", getRec.Body.String())
+	}
+
+	putReq := httptest.NewRequest(http.MethodPut, "/api/proxies/Proxy", bytes.NewBufferString(`{"name":"B"}`))
+	putRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(putRec, putReq)
+	if putRec.Code != http.StatusNoContent {
+		t.Fatalf("PUT /api/proxies/Proxy status = %d", putRec.Code)
+	}
+	if switched.String() != `{"name":"B"}` {
+		t.Fatalf("forwarded switch body = %q", switched.String())
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
+
+func jsonResponse(status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(bytes.NewBufferString(body)),
 	}
 }

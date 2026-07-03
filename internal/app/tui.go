@@ -95,6 +95,17 @@ func commandAction(title string, run func(*tuiSession) int) tuiAction {
 		if code != 0 {
 			fmt.Fprintf(s.stdout, "\n命令以状态 %d 退出。\n", code)
 		}
+		return false
+	}
+}
+
+func commandActionPaused(title string, run func(*tuiSession) int) tuiAction {
+	return func(s *tuiSession) bool {
+		fmt.Fprintf(s.stdout, "\n== %s ==\n\n", title)
+		code := run(s)
+		if code != 0 {
+			fmt.Fprintf(s.stdout, "\n命令以状态 %d 退出。\n", code)
+		}
 		s.wait()
 		return false
 	}
@@ -177,8 +188,11 @@ func (s *tuiSession) wait() {
 }
 
 func (s *tuiSession) confirmServiceTrafficRisk(action string) bool {
-	fmt.Fprintln(s.stdout, serviceTrafficWarning())
-	return s.confirm("是否继续"+action+"？", false)
+	return s.confirmServiceRestart("是否继续"+action+"？", false)
+}
+
+func (s *tuiSession) confirmServiceRestart(prompt string, fallback bool) bool {
+	return s.confirm(prompt+"\n"+serviceTrafficWarning(), fallback)
 }
 
 func (s *tuiSession) setLanguage(language uiLanguage) error {

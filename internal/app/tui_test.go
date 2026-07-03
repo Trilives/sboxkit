@@ -59,14 +59,14 @@ func TestRunRemembersMainMenuSelectionAfterReturning(t *testing.T) {
 			calls = append(calls, opts.Initial)
 			switch len(calls) {
 			case 1:
-				return indexOfLabel(options, "Restart Required"), nil
+				return indexOfLabel(options, "Custom Layer Config"), nil
 			case 2:
 				return 0, ui.ErrCancelled
 			default:
 				t.Fatalf("unexpected main select call %d", len(calls))
 				return 0, ui.ErrCancelled
 			}
-		case "Restart Required":
+		case "Custom Layer Config":
 			submenuCalls++
 			if submenuCalls > 1 {
 				return 0, ui.ErrCancelled
@@ -89,9 +89,9 @@ func TestRunRemembersMainMenuSelectionAfterReturning(t *testing.T) {
 	for _, item := range mainTUIItems() {
 		mainLabels = append(mainLabels, item.Label)
 	}
-	configIndex := indexOfLabel(mainLabels, "Restart Required")
+	configIndex := indexOfLabel(mainLabels, "Custom Layer Config")
 	if configIndex < 0 {
-		t.Fatal("missing Restart Required item in main menu")
+		t.Fatal("missing Custom Layer Config item in main menu")
 	}
 	want := []int{0, configIndex}
 	for i, got := range calls {
@@ -145,7 +145,7 @@ func TestMainMenuDefaultsToEnglishAndAggregatesSystemSettings(t *testing.T) {
 		labels = append(labels, item.Label)
 	}
 
-	want := []string{"No-Restart Changes", "Restart Required", "Diagnostics", "Service Control", "Language / 语言", "Uninstall"}
+	want := []string{"Runtime Settings", "Custom Layer Config", "Diagnostics", "Service Control", "Language / 语言", "Uninstall"}
 	if strings.Join(labels, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("main menu labels = %#v, want %#v", labels, want)
 	}
@@ -174,9 +174,21 @@ func TestChineseLanguageMainMenu(t *testing.T) {
 	for _, item := range items {
 		labels = append(labels, item.Label)
 	}
-	want := []string{"无需重启配置", "需重启配置", "诊断工具", "服务控制", "Language / 语言", "卸载"}
+	want := []string{"运行时配置", "定制层配置", "诊断工具", "服务控制", "Language / 语言", "卸载"}
 	if strings.Join(labels, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("Chinese main menu labels = %#v, want %#v", labels, want)
+	}
+}
+
+func TestServiceControlMenuIsFocusedOnStartStop(t *testing.T) {
+	items := serviceTUIItems()
+	var labels []string
+	for _, item := range items {
+		labels = append(labels, item.Label)
+	}
+	want := []string{"Start Service", "Stop Service", "Service Status"}
+	if strings.Join(labels, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("service menu labels = %#v, want %#v", labels, want)
 	}
 }
 
@@ -361,7 +373,6 @@ func TestFirstSetupKeepsStartedServiceWhenOptionalRuleUpdateFails(t *testing.T) 
 		true,  // enable TUN
 		false, // skip import
 		true,  // install and start service
-		true,  // accept service traffic risk
 	}
 	session.confirmF = func(prompt string, fallback bool) (bool, error) {
 		if len(confirms) == 0 {
@@ -395,6 +406,43 @@ func TestFirstSetupKeepsStartedServiceWhenOptionalRuleUpdateFails(t *testing.T) 
 	}
 	if !strings.Contains(out.String(), "可选规则集下载失败") {
 		t.Fatalf("expected optional update warning, got:\n%s", out.String())
+	}
+}
+
+func TestRestartConfirmationIncludesSSHRiskInSinglePrompt(t *testing.T) {
+	var out bytes.Buffer
+	session := newTUISession(&out, &out)
+	calls := 0
+	session.confirmF = func(prompt string, fallback bool) (bool, error) {
+		calls++
+		if !strings.Contains(prompt, "SSH") {
+			t.Fatalf("restart prompt should include SSH warning, got %q", prompt)
+		}
+		return true, nil
+	}
+
+	if !session.confirmServiceRestart("Restart sboxkit.service?", false) {
+		t.Fatal("expected restart confirmation to pass")
+	}
+	if calls != 1 {
+		t.Fatalf("confirm calls = %d, want 1", calls)
+	}
+}
+
+func TestCommandActionAutoReturnsUnlessExplicitlyPaused(t *testing.T) {
+	var out bytes.Buffer
+	session := newTUISession(&out, &out)
+	pauses := 0
+	session.pauseF = func(string) { pauses++ }
+
+	commandAction("Quick", func(*tuiSession) int { return 0 })(session)
+	if pauses != 0 {
+		t.Fatalf("commandAction pauses = %d, want 0", pauses)
+	}
+
+	commandActionPaused("Diagnostics", func(*tuiSession) int { return 0 })(session)
+	if pauses != 1 {
+		t.Fatalf("commandActionPaused pauses = %d, want 1", pauses)
 	}
 }
 
@@ -506,6 +554,17 @@ func TestConfigEditorIncludesLANProxyField(t *testing.T) {
 	labels := sectionFieldLabels(cfg, configSections[common])
 	if indexOfLabelContaining(labels, "局域网代理") < 0 {
 		t.Fatalf("common config section missing LAN proxy field: %#v", labels)
+	}
+}
+
+func TestConfigEditorCanToggleFileLogging(t *testing.T) {
+	cfg := config.Defaults()
+	if cfg.EnableFileLog {
+		t.Fatal("file log should default to disabled")
+	}
+	toggleBoolField(&cfg, "enable_file_log")
+	if !cfg.EnableFileLog {
+		t.Fatal("enable_file_log should toggle on")
 	}
 }
 

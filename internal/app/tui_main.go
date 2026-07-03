@@ -11,10 +11,10 @@ func mainTUIItems() []tuiItem {
 
 func mainTUIItemsFor(lang uiLanguage) []tuiItem {
 	return []tuiItem{
-		{label(lang, "No-Restart Changes", "无需重启配置"), label(lang, "Node operations and local settings that do not restart sing-box", "节点等不需要重启 sing-box 的本地操作"), submenu(label(lang, "No-Restart Changes", "无需重启配置"), func() []tuiItem { return noRestartTUIItemsFor(lang) })},
-		{label(lang, "Restart Required", "需重启配置"), label(lang, "Initial setup, subscriptions, custom config, and runtime assets", "初始化、订阅、定制配置和运行时资源"), submenu(label(lang, "Restart Required", "需重启配置"), func() []tuiItem { return restartRequiredTUIItemsFor(lang) })},
+		{label(lang, "Runtime Settings", "运行时配置"), label(lang, "Node switching and local settings that do not restart sing-box", "节点切换和不需要重启 sing-box 的本地设置"), submenu(label(lang, "Runtime Settings", "运行时配置"), func() []tuiItem { return noRestartTUIItemsFor(lang) })},
+		{label(lang, "Custom Layer Config", "定制层配置"), label(lang, "First setup, subscriptions, custom config, assets, and recovery", "首次初始化、订阅、定制配置、资源和恢复"), submenu(label(lang, "Custom Layer Config", "定制层配置"), func() []tuiItem { return restartRequiredTUIItemsFor(lang) })},
 		{label(lang, "Diagnostics", "诊断工具"), label(lang, "Network tests and important file locations", "网络测试和主要文件位置"), submenu(label(lang, "Diagnostics", "诊断工具"), func() []tuiItem { return diagnosticsTUIItemsFor(lang) })},
-		{label(lang, "Service Control", "服务控制"), label(lang, "Start, stop, inspect, install, or sync sboxkit.service", "启动、暂停、查看、安装或同步 sboxkit.service"), submenu(label(lang, "Service Control", "服务控制"), func() []tuiItem { return serviceTUIItemsFor(lang) })},
+		{label(lang, "Service Control", "服务控制"), label(lang, "Start, stop, or inspect the installed sboxkit.service", "启动、暂停或查看已安装的 sboxkit.service"), submenu(label(lang, "Service Control", "服务控制"), func() []tuiItem { return serviceTUIItemsFor(lang) })},
 		{"Language / 语言", label(lang, "Switch interface language", "切换界面语言"), runLanguageTUI},
 		{label(lang, "Uninstall", "卸载"), label(lang, "Remove system integration and optionally purge user state", "移除系统集成，可选清理用户状态"), submenu(label(lang, "Uninstall", "卸载"), func() []tuiItem { return uninstallTUIItemsFor(lang) })},
 	}
@@ -62,11 +62,9 @@ func runLanguageTUI(s *tuiSession) bool {
 	}
 	if err := s.setLanguage(next); err != nil {
 		fmt.Fprintf(s.stderr, "save language preference: %v\n", err)
-		s.wait()
 		return false
 	}
 	fmt.Fprintf(s.stdout, "\n%s\n", label(s.language, "Language switched.", "语言已切换。"))
-	s.wait()
 	return false
 }
 

@@ -40,7 +40,7 @@ func runTUIFirstSetup(s *tuiSession) bool {
 				return code
 			}
 		}
-		if s.confirm(label(s.language, "Install and start sboxkit.service now?", "现在安装并启动 sboxkit.service 吗？"), true) && s.confirmServiceTrafficRisk("安装并启动 sboxkit.service") {
+		if s.confirmServiceRestart(label(s.language, "Install and start sboxkit.service now?", "现在安装并启动 sboxkit.service 吗？"), true) {
 			code = s.runServiceF([]string{"install"}, s.stdout, s.stderr)
 			if code != 0 {
 				return code

@@ -86,7 +86,7 @@ sudo sboxkit service status
 sudo sboxkit service remove
 ```
 
-启动或重启服务前，程序会提示 TUN 或路由变更可能截断当前 SSH 连接。
+启动或重启服务的确认提示会直接包含 SSH 可能被 TUN 或路由变更截断的风险说明。
 
 ## 运行时资产
 
@@ -202,13 +202,15 @@ sudo sboxkit service sync
 http://127.0.0.1:9090/ui/
 ```
 
-本地预览内置 UI 资源：
+本地启动 sboxkit WebUI 预览服务：
 
 ```bash
 sboxkit ui serve --addr 127.0.0.1:8790
 ```
 
-`ui serve` 只是预览工具，正常 WebUI 由运行中的 sing-box 提供。
+启动后终端会打印访问地址，例如 `http://127.0.0.1:8790`。WebUI 是 sboxkit 自维护的轻量 switchboard，用于查看选择器组和切换节点；它不下载或复制第三方仪表盘。
+
+`ui serve` 适合本地预览和排错。启用 `lan_panel` 后，运行中的 sing-box 也会托管同一套内置静态资源。
 
 ## 定时任务和恢复
 

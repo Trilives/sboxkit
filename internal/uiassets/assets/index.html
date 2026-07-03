@@ -3,225 +3,323 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>sboxkit</title>
+    <title>sboxkit switchboard</title>
     <style>
       :root {
         color-scheme: light dark;
         font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: #f6f8fb;
-        color: #18202f;
+        background: #f4f7f5;
+        color: #1d2522;
+      }
+      * {
+        box-sizing: border-box;
       }
       body {
         margin: 0;
       }
       main {
-        max-width: 920px;
-        margin: 0 auto;
-        padding: 32px 20px;
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: minmax(220px, 280px) 1fr;
       }
-      header {
-        display: flex;
-        align-items: baseline;
-        justify-content: space-between;
-        gap: 16px;
-        border-bottom: 1px solid #d8dee8;
-        padding-bottom: 18px;
+      aside {
+        background: #17211d;
+        color: #d8eee3;
+        padding: 24px;
       }
-      h1 {
-        font-size: 28px;
-        margin: 0;
-      }
-      .status {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        font-size: 14px;
-        color: #246b43;
-      }
-      .dot {
-        width: 10px;
-        height: 10px;
-        border-radius: 50%;
-        background: #29a36a;
-      }
-      section {
-        margin-top: 24px;
-      }
-      article {
-        border: 1px solid #d8dee8;
-        border-radius: 8px;
-        padding: 16px;
-        background: #ffffff;
-        margin-bottom: 12px;
-      }
-      h2 {
-        font-size: 13px;
-        margin: 0 0 8px;
-        text-transform: uppercase;
-        color: #657184;
-      }
+      h1,
+      h2,
       p {
         margin: 0;
+      }
+      h1 {
+        font-size: 24px;
+        font-weight: 720;
+      }
+      .tagline {
+        margin-top: 8px;
+        color: #99b5a8;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      .sideBlock {
+        border-top: 1px solid #31463d;
+        margin-top: 22px;
+        padding-top: 18px;
+      }
+      .sideLabel {
+        color: #8ba69a;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+      }
+      .sideValue {
+        margin-top: 8px;
+        overflow-wrap: anywhere;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      .workspace {
+        padding: 28px;
+      }
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        border-bottom: 1px solid #d6dfda;
+        padding-bottom: 18px;
+      }
+      h2 {
+        font-size: 20px;
+      }
+      .status {
+        min-width: 170px;
+        border: 1px solid #b9c8c0;
+        border-radius: 8px;
+        padding: 8px 10px;
+        font-size: 13px;
+        text-align: center;
+      }
+      .grid {
+        display: grid;
+        gap: 12px;
+        margin-top: 20px;
+      }
+      .group {
+        display: grid;
+        grid-template-columns: minmax(160px, 240px) 1fr;
+        gap: 14px;
+        align-items: start;
+        border: 1px solid #d6dfda;
+        border-radius: 8px;
+        background: #ffffff;
+        padding: 14px;
+      }
+      .groupName {
+        font-weight: 700;
         overflow-wrap: anywhere;
       }
-      table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 14px;
+      .current {
+        color: #52645c;
+        font-size: 13px;
+        margin-top: 6px;
+        overflow-wrap: anywhere;
       }
-      th,
-      td {
-        border-top: 1px solid #d8dee8;
-        padding: 10px 8px;
-        text-align: left;
-        vertical-align: top;
-      }
-      th {
-        color: #657184;
-        font-weight: 600;
+      .choices {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
       }
       button {
-        border: 1px solid #9aa6b8;
+        border: 1px solid #b5c3bc;
         border-radius: 6px;
-        background: transparent;
+        background: #f9fbfa;
         color: inherit;
         cursor: pointer;
-        margin: 2px 4px 2px 0;
-        padding: 5px 8px;
+        min-height: 34px;
+        padding: 7px 10px;
+        max-width: 100%;
+        overflow-wrap: anywhere;
+      }
+      button:hover {
+        border-color: #527568;
       }
       button[aria-pressed="true"] {
-        border-color: #1f8f5f;
-        background: #e8f6ef;
-        color: #145c3d;
+        background: #163c2d;
+        border-color: #163c2d;
+        color: #effaf5;
+      }
+      .empty {
+        border: 1px dashed #aebdb5;
+        border-radius: 8px;
+        color: #52645c;
+        padding: 24px;
+      }
+      @media (max-width: 760px) {
+        main {
+          grid-template-columns: 1fr;
+        }
+        aside {
+          padding: 20px;
+        }
+        .workspace {
+          padding: 20px;
+        }
+        .topbar {
+          align-items: stretch;
+          flex-direction: column;
+        }
+        .status {
+          text-align: left;
+        }
+        .group {
+          grid-template-columns: 1fr;
+        }
       }
       @media (prefers-color-scheme: dark) {
         :root {
-          background: #10141b;
-          color: #e7ebf2;
+          background: #0f1513;
+          color: #e6efe9;
         }
-        header,
-        article {
-          border-color: #303846;
+        .workspace {
+          background: #111815;
         }
-        article {
-          background: #161b24;
+        .topbar,
+        .group,
+        .status {
+          border-color: #2f3f38;
         }
-        h2 {
-          color: #9aa6b8;
-        }
-        th,
-        td {
-          border-color: #303846;
+        .group,
+        button {
+          background: #18211d;
         }
         button[aria-pressed="true"] {
-          background: #183729;
-          color: #8ce0b7;
+          background: #9bd2ba;
+          border-color: #9bd2ba;
+          color: #102019;
+        }
+        .current,
+        .empty {
+          color: #a8bbb2;
         }
       }
     </style>
   </head>
   <body>
     <main>
-      <header>
+      <aside>
         <h1>sboxkit</h1>
-        <span class="status"><span class="dot"></span><span id="status">loading</span></span>
-      </header>
-      <section>
-        <article>
-          <h2>Active Subscription</h2>
-          <p id="active">-</p>
-        </article>
-        <article>
-          <h2>State Directory</h2>
-          <p id="state">-</p>
-        </article>
-        <article>
-          <h2>Runtime Directory</h2>
-          <p id="runtime">-</p>
-        </article>
-        <article>
-          <h2>Outbound Groups</h2>
-          <div id="groups">-</div>
-        </article>
+        <p class="tagline">A compact switchboard for a deployed sing-box service.</p>
+        <div class="sideBlock">
+          <div class="sideLabel">Active source</div>
+          <div class="sideValue" id="active">loading</div>
+        </div>
+        <div class="sideBlock">
+          <div class="sideLabel">State directory</div>
+          <div class="sideValue" id="state">-</div>
+        </div>
+        <div class="sideBlock">
+          <div class="sideLabel">Runtime directory</div>
+          <div class="sideValue" id="runtime">-</div>
+        </div>
+      </aside>
+      <section class="workspace">
+        <div class="topbar">
+          <h2>Node selectors</h2>
+          <div class="status" id="status">connecting</div>
+        </div>
+        <div class="grid" id="groups">
+          <div class="empty">Loading selector groups...</div>
+        </div>
       </section>
     </main>
     <script>
       const statusEl = document.getElementById("status");
       const groupsEl = document.getElementById("groups");
+      const activeEl = document.getElementById("active");
+      const stateEl = document.getElementById("state");
+      const runtimeEl = document.getElementById("runtime");
+
+      async function fetchJSON(paths, options) {
+        let lastError;
+        for (const path of paths) {
+          try {
+            const response = await fetch(path, options);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            if (response.status === 204) return null;
+            return await response.json();
+          } catch (error) {
+            lastError = error;
+          }
+        }
+        throw lastError;
+      }
 
       async function loadStatus() {
         try {
-          const response = await fetch("/api/status");
-          if (!response.ok) throw new Error("status unavailable");
-          const data = await response.json();
-          statusEl.textContent = "sboxkit backend online";
-          document.getElementById("active").textContent = data.active ? `${data.active.name} (${data.active.nodes} nodes)` : "none";
-          document.getElementById("state").textContent = data.state;
-          document.getElementById("runtime").textContent = data.runtime;
+          const data = await fetchJSON(["/api/status"]);
+          activeEl.textContent = data.active ? `${data.active.name} (${data.active.nodes} nodes)` : "none";
+          stateEl.textContent = data.state || "-";
+          runtimeEl.textContent = data.runtime || "-";
         } catch {
-          statusEl.textContent = "sing-box api";
-          document.getElementById("active").textContent = "served by sing-box";
-          document.getElementById("state").textContent = "not available from sing-box ui";
-          document.getElementById("runtime").textContent = location.origin;
+          activeEl.textContent = "served by sing-box";
+          stateEl.textContent = "not exposed";
+          runtimeEl.textContent = location.origin;
         }
       }
 
       async function loadGroups() {
         try {
-          const response = await fetch("/proxies");
-          if (!response.ok) throw new Error("proxies unavailable");
-          const data = await response.json();
-          const groups = Object.values(data.proxies || {}).filter((item) => Array.isArray(item.all) && item.all.length);
+          const data = await fetchJSON(["/api/proxies", "/proxies"]);
+          const groups = Array.isArray(data.groups)
+            ? data.groups
+            : Object.values(data.proxies || {}).filter((item) => Array.isArray(item.all) && item.all.length);
           renderGroups(groups);
+          statusEl.textContent = `${groups.length} selector groups`;
         } catch {
-          groupsEl.textContent = "Clash API is not available on this origin.";
+          statusEl.textContent = "Clash API unavailable";
+          groupsEl.innerHTML = '<div class="empty">No selector data is available from the running service.</div>';
         }
       }
 
       function renderGroups(groups) {
         if (!groups.length) {
-          groupsEl.textContent = "No selector or urltest groups found.";
+          groupsEl.innerHTML = '<div class="empty">No selector groups found.</div>';
           return;
         }
-        const table = document.createElement("table");
-        table.innerHTML = "<thead><tr><th>Group</th><th>Current</th><th>Choices</th></tr></thead>";
-        const body = document.createElement("tbody");
-        for (const group of groups) {
-          const row = document.createElement("tr");
-          const name = document.createElement("td");
-          name.textContent = group.name;
-          const now = document.createElement("td");
-          now.textContent = group.now || "-";
-          const choices = document.createElement("td");
-          for (const choice of group.all) {
-            const button = document.createElement("button");
-            button.textContent = choice;
-            button.setAttribute("aria-pressed", String(choice === group.now));
-            button.onclick = () => switchGroup(group.name, choice);
-            choices.appendChild(button);
-          }
-          row.append(name, now, choices);
-          body.appendChild(row);
+        groupsEl.replaceChildren(...groups.map(renderGroup));
+      }
+
+      function renderGroup(group) {
+        const row = document.createElement("article");
+        row.className = "group";
+
+        const meta = document.createElement("div");
+        const title = document.createElement("div");
+        title.className = "groupName";
+        title.textContent = group.name;
+        const current = document.createElement("div");
+        current.className = "current";
+        current.textContent = `Current: ${group.now || "-"}`;
+        meta.append(title, current);
+
+        const choices = document.createElement("div");
+        choices.className = "choices";
+        for (const choice of group.all || []) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.textContent = choice;
+          button.setAttribute("aria-pressed", String(choice === group.now));
+          button.onclick = () => switchGroup(group.name, choice);
+          choices.appendChild(button);
         }
-        table.appendChild(body);
-        groupsEl.replaceChildren(table);
+        row.append(meta, choices);
+        return row;
       }
 
       async function switchGroup(group, name) {
-        const response = await fetch(`/proxies/${encodeURIComponent(group)}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name }),
-        });
-        if (!response.ok) {
-          alert(`Switch failed: HTTP ${response.status}`);
-          return;
+        statusEl.textContent = "switching";
+        const body = JSON.stringify({ name });
+        try {
+          await fetchJSON([
+            `/api/proxies/${encodeURIComponent(group)}`,
+            `/proxies/${encodeURIComponent(group)}`,
+          ], {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body,
+          });
+          await loadGroups();
+        } catch (error) {
+          statusEl.textContent = `switch failed: ${error.message}`;
         }
-        await loadGroups();
       }
 
       loadStatus();
       loadGroups();
+      setInterval(loadGroups, 15000);
     </script>
   </body>
 </html>

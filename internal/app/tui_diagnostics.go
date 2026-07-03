@@ -10,12 +10,12 @@ import (
 
 func diagnosticsTUIItemsFor(lang uiLanguage) []tuiItem {
 	return []tuiItem{
-		{label(lang, "Network Test", "网络测试"), label(lang, "Test latency and exit IP through the local proxy", "通过本地代理测试延迟和出口 IP"), commandAction(label(lang, "Network Test", "网络测试"), func(s *tuiSession) int {
+		{label(lang, "Network Test", "网络测试"), label(lang, "Test latency and exit IP through the local proxy", "通过本地代理测试延迟和出口 IP"), commandActionPaused(label(lang, "Network Test", "网络测试"), func(s *tuiSession) int {
 			printNetworkTestProgress(s.stdout)
 			runNettest(s.stdout, "127.0.0.1:7890")
 			return 0
 		})},
-		{label(lang, "File Locations", "主要文件位置"), label(lang, "Show state, runtime, service, and packaged binary paths", "显示状态、运行时、服务和打包二进制路径"), commandAction(label(lang, "File Locations", "主要文件位置"), func(s *tuiSession) int {
+		{label(lang, "File Locations", "主要文件位置"), label(lang, "Show state, runtime, service, and packaged binary paths", "显示状态、运行时、服务和打包二进制路径"), commandActionPaused(label(lang, "File Locations", "主要文件位置"), func(s *tuiSession) int {
 			printMainFileLocations(s.stdout)
 			return 0
 		})},

@@ -8,11 +8,8 @@ func serviceTUIItems() []tuiItem {
 
 func serviceTUIItemsFor(lang uiLanguage) []tuiItem {
 	return []tuiItem{
-		{label(lang, "Status", "状态"), label(lang, "Show systemctl status for sboxkit.service", "查看 sboxkit.service 的 systemctl 状态"), commandAction(label(lang, "Service Status", "服务状态"), func(s *tuiSession) int {
-			return runService([]string{"status"}, s.stdout, s.stderr)
-		})},
-		{label(lang, "Start / Restart Service", "启动/重启服务"), label(lang, "Start the existing systemd service without changing files", "启动已有 systemd 服务，不改运行文件"), commandAction(label(lang, "Start Service", "启动服务"), func(s *tuiSession) int {
-			if !s.confirmServiceTrafficRisk("启动或重启 sboxkit.service") {
+		{label(lang, "Start Service", "启动服务"), label(lang, "Start the installed systemd service. Use Custom Layer Config to install or sync files.", "启动已安装的 systemd 服务；安装或同步请到定制层配置。"), commandAction(label(lang, "Start Service", "启动服务"), func(s *tuiSession) int {
+			if !s.confirmServiceRestart(label(lang, "Start sboxkit.service? This may interrupt SSH if TUN or routing changes take effect.", "启动 sboxkit.service 吗？如果 TUN 或路由变更生效，可能中断当前 SSH。"), false) {
 				fmt.Fprintln(s.stdout, "已取消。")
 				return 0
 			}
@@ -21,28 +18,8 @@ func serviceTUIItemsFor(lang uiLanguage) []tuiItem {
 		{label(lang, "Stop Service", "暂停服务"), label(lang, "Stop sboxkit.service without removing files", "停止 sboxkit.service，不移除文件"), commandAction(label(lang, "Stop Service", "暂停服务"), func(s *tuiSession) int {
 			return runService([]string{"stop"}, s.stdout, s.stderr)
 		})},
-		{label(lang, "Sync and Restart", "同步并重启"), label(lang, "Copy current config and assets to /etc/sboxkit and restart", "将当前配置和资产复制到 /etc/sboxkit 并重启"), commandAction(label(lang, "Sync Service", "同步服务"), func(s *tuiSession) int {
-			if !s.confirmServiceTrafficRisk("同步并重启 sboxkit.service") {
-				fmt.Fprintln(s.stdout, "已取消。")
-				return 0
-			}
-			return runService([]string{"sync"}, s.stdout, s.stderr)
-		})},
-		{label(lang, "Install and Start Service", "安装并启动服务"), label(lang, "Sync runtime files, install the systemd unit, and restart the service", "同步运行时文件、安装 systemd 单元并重启服务"), commandAction(label(lang, "Install Service", "安装服务"), func(s *tuiSession) int {
-			if !s.confirmServiceTrafficRisk("安装并启动 sboxkit.service") {
-				fmt.Fprintln(s.stdout, "已取消。")
-				return 0
-			}
-			return runService([]string{"install"}, s.stdout, s.stderr)
-		})},
-		{label(lang, "Install Without Starting", "安装但不启动"), label(lang, "Install the unit and runtime files but keep the service stopped", "安装单元和运行时文件，但保持服务停止"), commandAction(label(lang, "Install Without Starting", "安装服务但不启动"), func(s *tuiSession) int {
-			return runService([]string{"install", "--no-start"}, s.stdout, s.stderr)
-		})},
-		{label(lang, "Remove Service", "移除服务"), label(lang, "Stop the service and remove systemd runtime files", "停止服务并移除 systemd 运行时文件"), commandAction(label(lang, "Remove Service", "移除服务"), func(s *tuiSession) int {
-			if !s.confirm("是否移除 sboxkit.service 和 /etc/sboxkit？", false) {
-				return 0
-			}
-			return runService([]string{"remove"}, s.stdout, s.stderr)
+		{label(lang, "Service Status", "服务状态"), label(lang, "Show systemctl status for sboxkit.service", "查看 sboxkit.service 的 systemctl 状态"), commandAction(label(lang, "Service Status", "服务状态"), func(s *tuiSession) int {
+			return runService([]string{"status"}, s.stdout, s.stderr)
 		})},
 	}
 }
@@ -60,11 +37,7 @@ func updateTUIItemsFor(lang uiLanguage) []tuiItem {
 				return 0
 			}
 			args := []string{"--proxy", proxy}
-			if s.confirm("是否同步资产到服务并重启？", true) {
-				if !s.confirmServiceTrafficRisk("同步资产并重启 sboxkit.service") {
-					fmt.Fprintln(s.stdout, "已跳过服务同步。")
-					return runUpdate(args, s.stdout, s.stderr)
-				}
+			if s.confirmServiceRestart(label(s.language, "Sync assets and restart the service after download?", "下载后同步资产并重启服务吗？"), true) {
 				args = append(args, "--sync-service")
 			}
 			return runUpdate(args, s.stdout, s.stderr)
@@ -103,11 +76,7 @@ func runSwitchNodeTUI(s *tuiSession) bool {
 			return 0
 		}
 		if syncService {
-			if !s.confirmServiceTrafficRisk("同步节点顺序并重启 sboxkit.service") {
-				fmt.Fprintln(s.stdout, "已跳过服务同步。")
-			} else {
-				args = append(args, "--sync-service")
-			}
+			args = append(args, "--sync-service")
 		}
 		return runNode(args, s.stdout, s.stderr)
 	})(s)
@@ -127,7 +96,7 @@ func (s *tuiSession) buildSwitchNodeArgs() ([]string, bool, bool) {
 		return args, false, true
 	}
 	args = append(args, "--reorder")
-	syncService := s.confirm(label(s.language, "Sync and restart the service now to apply the new order?", "是否立即同步并重启服务以应用节点顺序？"), false)
+	syncService := s.confirmServiceRestart(label(s.language, "Sync and restart the service now to apply the new order?", "是否立即同步并重启服务以应用节点顺序？"), false)
 	return args, syncService, true
 }
 
