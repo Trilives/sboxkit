@@ -71,11 +71,11 @@ func (s *tuiSession) run() int {
 func mainTUIItems() []tuiItem {
 	return []tuiItem{
 		{"First setup wizard", "Initialize state, import a subscription, and optionally install the service", runTUIFirstSetup},
+		{"Nodes", "List or switch selector nodes through the sing-box Clash API", submenu("Nodes", nodeTUIItems)},
 		{"Subscriptions", "Add, list, switch, refresh, rebuild, or remove subscriptions and local configs", submenu("Subscriptions", subscriptionTUIItems)},
 		{"Service", "Install, sync, inspect, or remove sboxkit.service", submenu("Service", serviceTUIItems)},
 		{"Runtime assets", "Download optional rules or update the packaged core cache", submenu("Runtime assets", updateTUIItems)},
 		{"Configuration", "Show or edit customize.json, TUN, WebUI, and shell proxy settings", submenu("Configuration", configTUIItems)},
-		{"Nodes", "List or switch selector nodes through the sing-box Clash API", submenu("Nodes", nodeTUIItems)},
 		{"Network test", "Probe latency and exit IP through the local proxy", commandAction("Network test", func(s *tuiSession) int {
 			runNettest(s.tty, "127.0.0.1:7890")
 			return 0
@@ -350,9 +350,18 @@ func runTUIFirstSetup(s *tuiSession) bool {
 		}
 		if s.confirm("Install and start sboxkit.service now?", true) && s.confirmServiceTrafficRisk("install and start sboxkit.service") {
 			code = runService([]string{"install"}, s.tty, s.stderr)
+			if code != 0 {
+				return code
+			}
+			fmt.Fprintln(s.tty, "\nDownloading optional runtime rules through the running local proxy, then restarting the service.")
+			code = runUpdate(firstSetupPostStartUpdateArgs(), s.tty, s.stderr)
 		}
 		return code
 	})(s)
+}
+
+func firstSetupPostStartUpdateArgs() []string {
+	return []string{"--proxy", "http://127.0.0.1:7890", "--sync-service"}
 }
 
 func runTUIAddRemoteSubscription(s *tuiSession) bool {

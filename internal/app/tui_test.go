@@ -121,3 +121,38 @@ func TestRemoteSubscriptionPromptOrderStartsWithSource(t *testing.T) {
 		t.Fatalf("prompt order = %q, want source before name before URL before proxy", text)
 	}
 }
+
+func TestMainMenuPutsNodesNearTop(t *testing.T) {
+	items := mainTUIItems()
+	var labels []string
+	for _, item := range items {
+		labels = append(labels, item.Label)
+	}
+
+	nodesIndex := indexOfLabel(labels, "Nodes")
+	subscriptionsIndex := indexOfLabel(labels, "Subscriptions")
+	serviceIndex := indexOfLabel(labels, "Service")
+	if nodesIndex < 0 || subscriptionsIndex < 0 || serviceIndex < 0 {
+		t.Fatalf("missing expected main menu items: %#v", labels)
+	}
+	if !(nodesIndex < subscriptionsIndex && nodesIndex < serviceIndex) {
+		t.Fatalf("Nodes should be before Subscriptions and Service, got order %#v", labels)
+	}
+}
+
+func TestFirstSetupUpdatesRulesThroughRunningProxy(t *testing.T) {
+	want := []string{"--proxy", "http://127.0.0.1:7890", "--sync-service"}
+	got := firstSetupPostStartUpdateArgs()
+	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("first setup update args = %#v, want %#v", got, want)
+	}
+}
+
+func indexOfLabel(labels []string, label string) int {
+	for i, value := range labels {
+		if value == label {
+			return i
+		}
+	}
+	return -1
+}
