@@ -17,24 +17,34 @@ type tuiItem struct {
 }
 
 type tuiSession struct {
-	stdout    io.Writer
-	stderr    io.Writer
-	selectF   func(string, []string, ui.SelectOpts) (int, error)
-	askF      func(string, ui.AskOpts) (string, error)
-	confirmF  func(string, bool) (bool, error)
-	pauseF    func(string)
-	menuState map[string]int
+	stdout           io.Writer
+	stderr           io.Writer
+	selectF          func(string, []string, ui.SelectOpts) (int, error)
+	askF             func(string, ui.AskOpts) (string, error)
+	confirmF         func(string, bool) (bool, error)
+	pauseF           func(string)
+	serviceExistsF   func() bool
+	runServiceF      func([]string, io.Writer, io.Writer) int
+	runUpdateF       func([]string, io.Writer, io.Writer) int
+	menuState        map[string]int
+	language         uiLanguage
+	autoSetupChecked bool
 }
 
 func newTUISession(stdout io.Writer, stderr io.Writer) *tuiSession {
+	prefs := loadUIPreferences()
 	return &tuiSession{
-		stdout:    stdout,
-		stderr:    stderr,
-		selectF:   ui.Select,
-		askF:      ui.Ask,
-		confirmF:  ui.Confirm,
-		pauseF:    ui.Pause,
-		menuState: map[string]int{},
+		stdout:         stdout,
+		stderr:         stderr,
+		selectF:        ui.Select,
+		askF:           ui.Ask,
+		confirmF:       ui.Confirm,
+		pauseF:         ui.Pause,
+		serviceExistsF: defaultServiceIntegrationExists,
+		runServiceF:    runService,
+		runUpdateF:     runUpdate,
+		menuState:      map[string]int{},
+		language:       prefs.Language,
 	}
 }
 
@@ -46,12 +56,19 @@ func runTTYInteractive(stderr io.Writer) (int, bool) {
 }
 
 func (s *tuiSession) run() int {
+	if !s.autoSetupChecked && !s.serviceExistsF() {
+		s.autoSetupChecked = true
+		if runTUIFirstSetup(s) {
+			return 0
+		}
+	}
 	for {
-		next, ok := s.selectMenu("sboxkit", mainTUIItems())
+		items := mainTUIItemsFor(s.language)
+		next, ok := s.selectMenu("sboxkit", items)
 		if !ok {
 			return 0
 		}
-		if mainTUIItems()[next].Action(s) {
+		if items[next].Action(s) {
 			return 0
 		}
 	}
@@ -115,7 +132,7 @@ func (s *tuiSession) selectMenu(title string, items []tuiItem, initial ...int) (
 	} else if saved, ok := s.menuState[title]; ok {
 		idx = saved
 	}
-	selected, err := s.selectF(title, labels, ui.SelectOpts{BackLabel: "返回", Initial: idx})
+	selected, err := s.selectF(title, labels, ui.SelectOpts{BackLabel: label(s.language, "Back", "返回"), Initial: idx})
 	if err != nil {
 		return 0, false
 	}
@@ -123,9 +140,12 @@ func (s *tuiSession) selectMenu(title string, items []tuiItem, initial ...int) (
 	return selected, true
 }
 
-func (s *tuiSession) promptRequired(label string) (string, bool) {
+func (s *tuiSession) promptRequired(prompt string) (string, bool) {
 	for {
-		value := s.promptDefault(label, "")
+		value, err := s.askF(prompt, ui.AskOpts{AllowEmpty: true})
+		if err != nil {
+			return "", false
+		}
 		if value != "" {
 			return value, true
 		}
@@ -136,12 +156,12 @@ func (s *tuiSession) promptRequired(label string) (string, bool) {
 	}
 }
 
-func (s *tuiSession) promptDefault(label string, fallback string) string {
+func (s *tuiSession) promptDefaultOK(label string, fallback string) (string, bool) {
 	value, err := s.askF(label, ui.AskOpts{Default: fallback, AllowEmpty: fallback == ""})
 	if err != nil {
-		return fallback
+		return "", false
 	}
-	return value
+	return value, true
 }
 
 func (s *tuiSession) confirm(label string, fallback bool) bool {
@@ -153,10 +173,18 @@ func (s *tuiSession) confirm(label string, fallback bool) bool {
 }
 
 func (s *tuiSession) wait() {
-	s.pauseF("按回车返回菜单...")
+	s.pauseF(label(s.language, "Press Enter to return to the menu...", "按回车返回菜单..."))
 }
 
 func (s *tuiSession) confirmServiceTrafficRisk(action string) bool {
 	fmt.Fprintln(s.stdout, serviceTrafficWarning())
 	return s.confirm("是否继续"+action+"？", false)
+}
+
+func (s *tuiSession) setLanguage(language uiLanguage) error {
+	if language != languageChinese {
+		language = languageEnglish
+	}
+	s.language = language
+	return saveUIPreferences(uiPreferences{Language: language})
 }

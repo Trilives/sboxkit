@@ -141,6 +141,14 @@ func (s *Service) Status(ctx context.Context) error {
 	return s.runner.Run(ctx, "systemctl", "status", "--no-pager", "sboxkit.service")
 }
 
+func (s *Service) Start(ctx context.Context) error {
+	return s.runner.Run(ctx, "systemctl", "restart", "sboxkit.service")
+}
+
+func (s *Service) Stop(ctx context.Context) error {
+	return s.runner.Run(ctx, "systemctl", "stop", "sboxkit.service")
+}
+
 func (s *Service) syncRuntimeAssets(ctx context.Context) error {
 	if err := s.runner.Run(ctx, "mkdir", "-p", filepath.Join(s.paths.EtcDir, "ruleset")); err != nil {
 		return err

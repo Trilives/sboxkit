@@ -6,6 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Trilives/sboxkit/internal/config"
+	"github.com/Trilives/sboxkit/internal/paths"
+	"github.com/Trilives/sboxkit/internal/testkit"
 )
 
 func TestRunPrintsHelpWhenRequested(t *testing.T) {
@@ -53,6 +57,40 @@ func TestRunPrintsVersion(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "sboxkit dev") {
 		t.Fatalf("expected dev version output, got %q", stdout.String())
+	}
+}
+
+func TestRunWritesFileLogWhenEnabled(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("SBOXKIT_ROOT", root)
+	cfg := config.Defaults()
+	cfg.EnableFileLog = true
+	cfg.LogMaxMB = 1
+	if err := config.Save(paths.FromRoot(root).CustomizeFile, cfg); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	var stderr bytes.Buffer
+	code := Run([]string{"missing"}, &bytes.Buffer{}, &stderr)
+	if code != 2 {
+		t.Fatalf("Run missing = %d, want 2", code)
+	}
+	logs, err := os.ReadDir(paths.FromRoot(root).LogDir)
+	if err != nil {
+		t.Fatalf("read logs: %v", err)
+	}
+	if len(logs) != 1 {
+		t.Fatalf("logs = %d, want 1", len(logs))
+	}
+	data, err := os.ReadFile(filepath.Join(paths.FromRoot(root).LogDir, logs[0].Name()))
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	text := string(data)
+	for _, want := range []string{"sboxkit [missing]", "unknown command: missing", "exit code: 2"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("log missing %q:\n%s", want, text)
+		}
 	}
 }
 
@@ -145,6 +183,42 @@ func TestSubAddAcceptsLocalConfigFile(t *testing.T) {
 	}
 }
 
+func TestRunSubSwitchRebuildsStaleSubscriptionConfig(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(t.TempDir(), "source.yaml")
+	if err := os.WriteFile(source, []byte(testkit.ReadFixture(t, "testdata/converter/clash-basic.yaml")), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := runSub([]string{"add", "--root", root, "--name", "first", "--file", source}, &stdout, &stderr); code != 0 {
+		t.Fatalf("add first = %d, stderr=%s", code, stderr.String())
+	}
+	if code := runSub([]string{"add", "--root", root, "--name", "second", "--file", source, "--no-active"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("add second = %d, stderr=%s", code, stderr.String())
+	}
+
+	p := paths.FromRoot(root)
+	staleConfig := filepath.Join(p.SubscriptionsDir, "second", "config.json")
+	if err := os.WriteFile(staleConfig, []byte(`{"stale":true}`), 0o644); err != nil {
+		t.Fatalf("write stale config: %v", err)
+	}
+
+	if code := runSub([]string{"switch", "--root", root, "--name", "second"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("switch = %d, stderr=%s", code, stderr.String())
+	}
+	data, err := os.ReadFile(p.ConfigFile)
+	if err != nil {
+		t.Fatalf("read active config: %v", err)
+	}
+	if strings.Contains(string(data), `"stale":true`) {
+		t.Fatalf("switch copied stale config instead of rebuilding: %s", data)
+	}
+	if !strings.Contains(stdout.String(), "rebuilt") {
+		t.Fatalf("switch output should mention rebuild, got %q", stdout.String())
+	}
+}
+
 func TestUninstallPrintsAptRemovalHint(t *testing.T) {
 	var stdout bytes.Buffer
 	code := Run([]string{"uninstall", "--root", t.TempDir(), "--keep-system"}, &stdout, &bytes.Buffer{})
@@ -169,6 +243,8 @@ func TestServiceTrafficWarningPolicy(t *testing.T) {
 		{name: "install starts by default", cmd: "install", want: true},
 		{name: "install no start", cmd: "install", rest: []string{"--no-start"}, want: false},
 		{name: "sync restarts", cmd: "sync", want: true},
+		{name: "start restarts service", cmd: "start", want: true},
+		{name: "stop does not start", cmd: "stop", want: false},
 		{name: "remove does not start", cmd: "remove", want: false},
 		{name: "status does not start", cmd: "status", want: false},
 	}

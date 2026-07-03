@@ -24,7 +24,7 @@ func Ask(prompt string, opts AskOpts) (string, error) {
 		suffix = fmt.Sprintf(" [%s]", shown)
 	}
 	for {
-		raw, err := readInput(fmt.Sprintf("%s%s：", prompt, suffix))
+		raw, err := readInput(fmt.Sprintf("%s%s: ", prompt, suffix))
 		if err != nil {
 			return "", err
 		}
@@ -36,7 +36,7 @@ func Ask(prompt string, opts AskOpts) (string, error) {
 			if opts.AllowEmpty {
 				return "", nil
 			}
-			fmt.Println("内容不能为空。")
+			fmt.Println("Value cannot be empty.")
 			continue
 		}
 		return raw, nil
@@ -44,13 +44,7 @@ func Ask(prompt string, opts AskOpts) (string, error) {
 }
 
 func Confirm(prompt string, def bool) (bool, error) {
-	suffix := " [是/否]"
-	if def {
-		suffix = " [是/否，默认是]"
-	} else {
-		suffix = " [是/否，默认否]"
-	}
-	raw, err := readInput(prompt + suffix + "：")
+	raw, err := readInput(prompt + confirmSuffix(def) + ": ")
 	if err != nil {
 		return false, err
 	}
@@ -68,6 +62,13 @@ func Confirm(prompt string, def bool) (bool, error) {
 	}
 }
 
+func confirmSuffix(def bool) string {
+	if def {
+		return " [Y/n]"
+	}
+	return " [y/N]"
+}
+
 func Pause(prompt string) {
 	_, _ = readInput(prompt)
 }
@@ -77,9 +78,9 @@ func readInput(prompt string) (string, error) {
 		return readPlainLine(prompt)
 	}
 	ti := textinput.New()
-	ti.Prompt = ansiCyan + "❯ " + ansiReset + prompt
+	ti.Prompt = ansiCyan + "❯ " + ansiReset
 	ti.Focus()
-	m := &inputModel{ti: ti}
+	m := &inputModel{ti: ti, prompt: prompt, width: 80}
 	out, err := tea.NewProgram(m).Run()
 	if err != nil {
 		return "", err
@@ -92,15 +93,20 @@ func readInput(prompt string) (string, error) {
 }
 
 type inputModel struct {
-	ti  textinput.Model
-	err error
+	ti     textinput.Model
+	prompt string
+	width  int
+	err    error
 }
 
 func (m *inputModel) Init() tea.Cmd { return textinput.Blink }
 
 func (m *inputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if key, ok := msg.(tea.KeyMsg); ok {
-		switch key.String() {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+	case tea.KeyMsg:
+		switch msg.String() {
 		case "enter":
 			return m, tea.Quit
 		case "esc", "ctrl+c":
@@ -114,5 +120,68 @@ func (m *inputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *inputModel) View() string {
-	return m.ti.View() + "\n"
+	width := maxBoxWidth(m.width)
+	promptRows := wrapText(m.prompt, width)
+	return strings.Join(promptRows, "\n") + "\n" + m.ti.View() + "\n"
+}
+
+func wrapText(text string, width int) []string {
+	if width <= 0 {
+		width = 80
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return []string{""}
+	}
+	words := strings.Fields(text)
+	if len(words) == 0 {
+		return []string{text}
+	}
+	rows := []string{}
+	current := ""
+	for _, word := range words {
+		if dispWidth(word) > width {
+			if current != "" {
+				rows = append(rows, current)
+				current = ""
+			}
+			rows = append(rows, splitWideWord(word, width)...)
+			continue
+		}
+		if current == "" {
+			current = word
+			continue
+		}
+		next := current + " " + word
+		if dispWidth(next) <= width {
+			current = next
+			continue
+		}
+		rows = append(rows, current)
+		current = word
+	}
+	if current != "" {
+		rows = append(rows, current)
+	}
+	return rows
+}
+
+func splitWideWord(word string, width int) []string {
+	rows := []string{}
+	var current strings.Builder
+	currentWidth := 0
+	for _, ch := range word {
+		chWidth := dispWidth(string(ch))
+		if currentWidth > 0 && currentWidth+chWidth > width {
+			rows = append(rows, current.String())
+			current.Reset()
+			currentWidth = 0
+		}
+		current.WriteRune(ch)
+		currentWidth += chWidth
+	}
+	if current.Len() > 0 {
+		rows = append(rows, current.String())
+	}
+	return rows
 }

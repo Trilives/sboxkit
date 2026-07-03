@@ -13,27 +13,29 @@ import (
 )
 
 func editConfigAction() tuiAction {
-	return commandAction("编辑定制层", func(s *tuiSession) int {
-		changed, err := s.editCustomize()
-		if err != nil {
-			fmt.Fprintf(s.stderr, "编辑配置失败：%v\n", err)
-			return 1
-		}
-		if !changed {
-			return 0
-		}
-		p := paths.FromRoot("")
-		manager := subscription.NewManager(p, loadConfigOrDefault(p.CustomizeFile))
-		active, _ := manager.Active()
-		if active == nil || !s.confirm("是否立即用本地原文重建当前订阅？", true) {
-			return 0
-		}
-		code := runSub([]string{"rebuild", "--name", active.Name}, s.stdout, s.stderr)
-		if code == 0 && s.confirm("是否同步到服务并重启？", true) && s.confirmServiceTrafficRisk("同步配置并重启 sboxkit.service") {
-			code = runService([]string{"sync"}, s.stdout, s.stderr)
-		}
-		return code
-	})
+	return func(s *tuiSession) bool {
+		return commandAction(label(s.language, "Edit Custom Layer", "编辑定制层"), func(s *tuiSession) int {
+			changed, err := s.editCustomize()
+			if err != nil {
+				fmt.Fprintf(s.stderr, "编辑配置失败：%v\n", err)
+				return 1
+			}
+			if !changed {
+				return 0
+			}
+			p := paths.FromRoot("")
+			manager := subscription.NewManager(p, loadConfigOrDefault(p.CustomizeFile))
+			active, _ := manager.Active()
+			if active == nil || !s.confirm("是否立即用本地原文重建当前订阅？", true) {
+				return 0
+			}
+			code := runSub([]string{"rebuild", "--name", active.Name}, s.stdout, s.stderr)
+			if code == 0 && s.confirm("是否同步到服务并重启？", true) && s.confirmServiceTrafficRisk("同步配置并重启 sboxkit.service") {
+				code = runService([]string{"sync"}, s.stdout, s.stderr)
+			}
+			return code
+		})(s)
+	}
 }
 
 func loadConfigOrDefault(path string) config.Config {
@@ -54,9 +56,9 @@ func (s *tuiSession) editCustomize() (bool, error) {
 	changed := false
 	idx := 0
 	for {
-		selected, err := s.selectF("编辑定制层", configSectionLabels(cfg), ui.SelectOpts{
-			BackLabel: "放弃修改并退出",
-			SaveLabel: "保存并退出",
+		selected, err := s.selectF(label(s.language, "Edit Custom Layer", "编辑定制层"), configSectionLabels(cfg), ui.SelectOpts{
+			BackLabel: label(s.language, "Discard changes and exit", "放弃修改并退出"),
+			SaveLabel: label(s.language, "Save and exit", "保存并退出"),
 			Initial:   idx,
 		})
 		if err != nil {
@@ -96,6 +98,10 @@ var configSections = []configSection{
 		Keys:  []string{"subconverter_backend", "base64_local_fallback"},
 	},
 	{
+		Title: "日志与诊断",
+		Keys:  []string{"enable_file_log", "log_max_mb"},
+	},
+	{
 		Title: "DNS 与出站",
 		Keys:  []string{"bootstrap_dns_server", "bootstrap_dns_port", "default_outbound"},
 	},
@@ -126,7 +132,7 @@ func (s *tuiSession) editConfigSection(cfg *config.Config, section configSection
 	idx := 0
 	for {
 		selected, err := s.selectF("配置区块 · "+section.Title, sectionFieldLabels(*cfg, section), ui.SelectOpts{
-			BackLabel: "返回区块列表",
+			BackLabel: label(s.language, "Back to sections", "返回区块列表"),
 			Initial:   idx,
 		})
 		if err != nil {
@@ -162,7 +168,7 @@ func sectionFieldLabels(cfg config.Config, section configSection) []string {
 	return labels
 }
 
-func (s *tuiSession) editListField(cfg *config.Config, key string, label string) bool {
+func (s *tuiSession) editListField(cfg *config.Config, key string, fieldLabel string) bool {
 	changed := false
 	action := 0
 	for {
@@ -170,10 +176,10 @@ func (s *tuiSession) editListField(cfg *config.Config, key string, label string)
 		if key == "tun_exclude_uids" {
 			items = intListToStrings(cfg.TunExcludeUIDs)
 		}
-		s.printListSummary(label, items)
-		selected, err := s.selectF("编辑 · "+label,
+		s.printListSummary(fieldLabel, items)
+		selected, err := s.selectF("编辑 · "+fieldLabel,
 			[]string{"添加一条", "删除一条", "批量粘贴替换（逗号/空格分隔）", "恢复默认", "清空"},
-			ui.SelectOpts{BackLabel: "返回字段列表", SaveLabel: "返回字段列表", Initial: action})
+			ui.SelectOpts{BackLabel: label(s.language, "Back to fields", "返回字段列表"), SaveLabel: label(s.language, "Back to fields", "返回字段列表"), Initial: action})
 		if err != nil {
 			return changed
 		}
@@ -193,7 +199,7 @@ func (s *tuiSession) editListField(cfg *config.Config, key string, label string)
 			if len(next) == 0 {
 				continue
 			}
-			del, err := s.selectF("删除哪一条", next, ui.SelectOpts{BackLabel: "返回", SaveLabel: "返回"})
+			del, err := s.selectF("删除哪一条", next, ui.SelectOpts{BackLabel: label(s.language, "Back", "返回"), SaveLabel: label(s.language, "Back", "返回")})
 			if err != nil {
 				ok = false
 				break

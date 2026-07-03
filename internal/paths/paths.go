@@ -15,6 +15,7 @@ type Paths struct {
 	UIDir            string
 	RulesetDir       string
 	DownloadsDir     string
+	LogDir           string
 	SubscriptionsDir string
 	ActiveFile       string
 	ConfigFile       string
@@ -44,6 +45,7 @@ func FromRoot(root string) Paths {
 		UIDir:            filepath.Join(state, "ui"),
 		RulesetDir:       ruleset,
 		DownloadsDir:     filepath.Join(state, "downloads"),
+		LogDir:           filepath.Join(state, "logs"),
 		SubscriptionsDir: filepath.Join(state, "subscriptions"),
 		ActiveFile:       filepath.Join(state, "active"),
 		ConfigFile:       filepath.Join(state, "config.json"),
@@ -75,6 +77,7 @@ func (p Paths) EnsureStateDirs() error {
 		p.UIDir,
 		p.RulesetDir,
 		p.DownloadsDir,
+		p.LogDir,
 		p.SubscriptionsDir,
 	} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {

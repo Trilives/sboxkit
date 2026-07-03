@@ -18,6 +18,9 @@ func TestFromRootBuildsExpectedLayout(t *testing.T) {
 	if p.CustomizeFile != filepath.Join(root, "state", "customize.json") {
 		t.Fatalf("unexpected customize path %q", p.CustomizeFile)
 	}
+	if p.LogDir != filepath.Join(root, "state", "logs") {
+		t.Fatalf("unexpected log dir %q", p.LogDir)
+	}
 	if p.EtcDir != "/etc/sboxkit" {
 		t.Fatalf("unexpected etc dir %q", p.EtcDir)
 	}
@@ -40,6 +43,7 @@ func TestEnsureStateDirsCreatesRuntimeDirectories(t *testing.T) {
 		p.RulesetDir,
 		p.DownloadsDir,
 		p.SubscriptionsDir,
+		p.LogDir,
 	} {
 		if !isDir(dir) {
 			t.Fatalf("expected directory %s", dir)

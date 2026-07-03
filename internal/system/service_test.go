@@ -35,6 +35,28 @@ func TestServiceStatusUsesSystemctl(t *testing.T) {
 	}
 }
 
+func TestServiceStartStopUseSystemctl(t *testing.T) {
+	runner := &FakeRunner{}
+	svc := NewService(paths.FromRoot(t.TempDir()), runner)
+
+	if err := svc.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if err := svc.Stop(context.Background()); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+
+	got := runner.JoinedCommands()
+	for _, want := range []string{
+		"systemctl restart sboxkit.service",
+		"systemctl stop sboxkit.service",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected command %q in:\n%s", want, got)
+		}
+	}
+}
+
 func TestSyncAndRestartCopiesRuntimeAssets(t *testing.T) {
 	p := paths.FromRoot(t.TempDir())
 	if err := p.EnsureStateDirs(); err != nil {

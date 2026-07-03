@@ -33,6 +33,8 @@ type Config struct {
 	GitHubMirror            string   `json:"github_mirror"`
 	DownloadProxy           string   `json:"download_proxy"`
 	GitHubToken             string   `json:"github_token"`
+	EnableFileLog           bool     `json:"enable_file_log"`
+	LogMaxMB                int      `json:"log_max_mb"`
 }
 
 func Defaults() Config {
@@ -75,6 +77,8 @@ func Defaults() Config {
 		GitHubMirror:        "",
 		DownloadProxy:       "",
 		GitHubToken:         "",
+		EnableFileLog:       false,
+		LogMaxMB:            10,
 	}
 }
 
@@ -97,6 +101,7 @@ var BoolFields = map[string]string{
 	"generate_sg_groups":    "生成新加坡自动测速聚合组",
 	"generate_hk_groups":    "生成香港自动测速聚合组",
 	"base64_local_fallback": "base64 应急本地解析",
+	"enable_file_log":       "保存文件日志",
 }
 
 var ScalarFields = map[string]string{
@@ -107,6 +112,7 @@ var ScalarFields = map[string]string{
 	"github_mirror":        "GitHub 加速前缀",
 	"download_proxy":       "下载代理",
 	"github_token":         "GitHub Token",
+	"log_max_mb":           "日志大小上限（MB）",
 }
 
 var FieldOrder = []string{
@@ -116,6 +122,8 @@ var FieldOrder = []string{
 	"download_proxy",
 	"github_mirror",
 	"github_token",
+	"enable_file_log",
+	"log_max_mb",
 	"subconverter_backend",
 	"base64_local_fallback",
 	"bootstrap_dns_server",
@@ -159,7 +167,7 @@ func FieldLabel(cfg Config, key string) string {
 
 func FieldSummary(cfg Config, key string) string {
 	switch key {
-	case "enable_tun", "lan_panel", "lan_proxy", "generate_sg_groups", "generate_hk_groups", "base64_local_fallback":
+	case "enable_tun", "lan_panel", "lan_proxy", "generate_sg_groups", "generate_hk_groups", "base64_local_fallback", "enable_file_log":
 		if getBool(cfg, key) {
 			return "开"
 		}
@@ -207,6 +215,8 @@ func getBool(cfg Config, key string) bool {
 		return cfg.GenerateHKGroups
 	case "base64_local_fallback":
 		return cfg.Base64LocalFallback
+	case "enable_file_log":
+		return cfg.EnableFileLog
 	default:
 		return false
 	}
@@ -228,6 +238,8 @@ func getString(cfg Config, key string) string {
 		return cfg.DownloadProxy
 	case "github_token":
 		return cfg.GitHubToken
+	case "log_max_mb":
+		return strconv.Itoa(cfg.LogMaxMB)
 	default:
 		return ""
 	}
@@ -289,6 +301,8 @@ func Load(path string) (Config, error) {
 		GitHubMirror            *string   `json:"github_mirror"`
 		DownloadProxy           *string   `json:"download_proxy"`
 		GitHubToken             *string   `json:"github_token"`
+		EnableFileLog           *bool     `json:"enable_file_log"`
+		LogMaxMB                *int      `json:"log_max_mb"`
 	}
 	if err := json.Unmarshal(data, &overrides); err != nil {
 		return cfg, err
@@ -353,6 +367,8 @@ func applyOverrides(cfg *Config, o struct {
 	GitHubMirror            *string   `json:"github_mirror"`
 	DownloadProxy           *string   `json:"download_proxy"`
 	GitHubToken             *string   `json:"github_token"`
+	EnableFileLog           *bool     `json:"enable_file_log"`
+	LogMaxMB                *int      `json:"log_max_mb"`
 }) {
 	if o.AIDomainSuffixes != nil {
 		cfg.AIDomainSuffixes = *o.AIDomainSuffixes
@@ -420,6 +436,12 @@ func applyOverrides(cfg *Config, o struct {
 	if o.GitHubToken != nil {
 		cfg.GitHubToken = *o.GitHubToken
 	}
+	if o.EnableFileLog != nil {
+		cfg.EnableFileLog = *o.EnableFileLog
+	}
+	if o.LogMaxMB != nil {
+		cfg.LogMaxMB = clampLogMaxMB(*o.LogMaxMB)
+	}
 }
 
 func SetField(cfg *Config, key string, value string) error {
@@ -436,6 +458,8 @@ func SetField(cfg *Config, key string, value string) error {
 		cfg.GenerateHKGroups = parseBool(value)
 	case "base64_local_fallback":
 		cfg.Base64LocalFallback = parseBool(value)
+	case "enable_file_log":
+		cfg.EnableFileLog = parseBool(value)
 	case "bootstrap_dns_server":
 		cfg.BootstrapDNSServer = value
 	case "bootstrap_dns_port":
@@ -454,6 +478,12 @@ func SetField(cfg *Config, key string, value string) error {
 		cfg.DownloadProxy = value
 	case "github_token":
 		cfg.GitHubToken = value
+	case "log_max_mb":
+		maxMB, err := strconv.Atoi(value)
+		if err != nil {
+			return err
+		}
+		cfg.LogMaxMB = clampLogMaxMB(maxMB)
 	case "ai_domain_suffixes":
 		cfg.AIDomainSuffixes = splitList(value)
 	case "streaming_domain_suffixes":
@@ -474,6 +504,16 @@ func SetField(cfg *Config, key string, value string) error {
 		return errors.New("unknown config field: " + key)
 	}
 	return nil
+}
+
+func clampLogMaxMB(value int) int {
+	if value <= 0 {
+		return 10
+	}
+	if value > 100 {
+		return 100
+	}
+	return value
 }
 
 func parseBool(value string) bool {

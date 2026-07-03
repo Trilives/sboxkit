@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestTruncateCJK(t *testing.T) {
@@ -61,8 +63,47 @@ func TestBuildSelectScrollHints(t *testing.T) {
 	}
 	rows := buildSelect("Select node", opts, 20, "footer", 80, 24)
 	joined := stripAnsi(strings.Join(rows, "\n"))
-	if !strings.Contains(joined, "上方还有") || !strings.Contains(joined, "下方还有") {
+	if !strings.Contains(joined, "more above") || !strings.Contains(joined, "more below") {
 		t.Error("scrolling window should show up and down hints")
+	}
+}
+
+func TestConfirmPromptUsesYN(t *testing.T) {
+	if got := confirmSuffix(true); got != " [Y/n]" {
+		t.Fatalf("confirmSuffix(true) = %q, want [Y/n]", got)
+	}
+	if got := confirmSuffix(false); got != " [y/N]" {
+		t.Fatalf("confirmSuffix(false) = %q, want [y/N]", got)
+	}
+}
+
+func TestInputModelWrapsLongPrompt(t *testing.T) {
+	model := &inputModel{
+		prompt: "This is a very long prompt that should wrap instead of pushing the input field outside of the terminal width",
+		width:  32,
+	}
+	rows := strings.Split(strings.TrimSuffix(stripAnsi(model.View()), "\n"), "\n")
+	if len(rows) < 3 {
+		t.Fatalf("expected wrapped prompt plus input row, got %#v", rows)
+	}
+	for _, row := range rows[:len(rows)-1] {
+		if got := dispWidth(row); got > 32 {
+			t.Fatalf("wrapped prompt row width %d exceeds terminal width: %q", got, row)
+		}
+	}
+}
+
+func TestSelectEscCancelsAndCtrlRSaves(t *testing.T) {
+	model := &selectModel{options: []string{"A"}, idx: 0}
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if got := updated.(*selectModel).err; got != ErrCancelled {
+		t.Fatalf("Esc error = %v, want ErrCancelled", got)
+	}
+
+	model = &selectModel{options: []string{"A"}, idx: 0}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	if got := updated.(*selectModel).err; got != ErrSaveExit {
+		t.Fatalf("Ctrl+R error = %v, want ErrSaveExit", got)
 	}
 }
 
