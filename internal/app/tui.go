@@ -115,7 +115,7 @@ func (s *tuiSession) selectMenu(title string, items []tuiItem, initial ...int) (
 	} else if saved, ok := s.menuState[title]; ok {
 		idx = saved
 	}
-	selected, err := s.selectF(title, labels, ui.SelectOpts{BackLabel: "返回", SaveLabel: "退出", Initial: idx})
+	selected, err := s.selectF(title, labels, ui.SelectOpts{BackLabel: "返回", Initial: idx})
 	if err != nil {
 		return 0, false
 	}

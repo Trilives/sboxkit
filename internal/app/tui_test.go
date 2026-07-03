@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Trilives/sboxkit/internal/config"
+	"github.com/Trilives/sboxkit/internal/paths"
 	ui "github.com/Trilives/sboxkit/internal/tui"
 )
 
@@ -155,8 +157,7 @@ func TestConfigMenuGroupsToggleItems(t *testing.T) {
 	}
 	want := []string{
 		"显示配置",
-		"TUN 与路由",
-		"WebUI 与局域网",
+		"编辑定制层",
 		"Shell 代理环境",
 		"高级键值",
 	}
@@ -173,16 +174,73 @@ func TestConfigMenuGroupsToggleItems(t *testing.T) {
 	}
 }
 
-func TestWebUILANMenuIncludesLANProxyToggle(t *testing.T) {
-	items := webUIConfigTUIItems()
-	var labels []string
-	for _, item := range items {
-		labels = append(labels, item.Label)
-	}
-	for _, want := range []string{"启用局域网代理", "关闭局域网代理"} {
-		if indexOfLabel(labels, want) < 0 {
-			t.Fatalf("WebUI and LAN menu missing %q: %#v", want, labels)
+func TestConfigEditorTogglesBoolAndSavesOnSaveExit(t *testing.T) {
+	t.Setenv("SBOXKIT_ROOT", t.TempDir())
+	var out bytes.Buffer
+	session := newTUISession(&out, &out)
+
+	calls := 0
+	session.selectF = func(title string, options []string, opts ui.SelectOpts) (int, error) {
+		calls++
+		switch calls {
+		case 1:
+			if title != "编辑定制层" {
+				t.Fatalf("unexpected title %q", title)
+			}
+			idx := indexOfLabelContaining(options, "常用部署")
+			if idx < 0 {
+				t.Fatalf("missing common section in options: %#v", options)
+			}
+			return idx, nil
+		case 2:
+			if title != "配置区块 · 常用部署" {
+				t.Fatalf("unexpected title %q", title)
+			}
+			idx := indexOfLabelContaining(options, "TUN 模式")
+			if idx < 0 {
+				t.Fatalf("missing TUN field in options: %#v", options)
+			}
+			return idx, nil
+		case 3:
+			if title != "配置区块 · 常用部署" {
+				t.Fatalf("unexpected title %q", title)
+			}
+			return 0, ui.ErrSaveExit
+		case 4:
+			if title != "编辑定制层" {
+				t.Fatalf("unexpected title %q", title)
+			}
+			return 0, ui.ErrSaveExit
+		default:
+			t.Fatalf("unexpected select call %d", calls)
+			return 0, ui.ErrCancelled
 		}
+	}
+
+	changed, err := session.editCustomize()
+	if err != nil {
+		t.Fatalf("editCustomize error: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected editor to save a change")
+	}
+
+	cfg := mustLoadConfigForTest(t)
+	if cfg.EnableTun {
+		t.Fatal("expected enable_tun to be toggled off and saved")
+	}
+}
+
+func TestConfigEditorIncludesLANProxyField(t *testing.T) {
+	cfg := mustLoadConfigForTest(t)
+	sections := configSectionLabels(cfg)
+	common := indexOfLabelContaining(sections, "常用部署")
+	if common < 0 {
+		t.Fatalf("config editor missing common section: %#v", sections)
+	}
+	labels := sectionFieldLabels(cfg, configSections[common])
+	if indexOfLabelContaining(labels, "局域网代理") < 0 {
+		t.Fatalf("common config section missing LAN proxy field: %#v", labels)
 	}
 }
 
@@ -234,4 +292,22 @@ func indexOfLabel(labels []string, label string) int {
 		}
 	}
 	return -1
+}
+
+func indexOfLabelContaining(labels []string, fragment string) int {
+	for i, value := range labels {
+		if strings.Contains(value, fragment) {
+			return i
+		}
+	}
+	return -1
+}
+
+func mustLoadConfigForTest(t *testing.T) config.Config {
+	t.Helper()
+	cfg, err := config.Load(paths.FromRoot("").CustomizeFile)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	return cfg
 }

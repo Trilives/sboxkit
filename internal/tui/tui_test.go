@@ -61,7 +61,7 @@ func TestBuildSelectScrollHints(t *testing.T) {
 	}
 	rows := buildSelect("Select node", opts, 20, "footer", 80, 24)
 	joined := stripAnsi(strings.Join(rows, "\n"))
-	if !strings.Contains(joined, "more above") || !strings.Contains(joined, "more below") {
+	if !strings.Contains(joined, "上方还有") || !strings.Contains(joined, "下方还有") {
 		t.Error("scrolling window should show up and down hints")
 	}
 }

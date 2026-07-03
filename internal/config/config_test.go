@@ -53,3 +53,18 @@ func TestSaveWritesJSONWithPrivateMode(t *testing.T) {
 		t.Fatal("expected saved GitHub token to round-trip")
 	}
 }
+
+func TestFieldLabelsCoverInteractiveConfigEditor(t *testing.T) {
+	cfg := Defaults()
+	cfg.GitHubToken = "abcdef"
+
+	for _, key := range FieldOrder {
+		label := FieldLabel(cfg, key)
+		if label == "" {
+			t.Fatalf("empty label for %s", key)
+		}
+		if key == "github_token" && label == "GitHub Token：abcdef" {
+			t.Fatal("secret field label exposed the raw token")
+		}
+	}
+}

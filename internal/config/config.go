@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -74,6 +75,184 @@ func Defaults() Config {
 		GitHubMirror:        "",
 		DownloadProxy:       "",
 		GitHubToken:         "",
+	}
+}
+
+var ListFields = map[string]string{
+	"ai_domain_suffixes":        "AI 域名后缀",
+	"streaming_domain_suffixes": "流媒体域名后缀",
+	"direct_domain_suffixes":    "直连域名后缀",
+	"local_bypass_domains":      "本地域名绕过",
+	"route_exclude_ip_cidrs":    "TUN 排除网段",
+	"bypass_process_names":      "绕过进程名",
+	"tun_exclude_uids":          "TUN 排除 UID",
+	"prefer_keywords":           "新加坡关键词",
+	"hk_prefer_keywords":        "香港关键词",
+}
+
+var BoolFields = map[string]string{
+	"enable_tun":            "TUN 模式（全局透明代理）",
+	"lan_proxy":             "局域网代理（其他主机可用本机代理）",
+	"lan_panel":             "内置 WebUI",
+	"generate_sg_groups":    "生成新加坡自动测速聚合组",
+	"generate_hk_groups":    "生成香港自动测速聚合组",
+	"base64_local_fallback": "base64 应急本地解析",
+}
+
+var ScalarFields = map[string]string{
+	"bootstrap_dns_server": "引导 DNS 服务器",
+	"bootstrap_dns_port":   "引导 DNS 端口",
+	"default_outbound":     "默认出站",
+	"subconverter_backend": "subconverter 后端",
+	"github_mirror":        "GitHub 加速前缀",
+	"download_proxy":       "下载代理",
+	"github_token":         "GitHub Token",
+}
+
+var FieldOrder = []string{
+	"enable_tun",
+	"lan_proxy",
+	"lan_panel",
+	"download_proxy",
+	"github_mirror",
+	"github_token",
+	"subconverter_backend",
+	"base64_local_fallback",
+	"bootstrap_dns_server",
+	"bootstrap_dns_port",
+	"default_outbound",
+	"route_exclude_ip_cidrs",
+	"tun_exclude_uids",
+	"bypass_process_names",
+	"local_bypass_domains",
+	"generate_sg_groups",
+	"generate_hk_groups",
+	"prefer_keywords",
+	"hk_prefer_keywords",
+	"ai_domain_suffixes",
+	"streaming_domain_suffixes",
+	"direct_domain_suffixes",
+}
+
+var SensitiveFields = map[string]bool{"github_token": true}
+
+func MaskSecret(value string) string {
+	if value == "" {
+		return "未设置"
+	}
+	runes := []rune(value)
+	if len(runes) > 4 {
+		return "已设置（***" + string(runes[len(runes)-4:]) + "）"
+	}
+	return "已设置（***）"
+}
+
+func FieldLabel(cfg Config, key string) string {
+	if label, ok := ListFields[key]; ok {
+		return fmt.Sprintf("%s（%s）", label, FieldSummary(cfg, key))
+	}
+	if label, ok := BoolFields[key]; ok {
+		return fmt.Sprintf("%s：%s", label, FieldSummary(cfg, key))
+	}
+	return fmt.Sprintf("%s：%s", ScalarFields[key], FieldSummary(cfg, key))
+}
+
+func FieldSummary(cfg Config, key string) string {
+	switch key {
+	case "enable_tun", "lan_panel", "lan_proxy", "generate_sg_groups", "generate_hk_groups", "base64_local_fallback":
+		if getBool(cfg, key) {
+			return "开"
+		}
+		return "关"
+	case "ai_domain_suffixes", "streaming_domain_suffixes", "direct_domain_suffixes", "local_bypass_domains", "route_exclude_ip_cidrs", "bypass_process_names", "prefer_keywords", "hk_prefer_keywords":
+		return listSummary(getStringList(cfg, key))
+	case "tun_exclude_uids":
+		return intListSummary(cfg.TunExcludeUIDs)
+	case "github_token":
+		return MaskSecret(cfg.GitHubToken)
+	default:
+		value := getString(cfg, key)
+		if value == "" {
+			return "未设置"
+		}
+		return value
+	}
+}
+
+func listSummary(items []string) string {
+	if len(items) == 0 {
+		return "空"
+	}
+	return fmt.Sprintf("%d 条", len(items))
+}
+
+func intListSummary(items []int) string {
+	if len(items) == 0 {
+		return "空"
+	}
+	return fmt.Sprintf("%d 条", len(items))
+}
+
+func getBool(cfg Config, key string) bool {
+	switch key {
+	case "enable_tun":
+		return cfg.EnableTun
+	case "lan_panel":
+		return cfg.LanPanel
+	case "lan_proxy":
+		return cfg.LanProxy
+	case "generate_sg_groups":
+		return cfg.GenerateSGGroups
+	case "generate_hk_groups":
+		return cfg.GenerateHKGroups
+	case "base64_local_fallback":
+		return cfg.Base64LocalFallback
+	default:
+		return false
+	}
+}
+
+func getString(cfg Config, key string) string {
+	switch key {
+	case "bootstrap_dns_server":
+		return cfg.BootstrapDNSServer
+	case "bootstrap_dns_port":
+		return strconv.Itoa(cfg.BootstrapDNSPort)
+	case "default_outbound":
+		return cfg.DefaultOutbound
+	case "subconverter_backend":
+		return cfg.SubconverterBackend
+	case "github_mirror":
+		return cfg.GitHubMirror
+	case "download_proxy":
+		return cfg.DownloadProxy
+	case "github_token":
+		return cfg.GitHubToken
+	default:
+		return ""
+	}
+}
+
+func getStringList(cfg Config, key string) []string {
+	switch key {
+	case "ai_domain_suffixes":
+		return append([]string(nil), cfg.AIDomainSuffixes...)
+	case "streaming_domain_suffixes":
+		return append([]string(nil), cfg.StreamingDomainSuffixes...)
+	case "direct_domain_suffixes":
+		return append([]string(nil), cfg.DirectDomainSuffixes...)
+	case "local_bypass_domains":
+		return append([]string(nil), cfg.LocalBypassDomains...)
+	case "route_exclude_ip_cidrs":
+		return append([]string(nil), cfg.RouteExcludeIPCidrs...)
+	case "bypass_process_names":
+		return append([]string(nil), cfg.BypassProcessNames...)
+	case "prefer_keywords":
+		return append([]string(nil), cfg.PreferKeywords...)
+	case "hk_prefer_keywords":
+		return append([]string(nil), cfg.HKPreferKeywords...)
+	default:
+		return nil
 	}
 }
 

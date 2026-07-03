@@ -18,7 +18,7 @@ func Select(title string, options []string, opts SelectOpts) (int, error) {
 		opts.BackLabel = "返回"
 	}
 	if opts.SaveLabel == "" {
-		opts.SaveLabel = "退出"
+		opts.SaveLabel = opts.BackLabel
 	}
 	if len(options) == 0 {
 		return 0, ErrCancelled
@@ -34,7 +34,7 @@ func Select(title string, options []string, opts SelectOpts) (int, error) {
 		title:   title,
 		options: options,
 		idx:     idx,
-		footer:  fmt.Sprintf("↑/↓ 移动   Enter 确认   Esc %s   Ctrl+R %s", opts.BackLabel, opts.SaveLabel),
+		footer:  fmt.Sprintf("↑/↓ 移动   Enter 确认   Esc %s   Ctrl+R %s", opts.SaveLabel, opts.BackLabel),
 		width:   80,
 		height:  24,
 	}
@@ -105,10 +105,10 @@ func buildSelect(title string, options []string, idx int, footer string, termCol
 
 	upHint, downHint := "", ""
 	if top > 0 {
-		upHint = truncate(fmt.Sprintf("  ▲ %d more above", top), maxW)
+		upHint = truncate(fmt.Sprintf("  ▲ 上方还有 %d 项", top), maxW)
 	}
 	if end < n {
-		downHint = truncate(fmt.Sprintf("  ▼ %d more below", n-end), maxW)
+		downHint = truncate(fmt.Sprintf("  ▼ 下方还有 %d 项", n-end), maxW)
 	}
 	label := truncate(fmt.Sprintf("─ %s ", title), maxW)
 	footerText := truncate("  "+footer, maxW)
