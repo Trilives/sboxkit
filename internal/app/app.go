@@ -104,14 +104,14 @@ func runNumberedInteractive(stdout io.Writer, stderr io.Writer) int {
 	reader := bufio.NewReader(os.Stdin)
 	for {
 		fmt.Fprintln(stdout, "\nsboxkit")
-		fmt.Fprintln(stdout, "  1) init")
-		fmt.Fprintln(stdout, "  2) update assets")
-		fmt.Fprintln(stdout, "  3) list subscriptions")
-		fmt.Fprintln(stdout, "  4) show config")
-		fmt.Fprintln(stdout, "  5) nettest")
-		fmt.Fprintln(stdout, "  6) service status")
-		fmt.Fprintln(stdout, "  0) quit")
-		fmt.Fprint(stdout, "select: ")
+		fmt.Fprintln(stdout, "  1) 初始化")
+		fmt.Fprintln(stdout, "  2) 更新资源")
+		fmt.Fprintln(stdout, "  3) 查看订阅")
+		fmt.Fprintln(stdout, "  4) 显示配置")
+		fmt.Fprintln(stdout, "  5) 网络测试")
+		fmt.Fprintln(stdout, "  6) 服务状态")
+		fmt.Fprintln(stdout, "  0) 退出")
+		fmt.Fprint(stdout, "选择：")
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			fmt.Fprintln(stdout)
@@ -133,7 +133,7 @@ func runNumberedInteractive(stdout io.Writer, stderr io.Writer) int {
 		case "0", "q", "quit", "exit":
 			return 0
 		default:
-			fmt.Fprintln(stderr, "unknown selection")
+			fmt.Fprintln(stderr, "未知选项")
 		}
 	}
 }
@@ -247,11 +247,11 @@ func runInit(args []string, stdout io.Writer, stderr io.Writer) int {
 }
 
 func runInitWizard(reader *bufio.Reader, stdout io.Writer, stderr io.Writer) int {
-	enableTun := askYesNo(reader, stdout, "Enable TUN mode? [Y/n]: ", true)
+	enableTun := askYesNo(reader, stdout, "是否启用 TUN 模式？[是/否，默认是]：", true)
 	args := []string{}
 	if !enableTun {
 		args = append(args, "--no-tun")
-		if askYesNo(reader, stdout, "TUN is disabled. Write shell proxy environment variables to ~/.bashrc? [y/N]: ", false) {
+		if askYesNo(reader, stdout, "TUN 已关闭，是否将 Shell 代理环境变量写入 ~/.bashrc？[是/否，默认否]：", false) {
 			args = append(args, "--write-proxy-env")
 		} else {
 			args = append(args, "--no-write-proxy-env")
@@ -512,7 +512,7 @@ func serviceCommandStartsOrRestarts(cmd string, rest []string) bool {
 }
 
 func serviceTrafficWarning() string {
-	return "Warning: starting or restarting sboxkit may interrupt the current SSH connection if TUN or routing changes affect this session."
+	return "警告：如果 TUN 或路由变更影响当前会话，启动或重启 sboxkit 可能会中断当前 SSH 连接。"
 }
 
 func printServiceTrafficWarning(stdout io.Writer) {
@@ -600,10 +600,10 @@ func runUninstall(args []string, stdout io.Writer, stderr io.Writer) int {
 
 func printPackageRemovalHint(stdout io.Writer) {
 	fmt.Fprintln(stdout)
-	fmt.Fprintln(stdout, "The Debian package itself is managed by apt.")
-	fmt.Fprintln(stdout, "Remove the installed sboxkit binary and package metadata with:")
+	fmt.Fprintln(stdout, "Debian 包本身由 apt 管理。")
+	fmt.Fprintln(stdout, "移除已安装的 sboxkit 二进制和包元数据：")
 	fmt.Fprintln(stdout, "  sudo apt remove sboxkit")
-	fmt.Fprintln(stdout, "Remove package conffiles as well with:")
+	fmt.Fprintln(stdout, "如需连同配置文件一起移除：")
 	fmt.Fprintln(stdout, "  sudo apt purge sboxkit")
 }
 
@@ -676,10 +676,10 @@ func askYesNo(reader *bufio.Reader, stdout io.Writer, prompt string, fallback bo
 	if err != nil {
 		return fallback
 	}
-	switch strings.ToLower(strings.TrimSpace(line)) {
-	case "y", "yes":
+	switch strings.TrimSpace(strings.ToLower(line)) {
+	case "y", "yes", "true", "是", "对", "好", "1", "t", "ok":
 		return true
-	case "n", "no":
+	case "n", "no", "false", "否", "不", "错", "0", "f", "off":
 		return false
 	default:
 		return fallback

@@ -7,27 +7,27 @@ import (
 
 func mainTUIItems() []tuiItem {
 	return []tuiItem{
-		{"First setup wizard", "Initialize state, import a subscription, and optionally install the service", runTUIFirstSetup},
-		{"Nodes", "List or switch selector nodes through the sing-box Clash API", submenu("Nodes", nodeTUIItems)},
-		{"Subscriptions", "Add, list, switch, refresh, rebuild, or remove subscriptions and local configs", submenu("Subscriptions", subscriptionTUIItems)},
-		{"Service", "Install, sync, inspect, or remove sboxkit.service", submenu("Service", serviceTUIItems)},
-		{"Runtime assets", "Download optional rules or update the packaged core cache", submenu("Runtime assets", updateTUIItems)},
-		{"Configuration", "Show or edit customize.json, TUN, WebUI, and shell proxy settings", submenu("Configuration", configTUIItems)},
-		{"Network test", "Probe latency and exit IP through the local proxy", commandAction("Network test", func(s *tuiSession) int {
+		{"首次初始化", "初始化状态、导入订阅，并可选安装服务", runTUIFirstSetup},
+		{"节点", "通过 sing-box Clash API 查看或切换节点组", submenu("节点", nodeTUIItems)},
+		{"订阅", "添加、查看、切换、刷新、重建或移除订阅与本地配置", submenu("订阅", subscriptionTUIItems)},
+		{"服务", "安装、同步、查看或移除 sboxkit.service", submenu("服务", serviceTUIItems)},
+		{"运行时资源", "下载可选规则或更新内置核心缓存", submenu("运行时资源", updateTUIItems)},
+		{"配置", "查看或编辑 customize.json、TUN、WebUI 与 Shell 代理设置", submenu("配置", configTUIItems)},
+		{"网络测试", "通过本地代理测试延迟和出口 IP", commandAction("网络测试", func(s *tuiSession) int {
 			printNetworkTestProgress(s.stdout)
 			runNettest(s.stdout, "127.0.0.1:7890")
 			return 0
 		})},
-		{"Timers and resilience", "Weekly update timer and network resilience watchdog", submenu("Timers and resilience", timerTUIItems)},
-		{"Uninstall", "Remove system integration, with an optional state purge", submenu("Uninstall", uninstallTUIItems)},
-		{"Help", "Print command-line help", commandAction("Help", func(s *tuiSession) int {
+		{"定时任务与恢复", "每周更新定时器和网络恢复守护", submenu("定时任务与恢复", timerTUIItems)},
+		{"卸载", "移除系统集成，可选清理用户状态", submenu("卸载", uninstallTUIItems)},
+		{"帮助", "打印命令行帮助", commandAction("帮助", func(s *tuiSession) int {
 			printHelp(s.stdout)
 			return 0
 		})},
-		{"Quit", "Exit sboxkit", func(*tuiSession) bool { return true }},
+		{"退出", "退出 sboxkit", func(*tuiSession) bool { return true }},
 	}
 }
 
 func printNetworkTestProgress(stdout io.Writer) {
-	fmt.Fprintln(stdout, "Testing network through 127.0.0.1:7890...")
+	fmt.Fprintln(stdout, "正在通过 127.0.0.1:7890 测试网络...")
 }

@@ -12,9 +12,9 @@ func selectPlain(title string, options []string, opts SelectOpts) (int, error) {
 	for i, opt := range options {
 		fmt.Printf("  %d) %s\n", i+1, opt)
 	}
-	fmt.Printf("  Enter) %s    r) %s\n", opts.SaveLabel, opts.BackLabel)
+	fmt.Printf("  回车) %s    r) %s\n", opts.SaveLabel, opts.BackLabel)
 	for {
-		raw, err := readPlainLine("select: ")
+		raw, err := readPlainLine("选择：")
 		if err != nil {
 			return 0, err
 		}
@@ -28,6 +28,6 @@ func selectPlain(title string, options []string, opts SelectOpts) (int, error) {
 		if n, err := strconv.Atoi(raw); err == nil && n >= 1 && n <= len(options) {
 			return n - 1, nil
 		}
-		fmt.Println("Invalid selection.")
+		fmt.Println("选择无效。")
 	}
 }

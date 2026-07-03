@@ -1,16 +1,15 @@
 # sboxkit
 
-Terminal-first deployment kit for sing-box on Linux.
+面向 Linux 的 sing-box 终端优先部署工具。
 
-`sboxkit` installs and manages sing-box as a local proxy service from a TUI-first
-workflow. The Debian package ships two independent binaries in one installer:
-the `sboxkit` controller and the upstream `sing-box` core. The core is not linked
-into this project, and this repository does not commit upstream sing-box
-binaries.
+`sboxkit` 以 TUI 优先的方式安装和管理 sing-box 本地代理服务。Debian
+安装包会在一个安装器里带上两个独立二进制文件：`sboxkit` 控制器和上游
+`sing-box` 内核。内核不会链接进本项目，仓库本身也不会提交上游 sing-box
+二进制。
 
-## What Is Included
+## 打包内容
 
-The `.deb` package contains:
+`.deb` 包内包含：
 
 ```text
 /usr/bin/sboxkit
@@ -21,17 +20,17 @@ The `.deb` package contains:
 /usr/share/doc/sboxkit/SING_BOX_SOURCE.txt
 ```
 
-Portable `.tar.gz` bundles contain the same two binaries plus an install script.
+便携式 `.tar.gz` 包包含同样的两个二进制文件，外加安装脚本。
 
-## Install
+## 安装
 
-Download the package for your architecture from GitHub Releases:
+从 GitHub Releases 下载对应架构的安装包：
 
 ```bash
 sudo apt install ./sboxkit_0.1.1_amd64.deb
 ```
 
-Portable install:
+便携包安装：
 
 ```bash
 tar -xzf sboxkit_0.1.1_amd64_portable.tar.gz
@@ -39,47 +38,42 @@ cd sboxkit_0.1.1_amd64
 sudo ./install.sh
 ```
 
-## Recommended Usage
+## 推荐用法
 
-Start the interactive terminal UI:
+启动交互式终端界面：
 
 ```bash
 sboxkit
 ```
 
-The TUI is the primary interface. It guides initial setup, subscription import,
-TUN mode selection, optional shell proxy environment writing, service
-installation, updates, node switching, and diagnostics.
+TUI 是主要入口。它会引导初次初始化、订阅导入、TUN 模式选择、可选的
+shell 代理环境写入、服务安装、更新、节点切换和诊断。
 
-For scripted usage, see [Command Reference](docs/COMMANDS.md).
+脚本化用法见 [命令参考](docs/COMMANDS.md)。
 
-## First-Run Model
+## 首次运行模型
 
-Initial setup is intentionally lightweight:
+首次初始化刻意做得很轻：
 
-1. Configure local preferences and import a subscription or local sing-box
-   config.
-2. Generate a working sing-box config with the built-in minimal rule file.
-3. Start the service.
-4. Download larger optional rule assets through the running proxy when needed.
+1. 配置本地偏好，并导入一个订阅或本地 sing-box 配置。
+2. 使用内置的最小规则文件生成可工作的 sing-box 配置。
+3. 启动服务。
+4. 在需要时，通过已运行的代理下载更大的可选规则资产。
 
-This lets a fresh install start without requiring external rule-set downloads
-before the proxy is available.
+这样可以让全新安装在代理可用前就启动起来，不需要先下载外部大型规则集。
 
-## Runtime Layout
+## 运行目录
 
-User data is stored in a fixed state directory, independent of the current
-working directory:
+用户数据存放在固定状态目录中，不受当前工作目录影响：
 
 ```text
 $XDG_STATE_HOME/sboxkit/state/
 ~/.local/state/sboxkit/state/   # when XDG_STATE_HOME is not set
 ```
 
-Override it with `SBOXKIT_ROOT=/path/to/root`, or pass `--root DIR` for one
-command.
+可以通过 `SBOXKIT_ROOT=/path/to/root` 覆盖，也可以对单个命令传入 `--root DIR`。
 
-System service runtime files are staged into:
+系统服务运行时文件会放到：
 
 ```text
 /etc/sboxkit/
@@ -91,40 +85,35 @@ System service runtime files are staged into:
 └── healthcheck.sh
 ```
 
-## Subscription Sources
+## 订阅来源
 
-`sboxkit` can import subscriptions from remote URLs or local config files:
+`sboxkit` 可以从远程 URL 或本地配置文件导入订阅：
 
-- `clash`: parses Clash YAML locally and converts nodes to sing-box config.
-- `sing-box`: uses sing-box JSON directly, or rebuilds local policy groups when
-  passthrough mode is disabled.
-- `base64`: uses the configured subconverter backend first, with optional local
-  Shadowsocks fallback.
+- `clash`：本地解析 Clash YAML，并转换为 sing-box 配置。
+- `sing-box`：直接使用 sing-box JSON；如果关闭 passthrough 模式，则会重建本地策略组。
+- `base64`：优先使用配置的 subconverter 后端，必要时可回退到本地 Shadowsocks 解析。
 
-Local files are copied into the fixed state directory before conversion.
+本地文件在转换前会先复制到固定状态目录。
 
-## Optional WebUI
+## 可选 WebUI
 
-The WebUI is off by default. When enabled, sing-box serves the small WebUI built
-in this repository from local assets copied into `/etc/sboxkit/ui`. It uses the
-Clash API to inspect outbound groups and switch selector nodes without restarting
-the service.
+WebUI 默认关闭。开启后，sing-box 会从本仓库内置的本地资源目录
+`/etc/sboxkit/ui` 提供一个轻量 WebUI。它通过 Clash API 查看出站组并切换
+选择器节点，且不需要重启服务。
 
-The WebUI is a secondary interface; the terminal UI remains the recommended way
-to operate the application.
+WebUI 只是辅助界面，终端 UI 仍然是推荐的操作方式。
 
-## Legal And Third-Party Assets
+## 法律与第三方资产
 
-- `sboxkit` is built from this repository.
-- `sing-box` is distributed as a separate upstream binary inside release
-  packages.
-- The upstream sing-box source reference is written into package documentation.
-- Large third-party rule sets are downloaded only when requested by the user.
-- No third-party WebUI dashboard is downloaded.
+- `sboxkit` 由本仓库构建。
+- `sing-box` 作为独立的上游二进制文件随发布包分发。
+- 上游 sing-box 的源码引用会写入包文档。
+- 大型第三方规则集只会在用户明确请求时下载。
+- 不下载第三方 WebUI 仪表盘。
 
-See [Third-Party Assets](docs/THIRD_PARTY_ASSETS.md) for packaging notes.
+打包说明见 [Third-Party Assets](docs/THIRD_PARTY_ASSETS.md)。
 
-## Build From Source
+## 从源码构建
 
 ```bash
 go test ./...
@@ -132,7 +121,7 @@ go vet ./...
 go build -o sboxkit ./cmd/sboxkit
 ```
 
-The repository also supports an isolated local Go toolchain under `.tools/go`:
+仓库也支持使用 `.tools/go` 下的隔离本地 Go 工具链：
 
 ```bash
 make test GO=.tools/go/bin/go
@@ -140,8 +129,8 @@ make vet GO=.tools/go/bin/go
 make build GO=.tools/go/bin/go
 ```
 
-## More Documentation
+## 更多文档
 
-- [Command Reference](docs/COMMANDS.md)
-- [Architecture](ARCHITECTURE.md)
-- [Third-Party Assets](docs/THIRD_PARTY_ASSETS.md)
+- [命令参考](docs/COMMANDS.md)
+- [架构说明](ARCHITECTURE.md)
+- [第三方资产](docs/THIRD_PARTY_ASSETS.md)

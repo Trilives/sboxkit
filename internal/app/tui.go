@@ -17,22 +17,24 @@ type tuiItem struct {
 }
 
 type tuiSession struct {
-	stdout   io.Writer
-	stderr   io.Writer
-	selectF  func(string, []string, ui.SelectOpts) (int, error)
-	askF     func(string, ui.AskOpts) (string, error)
-	confirmF func(string, bool) (bool, error)
-	pauseF   func(string)
+	stdout    io.Writer
+	stderr    io.Writer
+	selectF   func(string, []string, ui.SelectOpts) (int, error)
+	askF      func(string, ui.AskOpts) (string, error)
+	confirmF  func(string, bool) (bool, error)
+	pauseF    func(string)
+	menuState map[string]int
 }
 
 func newTUISession(stdout io.Writer, stderr io.Writer) *tuiSession {
 	return &tuiSession{
-		stdout:   stdout,
-		stderr:   stderr,
-		selectF:  ui.Select,
-		askF:     ui.Ask,
-		confirmF: ui.Confirm,
-		pauseF:   ui.Pause,
+		stdout:    stdout,
+		stderr:    stderr,
+		selectF:   ui.Select,
+		askF:      ui.Ask,
+		confirmF:  ui.Confirm,
+		pauseF:    ui.Pause,
+		menuState: map[string]int{},
 	}
 }
 
@@ -45,11 +47,11 @@ func runTTYInteractive(stderr io.Writer) (int, bool) {
 
 func (s *tuiSession) run() int {
 	for {
-		idx, ok := s.selectMenu("sboxkit", mainTUIItems())
+		next, ok := s.selectMenu("sboxkit", mainTUIItems())
 		if !ok {
 			return 0
 		}
-		if mainTUIItems()[idx].Action(s) {
+		if mainTUIItems()[next].Action(s) {
 			return 0
 		}
 	}
@@ -57,13 +59,11 @@ func (s *tuiSession) run() int {
 
 func submenu(title string, items func() []tuiItem) tuiAction {
 	return func(s *tuiSession) bool {
-		idx := 0
 		for {
-			next, ok := s.selectMenu(title, items(), idx)
+			next, ok := s.selectMenu(title, items())
 			if !ok {
 				return false
 			}
-			idx = next
 			if items()[next].Action(s) {
 				return true
 			}
@@ -76,7 +76,7 @@ func commandAction(title string, run func(*tuiSession) int) tuiAction {
 		fmt.Fprintf(s.stdout, "\n== %s ==\n\n", title)
 		code := run(s)
 		if code != 0 {
-			fmt.Fprintf(s.stdout, "\nCommand exited with status %d.\n", code)
+			fmt.Fprintf(s.stdout, "\n命令以状态 %d 退出。\n", code)
 		}
 		s.wait()
 		return false
@@ -87,7 +87,7 @@ func promptCommand(title string, build func(*tuiSession) ([]string, bool), run f
 	return commandAction(title, func(s *tuiSession) int {
 		args, ok := build(s)
 		if !ok {
-			fmt.Fprintln(s.stdout, "Cancelled.")
+			fmt.Fprintln(s.stdout, "已取消。")
 			return 0
 		}
 		fmt.Fprintln(s.stdout)
@@ -96,7 +96,7 @@ func promptCommand(title string, build func(*tuiSession) ([]string, bool), run f
 }
 
 func configSetAction(key string, value string) tuiAction {
-	return commandAction("Set "+key, func(s *tuiSession) int {
+	return commandAction("设置 "+key, func(s *tuiSession) int {
 		return runConfig([]string{"set", "--key", key, "--value", value}, s.stdout, s.stderr)
 	})
 }
@@ -112,11 +112,14 @@ func (s *tuiSession) selectMenu(title string, items []tuiItem, initial ...int) (
 	idx := 0
 	if len(initial) > 0 {
 		idx = initial[0]
+	} else if saved, ok := s.menuState[title]; ok {
+		idx = saved
 	}
-	selected, err := s.selectF(title, labels, ui.SelectOpts{BackLabel: "back", Initial: idx})
+	selected, err := s.selectF(title, labels, ui.SelectOpts{BackLabel: "返回", SaveLabel: "退出", Initial: idx})
 	if err != nil {
 		return 0, false
 	}
+	s.menuState[title] = selected
 	return selected, true
 }
 
@@ -126,7 +129,7 @@ func (s *tuiSession) promptRequired(label string) (string, bool) {
 		if value != "" {
 			return value, true
 		}
-		if !s.confirm("Leave this prompt?", false) {
+		if !s.confirm("是否离开此输入？", false) {
 			continue
 		}
 		return "", false
@@ -150,10 +153,10 @@ func (s *tuiSession) confirm(label string, fallback bool) bool {
 }
 
 func (s *tuiSession) wait() {
-	s.pauseF("Press Enter to return to the menu...")
+	s.pauseF("按回车返回菜单...")
 }
 
 func (s *tuiSession) confirmServiceTrafficRisk(action string) bool {
 	fmt.Fprintln(s.stdout, serviceTrafficWarning())
-	return s.confirm("Continue to "+action+"?", false)
+	return s.confirm("是否继续"+action+"？", false)
 }

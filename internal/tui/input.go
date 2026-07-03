@@ -24,7 +24,7 @@ func Ask(prompt string, opts AskOpts) (string, error) {
 		suffix = fmt.Sprintf(" [%s]", shown)
 	}
 	for {
-		raw, err := readInput(fmt.Sprintf("%s%s: ", prompt, suffix))
+		raw, err := readInput(fmt.Sprintf("%s%s：", prompt, suffix))
 		if err != nil {
 			return "", err
 		}
@@ -36,7 +36,7 @@ func Ask(prompt string, opts AskOpts) (string, error) {
 			if opts.AllowEmpty {
 				return "", nil
 			}
-			fmt.Println("Value cannot be empty.")
+			fmt.Println("内容不能为空。")
 			continue
 		}
 		return raw, nil
@@ -44,19 +44,28 @@ func Ask(prompt string, opts AskOpts) (string, error) {
 }
 
 func Confirm(prompt string, def bool) (bool, error) {
-	suffix := " [y/N]"
+	suffix := " [是/否]"
 	if def {
-		suffix = " [Y/n]"
+		suffix = " [是/否，默认是]"
+	} else {
+		suffix = " [是/否，默认否]"
 	}
-	raw, err := readInput(prompt + suffix + ": ")
+	raw, err := readInput(prompt + suffix + "：")
 	if err != nil {
 		return false, err
 	}
-	raw = strings.ToLower(strings.TrimSpace(raw))
+	raw = strings.TrimSpace(strings.ToLower(raw))
 	if raw == "" {
 		return def, nil
 	}
-	return raw == "y" || raw == "yes" || raw == "true", nil
+	switch raw {
+	case "y", "yes", "true", "是", "对", "好", "1", "t", "ok":
+		return true, nil
+	case "n", "no", "false", "否", "不", "错", "0", "f", "off":
+		return false, nil
+	default:
+		return def, nil
+	}
 }
 
 func Pause(prompt string) {

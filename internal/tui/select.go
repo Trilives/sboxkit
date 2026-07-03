@@ -15,10 +15,10 @@ type SelectOpts struct {
 
 func Select(title string, options []string, opts SelectOpts) (int, error) {
 	if opts.BackLabel == "" {
-		opts.BackLabel = "Back"
+		opts.BackLabel = "返回"
 	}
 	if opts.SaveLabel == "" {
-		opts.SaveLabel = opts.BackLabel
+		opts.SaveLabel = "退出"
 	}
 	if len(options) == 0 {
 		return 0, ErrCancelled
@@ -34,7 +34,7 @@ func Select(title string, options []string, opts SelectOpts) (int, error) {
 		title:   title,
 		options: options,
 		idx:     idx,
-		footer:  fmt.Sprintf("↑/↓ select   enter confirm   esc %s   ^R %s", opts.SaveLabel, opts.BackLabel),
+		footer:  fmt.Sprintf("↑/↓ 移动   Enter 确认   Esc %s   Ctrl+R %s", opts.BackLabel, opts.SaveLabel),
 		width:   80,
 		height:  24,
 	}

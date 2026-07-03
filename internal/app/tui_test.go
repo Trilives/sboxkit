@@ -27,15 +27,97 @@ func TestRemoteSubscriptionPromptOrderStartsWithSource(t *testing.T) {
 	}
 
 	text := out.String()
-	sourceIndex := strings.Index(text, "Source")
-	nameIndex := strings.Index(text, "Name")
-	urlIndex := strings.Index(text, "URL")
-	proxyIndex := strings.Index(text, "Download proxy (empty by default)")
+	sourceIndex := strings.Index(text, "来源类型")
+	nameIndex := strings.Index(text, "名称")
+	urlIndex := strings.Index(text, "订阅链接")
+	proxyIndex := strings.Index(text, "下载代理（默认留空）")
 	if sourceIndex < 0 || nameIndex < 0 || urlIndex < 0 || proxyIndex < 0 {
 		t.Fatalf("missing expected prompts in %q", text)
 	}
 	if !(sourceIndex < nameIndex && nameIndex < urlIndex && urlIndex < proxyIndex) {
 		t.Fatalf("prompt order = %q, want source before name before URL before proxy", text)
+	}
+}
+
+func TestRunRemembersMainMenuSelectionAfterReturning(t *testing.T) {
+	var out bytes.Buffer
+	session := newTUISession(&out, &out)
+	session.pauseF = func(string) {}
+
+	var calls []int
+	session.selectF = func(title string, options []string, opts ui.SelectOpts) (int, error) {
+		if title != "sboxkit" {
+			t.Fatalf("unexpected title %q", title)
+		}
+		calls = append(calls, opts.Initial)
+		switch len(calls) {
+		case 1:
+			return indexOfLabel(options, "帮助"), nil
+		case 2:
+			return indexOfLabel(options, "退出"), nil
+		default:
+			t.Fatalf("unexpected select call %d", len(calls))
+			return 0, nil
+		}
+	}
+
+	if code := session.run(); code != 0 {
+		t.Fatalf("run() = %d, want 0", code)
+	}
+
+	if len(calls) != 2 {
+		t.Fatalf("select calls = %d, want 2", len(calls))
+	}
+	var mainLabels []string
+	for _, item := range mainTUIItems() {
+		mainLabels = append(mainLabels, item.Label)
+	}
+	helpIndex := indexOfLabel(mainLabels, "帮助")
+	if helpIndex < 0 {
+		t.Fatal("missing 帮助 item in main menu")
+	}
+	want := []int{0, helpIndex}
+	for i, got := range calls {
+		if got != want[i] {
+			t.Fatalf("select initial[%d] = %d, want %d", i, got, want[i])
+		}
+	}
+}
+
+func TestSelectMenuRemembersSelectionAcrossEntries(t *testing.T) {
+	var out bytes.Buffer
+	session := newTUISession(&out, &out)
+
+	var initials []int
+	session.selectF = func(title string, options []string, opts ui.SelectOpts) (int, error) {
+		initials = append(initials, opts.Initial)
+		switch len(initials) {
+		case 1:
+			return 1, nil
+		case 2:
+			return 0, nil
+		default:
+			t.Fatalf("unexpected select call %d", len(initials))
+			return 0, nil
+		}
+	}
+
+	items := []tuiItem{{Label: "A"}, {Label: "B"}}
+	if _, ok := session.selectMenu("节点", items); !ok {
+		t.Fatal("first selectMenu call failed")
+	}
+	if _, ok := session.selectMenu("节点", items); !ok {
+		t.Fatal("second selectMenu call failed")
+	}
+
+	want := []int{0, 1}
+	if len(initials) != len(want) {
+		t.Fatalf("initial calls = %v, want %v", initials, want)
+	}
+	for i, got := range initials {
+		if got != want[i] {
+			t.Fatalf("initial[%d] = %d, want %d", i, got, want[i])
+		}
 	}
 }
 
@@ -46,14 +128,14 @@ func TestMainMenuPutsNodesNearTop(t *testing.T) {
 		labels = append(labels, item.Label)
 	}
 
-	nodesIndex := indexOfLabel(labels, "Nodes")
-	subscriptionsIndex := indexOfLabel(labels, "Subscriptions")
-	serviceIndex := indexOfLabel(labels, "Service")
+	nodesIndex := indexOfLabel(labels, "节点")
+	subscriptionsIndex := indexOfLabel(labels, "订阅")
+	serviceIndex := indexOfLabel(labels, "服务")
 	if nodesIndex < 0 || subscriptionsIndex < 0 || serviceIndex < 0 {
 		t.Fatalf("missing expected main menu items: %#v", labels)
 	}
 	if !(nodesIndex < subscriptionsIndex && nodesIndex < serviceIndex) {
-		t.Fatalf("Nodes should be before Subscriptions and Service, got order %#v", labels)
+		t.Fatalf("节点 should be before 订阅 and 服务, got order %#v", labels)
 	}
 }
 
@@ -72,18 +154,18 @@ func TestConfigMenuGroupsToggleItems(t *testing.T) {
 		labels = append(labels, item.Label)
 	}
 	want := []string{
-		"Show config",
-		"TUN and routing",
-		"WebUI and LAN",
-		"Shell proxy environment",
-		"Advanced key/value",
+		"显示配置",
+		"TUN 与路由",
+		"WebUI 与局域网",
+		"Shell 代理环境",
+		"高级键值",
 	}
 	if strings.Join(labels, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("config menu labels = %#v, want %#v", labels, want)
 	}
 
 	for _, label := range labels {
-		for _, flatPrefix := range []string{"Enable ", "Disable ", "Write ", "Remove ", "Set config key"} {
+		for _, flatPrefix := range []string{"启用", "关闭", "写入", "移除", "设置"} {
 			if strings.HasPrefix(label, flatPrefix) {
 				t.Fatalf("config top-level item %q should be under a grouped submenu", label)
 			}
@@ -97,7 +179,7 @@ func TestWebUILANMenuIncludesLANProxyToggle(t *testing.T) {
 	for _, item := range items {
 		labels = append(labels, item.Label)
 	}
-	for _, want := range []string{"Enable LAN proxy", "Disable LAN proxy"} {
+	for _, want := range []string{"启用局域网代理", "关闭局域网代理"} {
 		if indexOfLabel(labels, want) < 0 {
 			t.Fatalf("WebUI and LAN menu missing %q: %#v", want, labels)
 		}
@@ -109,7 +191,7 @@ func TestNetworkTestActionPrintsProgressPrompt(t *testing.T) {
 
 	printNetworkTestProgress(&out)
 
-	if !strings.Contains(out.String(), "Testing network through 127.0.0.1:7890") {
+	if !strings.Contains(out.String(), "正在通过 127.0.0.1:7890 测试网络") {
 		t.Fatalf("missing network test progress prompt: %q", out.String())
 	}
 }
