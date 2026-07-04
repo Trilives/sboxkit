@@ -16,6 +16,9 @@ builds:
     goarch:
       - amd64
       - arm64
+      - arm
+    goarm:
+      - "7"
     flags:
       - -trimpath
     ldflags:
@@ -24,7 +27,7 @@ builds:
 archives:
   - id: default
     formats: [tar.gz]
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
     files:
       - LICENSE
       - README.md
@@ -44,7 +47,7 @@ nfpms:
     section: net
     contents:
       # sing-box 内核（GPL-3.0，见 copyright / LICENSE.sing-box）
-      - src: packaging/deps/{{ .Arch }}/sing-box
+      - src: packaging/deps/{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}/sing-box
         dst: /usr/libexec/sboxkit/sing-box
         file_info:
           mode: 0755

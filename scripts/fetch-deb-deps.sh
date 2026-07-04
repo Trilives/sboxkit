@@ -6,7 +6,7 @@
 #   dist/deps/LICENSE.sing-box         sing-box 上游许可证
 set -euo pipefail
 
-ARCHES=(${DEB_ARCHES:-amd64 arm64})
+ARCHES=(${DEB_ARCHES:-amd64 arm64 armv7})
 DEPS=packaging/deps
 mkdir -p "${DEPS}/rules"
 

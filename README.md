@@ -26,7 +26,7 @@
 从 [Releases](https://github.com/Trilives/sboxkit/releases) 下载对应架构的包：
 
 ```bash
-sudo dpkg -i sboxkit_*_linux_amd64.deb   # 或 arm64
+sudo dpkg -i sboxkit_*_linux_amd64.deb   # 或 arm64 / armv7
 sboxkit
 ```
 
@@ -153,7 +153,7 @@ sboxkit/
 │   ├── config/  txn/  …    # 定制层存取、事务回滚、路径、防火墙、代理环境变量
 ├── scripts/fetch-deb-deps.sh  # 打包前预下载 sing-box 内核与 geo 规则集种子
 ├── packaging/copyright     # .deb 第三方资产许可与归属
-└── .goreleaser.yaml        # tar.gz + .deb（amd64/arm64）发布流水线
+└── .goreleaser.yaml        # tar.gz + .deb（amd64/arm64/armv7）发布流水线
 ```
 
 架构与设计细节见 [ARCHITECTURE.md](ARCHITECTURE.md)；后续改动需遵守
