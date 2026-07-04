@@ -194,6 +194,80 @@ func TestFirstSetupKeepsStartedServiceWhenOptionalRuleUpdateFails(t *testing.T) 
 	}
 }
 
+func TestFirstSetupCanUseExistingLocalSubscription(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("SBOXKIT_ROOT", root)
+	p := paths.FromRoot(root)
+	subDir := filepath.Join(p.SubscriptionsDir, "local")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatalf("mkdir subscription: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(subDir, "meta.json"), []byte(`{
+  "name": "local",
+  "source_type": "clash",
+  "converter": "local",
+  "last_node_count": 2
+}
+`), 0o600); err != nil {
+		t.Fatalf("write meta: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(subDir, "config.json"), []byte(`{"inbounds":[],"outbounds":[]}`+"\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	var out bytes.Buffer
+	session := newTUISession(&out, &out)
+	session.pauseF = func(string) {}
+	session.selectF = func(title string, options []string, opts ui.SelectOpts) (int, error) {
+		switch title {
+		case "Language / 语言":
+			return 0, nil
+		case "Existing Subscriptions":
+			if len(options) != 1 || !strings.Contains(options[0], "local") {
+				t.Fatalf("existing subscription options = %#v", options)
+			}
+			return 0, nil
+		default:
+			t.Fatalf("unexpected select title %q", title)
+			return 0, ui.ErrCancelled
+		}
+	}
+	confirms := []bool{
+		true,  // run first setup
+		true,  // enable TUN
+		true,  // use existing subscription
+		false, // do not install service
+	}
+	session.confirmF = func(prompt string, fallback bool) (bool, error) {
+		if strings.Contains(prompt, "Import a subscription") || strings.Contains(prompt, "导入订阅") {
+			t.Fatalf("first setup should not ask for new subscription after using existing one: %q", prompt)
+		}
+		if len(confirms) == 0 {
+			t.Fatalf("unexpected confirm prompt %q", prompt)
+		}
+		next := confirms[0]
+		confirms = confirms[1:]
+		return next, nil
+	}
+
+	if quit := runTUIFirstSetup(session); quit {
+		t.Fatal("first setup should return to the menu")
+	}
+	active, err := os.ReadFile(p.ActiveFile)
+	if err != nil {
+		t.Fatalf("read active: %v", err)
+	}
+	if string(active) != "local\n" {
+		t.Fatalf("active = %q, want local", active)
+	}
+	if _, err := os.Stat(p.ConfigFile); err != nil {
+		t.Fatalf("generated config was not written: %v", err)
+	}
+	if !strings.Contains(out.String(), "Active subscription: local") {
+		t.Fatalf("expected active subscription message, got:\n%s", out.String())
+	}
+}
+
 func TestRestartConfirmationIncludesSSHRiskInSinglePrompt(t *testing.T) {
 	var out bytes.Buffer
 	session := newTUISession(&out, &out)

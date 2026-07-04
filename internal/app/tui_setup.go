@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/Trilives/sboxkit/internal/paths"
+	"github.com/Trilives/sboxkit/internal/subscription"
 )
 
 func runTUIFirstSetup(s *tuiSession) bool {
@@ -29,7 +30,11 @@ func runTUIFirstSetup(s *tuiSession) bool {
 		if code != 0 {
 			return code
 		}
-		if s.confirm(label(s.language, "Import a subscription or local file now?", "现在导入订阅或本地文件吗？"), true) {
+		handledExisting, code := s.useExistingSubscriptionDuringSetup()
+		if code != 0 {
+			return code
+		}
+		if !handledExisting && s.confirm(label(s.language, "Import a subscription or local file now?", "现在导入订阅或本地文件吗？"), true) {
 			if s.confirm(label(s.language, "Import from a URL?", "是否从链接导入？"), true) {
 				code = runTUIAddRemoteSubscriptionCommand(s)
 			} else {
@@ -48,6 +53,40 @@ func runTUIFirstSetup(s *tuiSession) bool {
 		}
 		return code
 	})(s)
+}
+
+func (s *tuiSession) useExistingSubscriptionDuringSetup() (bool, int) {
+	p := paths.FromRoot("")
+	manager := subscription.NewManager(p, loadConfigOrDefault(p.CustomizeFile))
+	subs, err := manager.List()
+	if err != nil {
+		fmt.Fprintf(s.stderr, "list subscriptions: %v\n", err)
+		return false, 0
+	}
+	if len(subs) == 0 {
+		return false, 0
+	}
+	if !s.confirm(label(s.language, "Existing local subscriptions were found. Use one now?", "检测到本地已有订阅，是否使用已有订阅？"), true) {
+		return false, 0
+	}
+	items := make([]tuiItem, len(subs))
+	for i, sub := range subs {
+		items[i] = tuiItem{
+			Label:  fmt.Sprintf("%s (%s, %d nodes)", sub.Name, sub.SourceType, sub.LastNodeCount),
+			Detail: sub.URL,
+		}
+	}
+	selected, ok := s.selectMenu(label(s.language, "Existing Subscriptions", "已有订阅"), items)
+	if !ok {
+		fmt.Fprintln(s.stdout, label(s.language, "Subscription selection cancelled.", "已取消选择订阅。"))
+		return true, 0
+	}
+	name := subs[selected].Name
+	if err := manager.Switch(name); err != nil {
+		return true, fail(s.stderr, "switch subscription: %v", err)
+	}
+	fmt.Fprintf(s.stdout, label(s.language, "Active subscription: %s\n", "当前订阅：%s\n"), name)
+	return true, 0
 }
 
 func (s *tuiSession) runFirstSetupOptionalRuleUpdate() {
