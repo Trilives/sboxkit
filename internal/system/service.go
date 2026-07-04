@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/Trilives/sboxkit/internal/paths"
 )
@@ -22,7 +23,7 @@ func NewService(p paths.Paths, runner Runner) *Service {
 }
 
 func RenderServiceUnit(p paths.Paths) string {
-	runtimeDir := p.EtcDir
+	runtimeDir := p.RuntimeLink
 	return fmt.Sprintf(`[Unit]
 Description=sboxkit Service
 Documentation=https://sing-box.sagernet.org/
@@ -42,18 +43,17 @@ CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
 
 [Install]
 WantedBy=multi-user.target
-`, runtimeDir, filepath.Join(runtimeDir, "sing-box"), filepath.Join(runtimeDir, "sboxkit.json"))
+`, runtimeDir, filepath.Join(runtimeDir, "bin", "sing-box"), filepath.Join(runtimeDir, "config.json"))
 }
 
 func (s *Service) Install(ctx context.Context, start bool) error {
 	if err := s.preflight(); err != nil {
 		return err
 	}
-	stagedConfig, err := s.stageRuntimeConfig()
+	activation, err := s.stageActivation(ctx)
 	if err != nil {
 		return err
 	}
-	defer os.Remove(stagedConfig)
 
 	if err := s.runner.Run(ctx, "mkdir", "-p", s.paths.EtcDir); err != nil {
 		return err
@@ -61,21 +61,7 @@ func (s *Service) Install(ctx context.Context, start bool) error {
 	if err := s.runner.Run(ctx, "chmod", "0755", s.paths.EtcDir); err != nil {
 		return err
 	}
-	core, err := s.singBoxSource()
-	if err != nil {
-		return err
-	}
-	if err := s.runner.Run(ctx, "install", "-m", "0755", core, filepath.Join(s.paths.EtcDir, "sing-box")); err != nil {
-		return err
-	}
-	if err := s.syncRuntimeAssets(ctx); err != nil {
-		return err
-	}
-	runtimeConfig := filepath.Join(s.paths.EtcDir, "sboxkit.json")
-	if err := s.runner.Run(ctx, "install", "-m", "0644", stagedConfig, runtimeConfig); err != nil {
-		return err
-	}
-	if err := s.runner.Run(ctx, filepath.Join(s.paths.EtcDir, "sing-box"), "check", "-c", runtimeConfig); err != nil {
+	if err := s.activate(ctx, activation); err != nil {
 		return err
 	}
 
@@ -103,19 +89,11 @@ func (s *Service) SyncAndRestart(ctx context.Context) error {
 	if err := s.preflight(); err != nil {
 		return err
 	}
-	stagedConfig, err := s.stageRuntimeConfig()
+	activation, err := s.stageActivation(ctx)
 	if err != nil {
 		return err
 	}
-	defer os.Remove(stagedConfig)
-	if err := s.syncRuntimeAssets(ctx); err != nil {
-		return err
-	}
-	runtimeConfig := filepath.Join(s.paths.EtcDir, "sboxkit.json")
-	if err := s.runner.Run(ctx, "install", "-m", "0644", stagedConfig, runtimeConfig); err != nil {
-		return err
-	}
-	if err := s.runner.Run(ctx, filepath.Join(s.paths.EtcDir, "sing-box"), "check", "-c", runtimeConfig); err != nil {
+	if err := s.activate(ctx, activation); err != nil {
 		return err
 	}
 	return s.runner.Run(ctx, "systemctl", "restart", "sboxkit.service")
@@ -130,7 +108,7 @@ func (s *Service) Remove(ctx context.Context, purgeRuntime bool) error {
 	_ = s.runner.Run(ctx, "systemctl", "daemon-reload")
 	_ = s.runner.Run(ctx, "systemctl", "reset-failed", "sboxkit.service")
 	if purgeRuntime {
-		if err := s.runner.Run(ctx, "rm", "-rf", s.paths.EtcDir); err != nil {
+		if err := s.runner.Run(ctx, "rm", "-rf", s.paths.Root, s.paths.EtcDir, filepath.Dir(s.paths.DownloadsDir), filepath.Dir(s.paths.OperationLock)); err != nil {
 			return err
 		}
 	}
@@ -149,26 +127,79 @@ func (s *Service) Stop(ctx context.Context) error {
 	return s.runner.Run(ctx, "systemctl", "stop", "sboxkit.service")
 }
 
-func (s *Service) syncRuntimeAssets(ctx context.Context) error {
-	if err := s.runner.Run(ctx, "mkdir", "-p", filepath.Join(s.paths.EtcDir, "ruleset")); err != nil {
-		return err
+func (s *Service) stageActivation(ctx context.Context) (string, error) {
+	revision := time.Now().UTC().Format("20060102T150405.000000000Z")
+	activation := filepath.Join(s.paths.ActivationsDir, revision)
+	if err := s.runner.Run(ctx, "mkdir", "-p", activation, filepath.Join(activation, "bin"), filepath.Join(activation, "ruleset"), filepath.Join(activation, "ui")); err != nil {
+		return "", err
+	}
+	core, err := s.singBoxSource()
+	if err != nil {
+		return "", err
+	}
+	if err := s.runner.Run(ctx, "install", "-m", "0755", core, filepath.Join(activation, "bin", "sing-box")); err != nil {
+		return "", err
+	}
+	stagedConfig, err := s.stageRuntimeConfig(revision)
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(stagedConfig)
+	runtimeConfig := filepath.Join(activation, "config.json")
+	if err := s.runner.Run(ctx, "install", "-m", "0644", stagedConfig, runtimeConfig); err != nil {
+		return "", err
 	}
 	for _, rule := range []string{s.paths.GeositeCN, s.paths.GeoIPCN} {
 		if _, err := os.Stat(rule); err == nil {
-			if err := s.runner.Run(ctx, "install", "-m", "0644", rule, filepath.Join(s.paths.EtcDir, "ruleset", filepath.Base(rule))); err != nil {
-				return err
+			if err := s.runner.Run(ctx, "install", "-m", "0644", rule, filepath.Join(activation, "ruleset", filepath.Base(rule))); err != nil {
+				return "", err
 			}
 		}
 	}
-	if _, err := os.Stat(s.paths.UIDir); err == nil {
-		if err := s.runner.Run(ctx, "rm", "-rf", filepath.Join(s.paths.EtcDir, "ui")); err != nil {
-			return err
-		}
-		if err := s.runner.Run(ctx, "cp", "-a", s.paths.UIDir, filepath.Join(s.paths.EtcDir, "ui")); err != nil {
-			return err
+	uiSource := s.uiSource()
+	if uiSource != "" {
+		if err := s.runner.Run(ctx, "cp", "-a", uiSource+"/.", filepath.Join(activation, "ui")); err != nil {
+			return "", err
 		}
 	}
+	manifest, err := s.writeActivationManifest(revision, core)
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(manifest)
+	if err := s.runner.Run(ctx, "install", "-m", "0644", manifest, filepath.Join(activation, "manifest.json")); err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(filepath.Join(s.paths.StateDir, "healthcheck.sh")); err == nil {
+		if err := s.runner.Run(ctx, "install", "-m", "0755", filepath.Join(s.paths.StateDir, "healthcheck.sh"), filepath.Join(activation, "healthcheck.sh")); err != nil {
+			return "", err
+		}
+	}
+	if err := s.runner.Run(ctx, filepath.Join(activation, "bin", "sing-box"), "check", "-c", runtimeConfig); err != nil {
+		return "", err
+	}
+	return activation, nil
+}
+
+func (s *Service) activate(ctx context.Context, activation string) error {
+	tmpLink := s.paths.RuntimeLink + ".next"
+	if err := s.runner.Run(ctx, "ln", "-sfn", activation, tmpLink); err != nil {
+		return err
+	}
+	if err := s.runner.Run(ctx, "mv", "-Tf", tmpLink, s.paths.RuntimeLink); err != nil {
+		return err
+	}
 	return nil
+}
+
+func (s *Service) uiSource() string {
+	if _, err := os.Stat(s.paths.UIDir); err == nil {
+		return s.paths.UIDir
+	}
+	if _, err := os.Stat(s.paths.SystemUIDir); err == nil {
+		return s.paths.SystemUIDir
+	}
+	return ""
 }
 
 func (s *Service) preflight() error {
@@ -189,7 +220,7 @@ func (s *Service) singBoxSource() (string, error) {
 	return "", fmt.Errorf("required sing-box core missing; expected %s or %s", s.paths.SingBoxBin, s.paths.SystemSingBoxBin)
 }
 
-func (s *Service) stageRuntimeConfig() (string, error) {
+func (s *Service) stageRuntimeConfig(revision string) (string, error) {
 	data, err := os.ReadFile(s.paths.ConfigFile)
 	if err != nil {
 		return "", err
@@ -198,7 +229,8 @@ func (s *Service) stageRuntimeConfig() (string, error) {
 	if err := json.Unmarshal(data, &doc); err != nil {
 		return "", err
 	}
-	rewriteRuntimePaths(doc, s.paths)
+	activation := filepath.Join(s.paths.ActivationsDir, revision)
+	rewriteRuntimePaths(doc, s.paths, activation)
 
 	if err := os.MkdirAll(s.paths.StateDir, 0o755); err != nil {
 		return "", err
@@ -220,7 +252,36 @@ func (s *Service) stageRuntimeConfig() (string, error) {
 	return tmp.Name(), nil
 }
 
-func rewriteRuntimePaths(doc map[string]any, p paths.Paths) {
+func (s *Service) writeActivationManifest(revision string, core string) (string, error) {
+	manifest := map[string]any{
+		"revision":     revision,
+		"created_at":   time.Now().UTC().Format(time.RFC3339),
+		"sing_box":     core,
+		"config":       s.paths.ConfigFile,
+		"state_root":   s.paths.Root,
+		"cache_db":     s.paths.SingBoxCacheDB,
+		"admin_config": s.paths.AdminConfigFile,
+	}
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(s.paths.StateDir, 0o755); err != nil {
+		return "", err
+	}
+	tmp, err := os.CreateTemp(s.paths.StateDir, ".activation-manifest-*.json")
+	if err != nil {
+		return "", err
+	}
+	defer tmp.Close()
+	if _, err := tmp.Write(append(data, '\n')); err != nil {
+		os.Remove(tmp.Name())
+		return "", err
+	}
+	return tmp.Name(), nil
+}
+
+func rewriteRuntimePaths(doc map[string]any, p paths.Paths, activation string) {
 	exp, _ := doc["experimental"].(map[string]any)
 	if exp == nil {
 		exp = map[string]any{}
@@ -232,9 +293,9 @@ func rewriteRuntimePaths(doc map[string]any, p paths.Paths) {
 		exp["cache_file"] = cache
 	}
 	cache["enabled"] = true
-	cache["path"] = filepath.Join(p.EtcDir, "sboxkit.cache.db")
+	cache["path"] = p.SingBoxCacheDB
 	if clash, ok := exp["clash_api"].(map[string]any); ok {
-		clash["external_ui"] = filepath.Join(p.EtcDir, "ui")
+		clash["external_ui"] = filepath.Join(activation, "ui")
 	}
 	if route, ok := doc["route"].(map[string]any); ok {
 		if ruleSets, ok := route["rule_set"].([]any); ok {
@@ -244,7 +305,7 @@ func rewriteRuntimePaths(doc map[string]any, p paths.Paths) {
 					continue
 				}
 				if pathText, ok := rule["path"].(string); ok && pathText != "" {
-					rule["path"] = filepath.Join(p.EtcDir, "ruleset", filepath.Base(pathText))
+					rule["path"] = filepath.Join(activation, "ruleset", filepath.Base(pathText))
 				}
 			}
 		}

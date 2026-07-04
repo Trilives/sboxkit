@@ -21,6 +21,24 @@ func TestFromRootBuildsExpectedLayout(t *testing.T) {
 	if p.LogDir != filepath.Join(root, "state", "logs") {
 		t.Fatalf("unexpected log dir %q", p.LogDir)
 	}
+	if p.DownloadsDir != filepath.Join(root, "cache", "downloads") {
+		t.Fatalf("unexpected downloads dir %q", p.DownloadsDir)
+	}
+	if p.ActivationsDir != filepath.Join(root, "activations") {
+		t.Fatalf("unexpected activations dir %q", p.ActivationsDir)
+	}
+	if p.RuntimeLink != filepath.Join(root, "runtime") {
+		t.Fatalf("unexpected runtime link %q", p.RuntimeLink)
+	}
+	if p.SingBoxCacheDB != filepath.Join(root, "sing-box", "cache.db") {
+		t.Fatalf("unexpected sing-box cache %q", p.SingBoxCacheDB)
+	}
+	if p.OperationLock != filepath.Join(root, "run", "operation.lock") {
+		t.Fatalf("unexpected operation lock %q", p.OperationLock)
+	}
+	if p.AdminConfigFile != "/etc/sboxkit/config.json" {
+		t.Fatalf("unexpected admin config path %q", p.AdminConfigFile)
+	}
 	if p.EtcDir != "/etc/sboxkit" {
 		t.Fatalf("unexpected etc dir %q", p.EtcDir)
 	}
@@ -44,6 +62,8 @@ func TestEnsureStateDirsCreatesRuntimeDirectories(t *testing.T) {
 		p.DownloadsDir,
 		p.SubscriptionsDir,
 		p.LogDir,
+		p.ActivationsDir,
+		p.SingBoxDir,
 	} {
 		if !isDir(dir) {
 			t.Fatalf("expected directory %s", dir)
@@ -51,16 +71,22 @@ func TestEnsureStateDirsCreatesRuntimeDirectories(t *testing.T) {
 	}
 }
 
-func TestDefaultRootUsesXDGStateHome(t *testing.T) {
+func TestDefaultRootUsesVarLibByDefault(t *testing.T) {
 	t.Setenv("SBOXKIT_ROOT", "")
-	xdg := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", xdg)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 
-	if got := DefaultRoot(); got != filepath.Join(xdg, "sboxkit") {
+	if got := DefaultRoot(); got != "/var/lib/sboxkit" {
 		t.Fatalf("unexpected default root %q", got)
 	}
-	if got := FromRoot("").Root; got != filepath.Join(xdg, "sboxkit") {
+	if got := FromRoot("").Root; got != "/var/lib/sboxkit" {
 		t.Fatalf("unexpected FromRoot default %q", got)
+	}
+	p := FromRoot("")
+	if p.DownloadsDir != "/var/cache/sboxkit/downloads" {
+		t.Fatalf("unexpected default downloads dir %q", p.DownloadsDir)
+	}
+	if p.OperationLock != "/run/sboxkit/operation.lock" {
+		t.Fatalf("unexpected default operation lock %q", p.OperationLock)
 	}
 }
 

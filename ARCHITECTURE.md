@@ -36,33 +36,29 @@ User state uses a stable root and never follows the shell's current working
 directory. Resolution order:
 
 1. `SBOXKIT_ROOT`
-2. `$XDG_STATE_HOME/sboxkit`
-3. `~/.local/state/sboxkit`
+2. `/var/lib/sboxkit`
 
-State layout under that root:
-
-```text
-state/
-├── active
-├── config.json
-├── customize.json
-├── bin/
-├── downloads/
-├── ruleset/
-├── subscriptions/
-└── ui/
-```
-
-Installed system runtime:
+Layout:
 
 ```text
+/usr/bin/sboxkit
+/usr/lib/sboxkit/sing-box
+/usr/share/sboxkit/ui/
+
 /etc/sboxkit/
-├── sing-box
-├── sboxkit.json
-├── sboxkit.cache.db
-├── ruleset/
-├── ui/
-└── healthcheck.sh
+└── config.json                  # optional admin-level settings
+
+/var/lib/sboxkit/
+├── state/
+├── activations/<revision>/
+├── runtime -> activations/<revision>
+└── sing-box/cache.db
+
+/var/cache/sboxkit/
+├── downloads/
+└── self-update/
+
+/run/sboxkit/operation.lock
 ```
 
 ## Design Boundaries
@@ -70,21 +66,27 @@ Installed system runtime:
 - All system mutations go through `internal/system.Runner`, so tests can use fake
   runners instead of executing `systemctl`, `install`, or firewall commands.
 - Subscription conversion is local by default for Clash and sing-box sources.
+  Local YAML/JSON files are always copied into the state directory and passed
+  through the converter; passthrough remains available only for remote sing-box
+  sources.
 - Base64 uses a subconverter backend first because arbitrary share-link parsing is
   broad and error-prone; local fallback is intentionally limited.
 - Release artifacts may include the upstream sing-box core as a separate
   executable. Web UI files, rule sets, subscriptions, and subconverter software
   are kept out of the repository and Debian package.
 - The Debian package installs `/usr/bin/sboxkit`, the minimal
-  bootstrap rules at `/usr/share/sboxkit/base-rules/minimal.json`, a packaged
-  `sboxkit.service`, and the independent upstream
-  core at `/usr/lib/sboxkit/sing-box`.
-- Service installation copies the selected core into `/etc/sboxkit/sing-box`.
-  A user-updated `state/bin/sing-box` takes precedence over the packaged core.
-- Web UI files, rule sets, subscriptions, and subconverter software are not
-  bundled. They remain runtime downloads governed by their upstream licenses.
-- The managed service is `sboxkit.service`, with runtime files under
-  `/etc/sboxkit`.
+  bootstrap rules at `/usr/share/sboxkit/base-rules/minimal.json`, the embedded
+  WebUI at `/usr/share/sboxkit/ui`, a packaged `sboxkit.service`, and the
+  independent upstream core at `/usr/lib/sboxkit/sing-box`.
+- Service installation creates a new `/var/lib/sboxkit/activations/<revision>`
+  directory containing the selected core, generated config, rulesets, UI, and
+  manifest. A user-updated `state/bin/sing-box` takes precedence over the
+  packaged core.
+- `sboxkit.service` starts `/var/lib/sboxkit/runtime/bin/sing-box`, where
+  `runtime` is a symlink to the active activation. The link is switched only
+  after `sing-box check` passes.
+- Large rule sets, subscriptions, and subconverter software are not bundled.
+  They remain runtime downloads governed by their upstream licenses.
 
 ## First-Run Bootstrap
 
@@ -99,14 +101,16 @@ The runtime deliberately has two phases:
    http://127.0.0.1:7890 --sync-service`. This downloads large rule-set assets
    through the running proxy, rebuilds the active
    subscription config so local `rule_set` entries are enabled, copies the
-   assets into `/etc/sboxkit`, checks the runtime config, and restarts the
-   service.
+   assets into a new activation, checks the runtime config, switches
+   `/var/lib/sboxkit/runtime`, and restarts the service.
 
 The sing-box WebUI is project-owned and optional. When `lan_panel` is enabled,
 `sboxkit` writes embedded UI files into `state/ui`, generated configs set
-`experimental.clash_api.external_ui`, and service sync copies those files to
-`/etc/sboxkit/ui`. The UI uses same-origin Clash API calls for runtime status
-and selector switching; it does not download third-party dashboards.
+`experimental.clash_api.external_ui`, and service sync copies those files into
+the next activation. If state UI files are absent, packaged UI files from
+`/usr/share/sboxkit/ui` are used. The UI uses same-origin Clash API calls for
+runtime status and selector switching; it does not download third-party
+dashboards.
 
 ## Verification
 

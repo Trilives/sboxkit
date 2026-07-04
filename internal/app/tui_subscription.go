@@ -30,8 +30,8 @@ func subscriptionTUIItemsFor(lang uiLanguage) []tuiItem {
 			}
 			return args, true
 		}, runSub)},
-		{label(lang, "Add Remote URL", "添加远程链接"), label(lang, "Import a Clash, sing-box, or base64 subscription URL", "导入 Clash、sing-box 或 base64 订阅链接"), runTUIAddRemoteSubscription},
-		{label(lang, "Add Local Config", "添加本地配置"), label(lang, "Copy config.yaml/json into the fixed state directory", "将 config.yaml/json 复制到固定状态目录"), runTUIAddLocalConfig},
+		{label(lang, "Add Subscription", "添加订阅"), label(lang, "Import a remote URL or a local file as a saved subscription", "将远程链接或本地文件导入为保存的订阅"), runTUIAddSubscription},
+		{label(lang, "Overwrite Current From Local File", "用本地文件覆盖当前配置"), label(lang, "Copy a local yaml/json file into the active subscription slot", "将本地 yaml/json 文件复制并切换为当前订阅"), runTUIOverwriteCurrentFromLocalFile},
 		{label(lang, "List Subscriptions", "查看订阅"), label(lang, "Show saved subscriptions and node counts", "显示已保存的订阅和节点数量"), commandAction(label(lang, "List Subscriptions", "查看订阅"), func(s *tuiSession) int {
 			return runSub([]string{"list"}, s.stdout, s.stderr)
 		})},
@@ -50,6 +50,31 @@ func subscriptionTUIItemsFor(lang uiLanguage) []tuiItem {
 			return []string{"remove", "--name", name}, true
 		}, runSub)},
 	}
+}
+
+func runTUIAddSubscription(s *tuiSession) bool {
+	return commandAction(label(s.language, "Add Subscription", "添加订阅"), runTUIAddSubscriptionCommand)(s)
+}
+
+func runTUIAddSubscriptionCommand(s *tuiSession) int {
+	args, ok := s.buildAddSubscriptionArgs()
+	if !ok {
+		fmt.Fprintln(s.stdout, "已取消。")
+		return 0
+	}
+	fmt.Fprintln(s.stdout)
+	return runSub(args, s.stdout, s.stderr)
+}
+
+func (s *tuiSession) buildAddSubscriptionArgs() ([]string, bool) {
+	source, ok := s.promptDefaultOK(label(s.language, "Source type (clash, sing-box, base64, local-file)", "来源类型（clash、sing-box、base64、local-file）"), "clash")
+	if !ok {
+		return nil, false
+	}
+	if source == "local-file" || source == "local" || source == "file" {
+		return s.buildLocalFileSubscriptionArgs(false)
+	}
+	return s.buildRemoteSubscriptionArgsWithSource(source)
 }
 
 func runTUIAddRemoteSubscription(s *tuiSession) bool {
@@ -71,6 +96,10 @@ func (s *tuiSession) buildRemoteSubscriptionArgs() ([]string, bool) {
 	if !ok {
 		return nil, false
 	}
+	return s.buildRemoteSubscriptionArgsWithSource(source)
+}
+
+func (s *tuiSession) buildRemoteSubscriptionArgsWithSource(source string) ([]string, bool) {
 	name, ok := s.promptDefaultOK("名称", "main")
 	if !ok {
 		return nil, false
@@ -98,31 +127,56 @@ func runTUIAddLocalConfig(s *tuiSession) bool {
 }
 
 func runTUIAddLocalConfigCommand(s *tuiSession) int {
-	name, ok := s.promptDefaultOK("名称", "local")
+	args, ok := s.buildLocalFileSubscriptionArgs(false)
 	if !ok {
 		fmt.Fprintln(s.stdout, "已取消。")
 		return 0
+	}
+	fmt.Fprintln(s.stdout)
+	return runSub(args, s.stdout, s.stderr)
+}
+
+func runTUIOverwriteCurrentFromLocalFile(s *tuiSession) bool {
+	return commandAction(label(s.language, "Overwrite Current From Local File", "用本地文件覆盖当前配置"), func(s *tuiSession) int {
+		args, ok := s.buildLocalFileSubscriptionArgs(true)
+		if !ok {
+			fmt.Fprintln(s.stdout, "已取消。")
+			return 0
+		}
+		fmt.Fprintln(s.stdout)
+		return runSub(args, s.stdout, s.stderr)
+	})(s)
+}
+
+func (s *tuiSession) buildLocalFileSubscriptionArgs(overwrite bool) ([]string, bool) {
+	name := "local"
+	if overwrite {
+		name = "local-overwrite"
+	} else {
+		var ok bool
+		name, ok = s.promptDefaultOK("名称", "local")
+		if !ok {
+			return nil, false
+		}
 	}
 	filePath, ok := s.promptRequired("配置文件路径")
 	if !ok {
-		fmt.Fprintln(s.stdout, "已取消。")
-		return 0
+		return nil, false
 	}
-	args := []string{"add", "--name", name, "--file", filePath}
+	command := "add"
+	if overwrite {
+		command = "overwrite-local"
+	}
+	args := []string{command, "--name", name, "--file", filePath}
 	source, ok := s.promptDefaultOK("来源覆盖（clash、sing-box、base64，留空自动识别）", "")
 	if !ok {
-		fmt.Fprintln(s.stdout, "已取消。")
-		return 0
+		return nil, false
 	}
 	if source != "" {
 		args = append(args, "--source", source)
 	}
-	if s.confirm("是否将 sing-box 配置原样透传？", false) {
-		args = append(args, "--passthrough")
-	}
-	if !s.confirm("是否设为当前订阅？", true) {
+	if !overwrite && !s.confirm("是否设为当前订阅？", true) {
 		args = append(args, "--no-active")
 	}
-	fmt.Fprintln(s.stdout)
-	return runSub(args, s.stdout, s.stderr)
+	return args, true
 }

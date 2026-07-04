@@ -28,6 +28,12 @@ Copyright: 2026 Trilives
 License: MIT
  The minimal bootstrap rules are package data maintained by this project.
 
+Files: usr/share/sboxkit/ui/*
+Copyright: 2026 Trilives
+License: MIT
+ The WebUI static assets are maintained by this project and do not include
+ third-party dashboard code.
+
 Files: usr/lib/sboxkit/sing-box
 Copyright: 2022 nekohasekai and SagerNet/sing-box contributors
 License: GPL-3.0-or-later

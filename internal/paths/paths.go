@@ -17,11 +17,18 @@ type Paths struct {
 	DownloadsDir     string
 	LogDir           string
 	SubscriptionsDir string
+	ActivationsDir   string
+	RuntimeLink      string
+	SingBoxDir       string
+	SingBoxCacheDB   string
+	OperationLock    string
 	ActiveFile       string
 	ConfigFile       string
 	CustomizeFile    string
 	EtcDir           string
+	AdminConfigFile  string
 	SystemSingBoxBin string
+	SystemUIDir      string
 	GeositeCN        string
 	GeoIPCN          string
 }
@@ -34,6 +41,13 @@ func FromRoot(root string) Paths {
 	state := filepath.Join(root, "state")
 	bin := filepath.Join(state, "bin")
 	ruleset := filepath.Join(state, "ruleset")
+	cacheRoot := filepath.Join(root, "cache")
+	runRoot := filepath.Join(root, "run")
+	if root == "/var/lib/sboxkit" {
+		cacheRoot = "/var/cache/sboxkit"
+		runRoot = "/run/sboxkit"
+	}
+	singBox := filepath.Join(root, "sing-box")
 
 	return Paths{
 		Root:             root,
@@ -44,14 +58,21 @@ func FromRoot(root string) Paths {
 		SingBoxVersion:   filepath.Join(bin, "sing-box.version"),
 		UIDir:            filepath.Join(state, "ui"),
 		RulesetDir:       ruleset,
-		DownloadsDir:     filepath.Join(state, "downloads"),
+		DownloadsDir:     filepath.Join(cacheRoot, "downloads"),
 		LogDir:           filepath.Join(state, "logs"),
 		SubscriptionsDir: filepath.Join(state, "subscriptions"),
+		ActivationsDir:   filepath.Join(root, "activations"),
+		RuntimeLink:      filepath.Join(root, "runtime"),
+		SingBoxDir:       singBox,
+		SingBoxCacheDB:   filepath.Join(singBox, "cache.db"),
+		OperationLock:    filepath.Join(runRoot, "operation.lock"),
 		ActiveFile:       filepath.Join(state, "active"),
 		ConfigFile:       filepath.Join(state, "config.json"),
 		CustomizeFile:    filepath.Join(state, "customize.json"),
 		EtcDir:           "/etc/sboxkit",
+		AdminConfigFile:  "/etc/sboxkit/config.json",
 		SystemSingBoxBin: "/usr/lib/sboxkit/sing-box",
+		SystemUIDir:      "/usr/share/sboxkit/ui",
 		GeositeCN:        filepath.Join(ruleset, "geosite-cn.srs"),
 		GeoIPCN:          filepath.Join(ruleset, "geoip-cn.srs"),
 	}
@@ -61,13 +82,7 @@ func DefaultRoot() string {
 	if value := os.Getenv("SBOXKIT_ROOT"); value != "" {
 		return value
 	}
-	if value := os.Getenv("XDG_STATE_HOME"); value != "" {
-		return filepath.Join(value, "sboxkit")
-	}
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		return filepath.Join(home, ".local", "state", "sboxkit")
-	}
-	return filepath.Join(os.TempDir(), "sboxkit")
+	return "/var/lib/sboxkit"
 }
 
 func (p Paths) EnsureStateDirs() error {
@@ -79,6 +94,9 @@ func (p Paths) EnsureStateDirs() error {
 		p.DownloadsDir,
 		p.LogDir,
 		p.SubscriptionsDir,
+		p.ActivationsDir,
+		p.SingBoxDir,
+		filepath.Dir(p.OperationLock),
 	} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err

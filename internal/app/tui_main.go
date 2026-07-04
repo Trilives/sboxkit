@@ -33,7 +33,7 @@ func noRestartTUIItemsFor(lang uiLanguage) []tuiItem {
 func restartRequiredTUIItemsFor(lang uiLanguage) []tuiItem {
 	return []tuiItem{
 		{label(lang, "First Setup", "首次初始化"), label(lang, "Initialize state, import a subscription, and optionally install the service", "初始化状态、导入订阅，并可选安装服务"), runTUIFirstSetup},
-		{label(lang, "Subscriptions", "订阅"), label(lang, "Add, view, switch, refresh, rebuild, or remove subscriptions and local configs", "添加、查看、切换、刷新、重建或移除订阅与本地配置"), submenu(label(lang, "Subscriptions", "订阅"), func() []tuiItem { return subscriptionTUIItemsFor(lang) })},
+		{label(lang, "Subscriptions", "订阅"), label(lang, "Add, view, switch, refresh, rebuild, or remove subscriptions and local-file overwrites", "添加、查看、切换、刷新、重建或移除订阅与本地文件覆盖"), submenu(label(lang, "Subscriptions", "订阅"), func() []tuiItem { return subscriptionTUIItemsFor(lang) })},
 		{label(lang, "Custom Config", "定制配置"), label(lang, "Edit customize.json; changes usually need service sync/restart", "编辑 customize.json，通常需要同步并重启服务"), submenu(label(lang, "Custom Config", "定制配置"), func() []tuiItem { return configTUIItemsFor(lang) })},
 		{label(lang, "Runtime Assets", "运行时资源"), label(lang, "Download optional rules or update the core cache", "下载可选规则或更新内核缓存"), submenu(label(lang, "Runtime Assets", "运行时资源"), func() []tuiItem { return updateTUIItemsFor(lang) })},
 		{label(lang, "Timers and Recovery", "定时任务与恢复"), label(lang, "Weekly update timers and network recovery watchdog", "每周更新定时器和网络恢复守护"), submenu(label(lang, "Timers and Recovery", "定时任务与恢复"), func() []tuiItem { return timerTUIItemsFor(lang) })},

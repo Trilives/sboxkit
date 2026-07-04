@@ -64,7 +64,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	response := map[string]any{
 		"service": "sboxkit",
 		"state":   s.paths.StateDir,
-		"runtime": s.paths.EtcDir,
+		"runtime": s.paths.RuntimeLink,
 		"active":  nil,
 	}
 	if active != nil {

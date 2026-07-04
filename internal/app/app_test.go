@@ -137,22 +137,89 @@ func TestInitNoTunCanWriteProxyEnvironment(t *testing.T) {
 }
 
 func TestInitDefaultsToStableStateRoot(t *testing.T) {
-	xdg := t.TempDir()
 	t.Setenv("SBOXKIT_ROOT", "")
-	t.Setenv("XDG_STATE_HOME", xdg)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 
-	var stdout bytes.Buffer
-	code := Run([]string{"init"}, &stdout, &bytes.Buffer{})
+	root, _ := parseRoot(nil)
+	if root != "/var/lib/sboxkit" {
+		t.Fatalf("expected default root /var/lib/sboxkit, got %q", root)
+	}
+}
+
+func TestSubAddLocalSingBoxFileAlwaysUsesConverter(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(t.TempDir(), "config.json")
+	raw := `{
+  "outbounds": [
+    {"type": "shadowsocks", "tag": "local-node", "server": "127.0.0.1", "server_port": 8388, "method": "2022-blake3-aes-128-gcm", "password": "secret"}
+  ]
+}`
+	if err := os.WriteFile(source, []byte(raw), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"sub", "add",
+		"--root", root,
+		"--name", "file-json",
+		"--file", source,
+		"--source", "sing-box",
+		"--passthrough",
+	}, &stdout, &stderr)
 	if code != 0 {
-		t.Fatalf("expected init exit code 0, got %d", code)
+		t.Fatalf("expected sub add exit code 0, got %d, stderr=%s", code, stderr.String())
 	}
 
-	want := filepath.Join(xdg, "sboxkit", "state", "customize.json")
-	if _, err := os.Stat(want); err != nil {
-		t.Fatalf("expected customize at stable root %s: %v", want, err)
+	data, err := os.ReadFile(filepath.Join(root, "state", "subscriptions", "file-json", "config.json"))
+	if err != nil {
+		t.Fatalf("read generated config: %v", err)
 	}
-	if !strings.Contains(stdout.String(), filepath.Join(xdg, "sboxkit", "state")) {
-		t.Fatalf("expected stable state dir in output, got %q", stdout.String())
+	text := string(data)
+	if strings.Contains(text, `"tag": "local-node"`) && !strings.Contains(text, `"tag": "Proxy"`) {
+		t.Fatalf("local sing-box file was passed through instead of converted:\n%s", text)
+	}
+	if !strings.Contains(text, `"tag": "Proxy"`) {
+		t.Fatalf("converted config should contain generated Proxy selector:\n%s", text)
+	}
+}
+
+func TestSubOverwriteLocalCanReplaceExistingLocalSlot(t *testing.T) {
+	root := t.TempDir()
+	first := filepath.Join(t.TempDir(), "first.yaml")
+	second := filepath.Join(t.TempDir(), "second.yaml")
+	if err := os.WriteFile(first, []byte(`proxies:
+  - {name: "first", type: ss, server: "127.0.0.1", port: 8388, cipher: "aes-128-gcm", password: "secret"}
+`), 0o600); err != nil {
+		t.Fatalf("write first: %v", err)
+	}
+	if err := os.WriteFile(second, []byte(`proxies:
+  - {name: "second", type: ss, server: "127.0.0.2", port: 8388, cipher: "aes-128-gcm", password: "secret"}
+`), 0o600); err != nil {
+		t.Fatalf("write second: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"sub", "overwrite-local", "--root", root, "--file", first}, &stdout, &stderr); code != 0 {
+		t.Fatalf("first overwrite = %d, stderr=%s", code, stderr.String())
+	}
+	if code := Run([]string{"sub", "overwrite-local", "--root", root, "--file", second}, &stdout, &stderr); code != 0 {
+		t.Fatalf("second overwrite = %d, stderr=%s", code, stderr.String())
+	}
+
+	data, err := os.ReadFile(filepath.Join(root, "state", "subscriptions", "local-overwrite", "raw.yaml"))
+	if err != nil {
+		t.Fatalf("read overwritten raw: %v", err)
+	}
+	if !strings.Contains(string(data), "second") || strings.Contains(string(data), "first") {
+		t.Fatalf("local overwrite slot was not replaced:\n%s", data)
+	}
+	active, err := os.ReadFile(filepath.Join(root, "state", "active"))
+	if err != nil {
+		t.Fatalf("read active: %v", err)
+	}
+	if string(active) != "local-overwrite\n" {
+		t.Fatalf("active = %q, want local-overwrite", active)
 	}
 }
 

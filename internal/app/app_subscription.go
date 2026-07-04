@@ -11,7 +11,7 @@ import (
 
 func runSub(args []string, stdout io.Writer, stderr io.Writer) int {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
-		fmt.Fprintln(stdout, "Usage: sboxkit sub [add|list|switch|remove|refresh|rebuild] [--url URL|--file PATH] [--proxy URL] [options]")
+		fmt.Fprintln(stdout, "Usage: sboxkit sub [add|overwrite-local|list|switch|remove|refresh|rebuild] [--url URL|--file PATH] [--proxy URL] [options]")
 		return 0
 	}
 	root, rest := parseRoot(args[1:])
@@ -24,6 +24,8 @@ func runSub(args []string, stdout io.Writer, stderr io.Writer) int {
 	switch args[0] {
 	case "add":
 		return runSubAdd(manager, p, cfg, rest, stdout, stderr)
+	case "overwrite-local":
+		return runSubOverwriteLocal(manager, rest, stdout, stderr)
 	case "list":
 		return runSubList(manager, stdout, stderr)
 	case "switch":
@@ -37,6 +39,24 @@ func runSub(args []string, stdout io.Writer, stderr io.Writer) int {
 	default:
 		return fail(stderr, "unknown sub command: %s", args[0])
 	}
+}
+
+func runSubOverwriteLocal(manager *subscription.Manager, rest []string, stdout io.Writer, stderr io.Writer) int {
+	name := valueFlag(rest, "--name", "local-overwrite")
+	filePath := valueFlag(rest, "--file", "")
+	source := subscription.SourceKind(valueFlag(rest, "--source", ""))
+	if filePath == "" {
+		return fail(stderr, "--file is required")
+	}
+	if err := manager.Remove(name); err != nil {
+		return fail(stderr, "remove previous local overwrite: %v", err)
+	}
+	sub, err := manager.AddFile(name, filePath, source, true, true)
+	if err != nil {
+		return fail(stderr, "overwrite local config: %v", err)
+	}
+	fmt.Fprintf(stdout, "local file %s applied as current config: %d nodes\n", sub.Name, sub.LastNodeCount)
+	return 0
 }
 
 func runSubAdd(manager *subscription.Manager, p paths.Paths, cfg config.Config, rest []string, stdout io.Writer, stderr io.Writer) int {
@@ -58,7 +78,7 @@ func runSubAdd(manager *subscription.Manager, p paths.Paths, cfg config.Config, 
 		return fail(stderr, "--url and --file cannot be used together")
 	}
 	if filePath != "" {
-		sub, err := manager.AddFile(name, filePath, source, !hasFlag(rest, "--passthrough"), !hasFlag(rest, "--no-active"))
+		sub, err := manager.AddFile(name, filePath, source, true, !hasFlag(rest, "--no-active"))
 		if err != nil {
 			return fail(stderr, "add config file: %v", err)
 		}

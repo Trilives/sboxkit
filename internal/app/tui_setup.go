@@ -3,7 +3,6 @@ package app
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/Trilives/sboxkit/internal/paths"
 )
@@ -30,7 +29,7 @@ func runTUIFirstSetup(s *tuiSession) bool {
 		if code != 0 {
 			return code
 		}
-		if s.confirm(label(s.language, "Import a subscription or local config now?", "现在导入订阅或本地配置吗？"), true) {
+		if s.confirm(label(s.language, "Import a subscription or local file now?", "现在导入订阅或本地文件吗？"), true) {
 			if s.confirm(label(s.language, "Import from a URL?", "是否从链接导入？"), true) {
 				code = runTUIAddRemoteSubscriptionCommand(s)
 			} else {
@@ -88,8 +87,7 @@ func defaultServiceIntegrationMarkers() []string {
 	p := paths.FromRoot("")
 	return []string{
 		"/etc/systemd/system/sboxkit.service",
-		filepath.Join(p.EtcDir, "sboxkit.json"),
-		filepath.Join(p.EtcDir, "sing-box"),
+		p.RuntimeLink,
 	}
 }
 

@@ -49,10 +49,10 @@ sboxkit sub add --name main --source clash --url "https://example.com/sub.yaml"
 sboxkit sub add --name remote --source sing-box --url "https://example.com/config.json"
 sboxkit sub add --name local --file ~/config.yaml
 sboxkit sub add --name direct --file ~/config.json --source sing-box
-sboxkit sub add --name direct --file ~/config.json --source sing-box --passthrough
+sboxkit sub overwrite-local --file ~/config.yaml
 ```
 
-本地文件会先复制进固定状态目录，再参与转换和重建。
+本地文件会先复制进固定状态目录，再参与转换和重建；即使是 sing-box JSON，本地文件也不会 passthrough。`overwrite-local` 写入固定的 `local-overwrite` 槽位并设为当前订阅，适合临时用本地文件替换当前运行配置。
 
 管理订阅：
 
@@ -106,6 +106,16 @@ sboxkit update --core
 
 `update` 默认下载运行时规则资产；`--core` 会同时更新用户状态目录里的 sing-box 内核缓存。`.deb` 安装包中的 `/usr/lib/sboxkit/sing-box` 不会被覆盖。
 
+更新 sboxkit 本体：
+
+```bash
+sboxkit update --self --check
+sudo sboxkit update --self --channel stable
+sudo sboxkit update --self --channel preview
+```
+
+本体更新使用便携包，校验 SHA-256 后解压到版本目录，验证 `sboxkit` 和 `sing-box` 两个二进制，再原子切换 `current` 符号链接；服务启动失败会切回旧版本。默认只保留当前版本和上一版。
+
 ## 配置
 
 查看配置：
@@ -153,7 +163,7 @@ sboxkit config set --key log_max_mb --value 20
 日志位置：
 
 ```text
-~/.local/state/sboxkit/state/logs/
+/var/lib/sboxkit/state/logs/
 ```
 
 日志默认关闭。开启后会自动删除旧日志，保持总大小不超过 `log_max_mb`，硬上限为 100 MB。
@@ -235,20 +245,35 @@ sboxkit nettest
 常见位置：
 
 ```text
-~/.local/state/sboxkit/state/customize.json
-~/.local/state/sboxkit/state/config.json
-~/.local/state/sboxkit/state/subscriptions/
-~/.local/state/sboxkit/state/downloads/
-~/.local/state/sboxkit/state/logs/
-/etc/sboxkit/sboxkit.json
-/etc/sboxkit/sing-box
+/var/lib/sboxkit/state/customize.json
+/var/lib/sboxkit/state/config.json
+/var/lib/sboxkit/state/subscriptions/
+/var/lib/sboxkit/state/logs/
+/var/lib/sboxkit/activations/
+/var/lib/sboxkit/runtime
+/var/lib/sboxkit/runtime/config.json
+/var/lib/sboxkit/runtime/bin/sing-box
+/var/lib/sboxkit/sing-box/cache.db
+/var/cache/sboxkit/downloads/
+/var/cache/sboxkit/self-update/
+/run/sboxkit/operation.lock
+/etc/sboxkit/config.json
 /usr/lib/sboxkit/sing-box
+/usr/share/sboxkit/ui/
 /lib/systemd/system/sboxkit.service
 ```
 
 ## 卸载
 
-移除 sboxkit 管理的服务、定时器、恢复守护和 `/etc/sboxkit`：
+新版运行时目录结构不兼容旧版。旧版升级到新版时，建议先完整卸载旧版并清理旧状态，再安装新版：
+
+```bash
+sudo sboxkit uninstall --purge-state
+sudo apt purge sboxkit
+sudo apt install ./sboxkit_<version>_<arch>.deb
+```
+
+移除 sboxkit 管理的服务、定时器、恢复守护和运行时文件：
 
 ```bash
 sudo sboxkit uninstall

@@ -52,6 +52,12 @@ func updateTUIItemsFor(lang uiLanguage) []tuiItem {
 			}
 			return runUpdate(args, s.stdout, s.stderr)
 		})},
+		{label(lang, "Update sboxkit Stable", "更新 sboxkit 稳定版"), label(lang, "Update this application from the latest stable release", "从最新稳定版发布更新本体"), commandAction(label(lang, "Update sboxkit Stable", "更新 sboxkit 稳定版"), func(s *tuiSession) int {
+			return runUpdate([]string{"--self", "--channel", "stable"}, s.stdout, s.stderr)
+		})},
+		{label(lang, "Update sboxkit Preview", "更新 sboxkit 预览版"), label(lang, "Update this application from the latest preview release", "从最新预览版发布更新本体"), commandAction(label(lang, "Update sboxkit Preview", "更新 sboxkit 预览版"), func(s *tuiSession) int {
+			return runUpdate([]string{"--self", "--channel", "preview"}, s.stdout, s.stderr)
+		})},
 	}
 }
 

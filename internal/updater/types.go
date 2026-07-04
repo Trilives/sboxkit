@@ -7,6 +7,13 @@ import (
 
 const defaultRepo = "Trilives/sboxkit"
 
+type Channel string
+
+const (
+	ChannelStable  Channel = "stable"
+	ChannelPreview Channel = "preview"
+)
+
 type Paths struct {
 	InstallDir   string
 	VersionsDir  string
@@ -57,6 +64,10 @@ type ApplyResult struct {
 type Remote interface {
 	Latest(ctx context.Context, arch string) (Release, error)
 	Download(ctx context.Context, rawURL string, out string) error
+}
+
+type ChannelRemote interface {
+	LatestChannel(ctx context.Context, arch string, channel Channel) (Release, error)
 }
 
 type ServiceControl interface {

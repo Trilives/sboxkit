@@ -38,7 +38,11 @@ func New(paths Paths, remote Remote, service ServiceControl, verifier Verifier) 
 }
 
 func (m *Manager) Check(ctx context.Context, currentVersion string) (CheckResult, error) {
-	release, err := m.remote.Latest(ctx, m.arch)
+	return m.CheckChannel(ctx, currentVersion, ChannelStable)
+}
+
+func (m *Manager) CheckChannel(ctx context.Context, currentVersion string, channel Channel) (CheckResult, error) {
+	release, err := m.latest(ctx, channel)
 	if err != nil {
 		return CheckResult{}, err
 	}
@@ -51,14 +55,18 @@ func (m *Manager) Check(ctx context.Context, currentVersion string) (CheckResult
 }
 
 func (m *Manager) Apply(ctx context.Context, currentVersion string) (ApplyResult, error) {
-	check, err := m.Check(ctx, currentVersion)
+	return m.ApplyChannel(ctx, currentVersion, ChannelStable)
+}
+
+func (m *Manager) ApplyChannel(ctx context.Context, currentVersion string, channel Channel) (ApplyResult, error) {
+	check, err := m.CheckChannel(ctx, currentVersion, channel)
 	if err != nil {
 		return ApplyResult{}, err
 	}
 	if !check.Available {
 		return ApplyResult{Version: check.LatestVersion, PreviousVersion: currentVersion}, nil
 	}
-	release, err := m.remote.Latest(ctx, m.arch)
+	release, err := m.latest(ctx, channel)
 	if err != nil {
 		return ApplyResult{}, err
 	}
@@ -100,6 +108,16 @@ func (m *Manager) Apply(ctx context.Context, currentVersion string) (ApplyResult
 		return ApplyResult{}, err
 	}
 	return ApplyResult{Version: release.Version, PreviousVersion: oldVersion, InstalledDir: versionDir}, nil
+}
+
+func (m *Manager) latest(ctx context.Context, channel Channel) (Release, error) {
+	if channel == "" {
+		channel = ChannelStable
+	}
+	if remote, ok := m.remote.(ChannelRemote); ok {
+		return remote.LatestChannel(ctx, m.arch, channel)
+	}
+	return m.remote.Latest(ctx, m.arch)
 }
 
 func (m *Manager) verifyArchiveChecksum(ctx context.Context, release Release, archive string) error {

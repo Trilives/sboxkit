@@ -92,9 +92,11 @@ func TestSyncAndRestartCopiesRuntimeAssets(t *testing.T) {
 
 	joined := runner.JoinedCommands()
 	for _, want := range []string{
-		"mkdir -p /etc/sboxkit/ruleset",
-		"install -m 0644 " + p.GeositeCN + " /etc/sboxkit/ruleset/geosite-cn.srs",
-		"install -m 0644 " + p.GeoIPCN + " /etc/sboxkit/ruleset/geoip-cn.srs",
+		"mkdir -p " + filepath.Join(p.ActivationsDir),
+		"install -m 0755 " + p.SingBoxBin,
+		"install -m 0644 " + p.GeositeCN,
+		"install -m 0644 " + p.GeoIPCN,
+		"ln -sfn",
 		"systemctl restart sboxkit.service",
 	} {
 		if !strings.Contains(joined, want) {

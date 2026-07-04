@@ -10,7 +10,7 @@ sboxkit
 
 ## 发布形式
 
-0.1.3 发布两类 Linux 包：
+发布两类 Linux 包：
 
 - `.deb`：推荐安装方式，一个包内包含 `sboxkit` TUI/CLI 和独立的上游 `sing-box` 内核二进制。
 - `.tar.gz`：便携包，包含 `sboxkit`、`sing-box`、最小基础规则和 `install.sh`。
@@ -23,6 +23,7 @@ sboxkit
 /usr/bin/sboxkit
 /usr/lib/sboxkit/sing-box
 /usr/share/sboxkit/base-rules/minimal.json
+/usr/share/sboxkit/ui/
 /lib/systemd/system/sboxkit.service
 /usr/share/doc/sboxkit/README.md
 /usr/share/doc/sboxkit/docs/COMMANDS.md
@@ -34,20 +35,20 @@ sboxkit
 从 GitHub Releases 下载对应架构的安装包：
 
 ```bash
-sudo apt install ./sboxkit_0.1.3_amd64.deb
+sudo apt install ./sboxkit_0.2.0_amd64.deb
 ```
 
 也可以安装 arm64 包：
 
 ```bash
-sudo apt install ./sboxkit_0.1.3_arm64.deb
+sudo apt install ./sboxkit_0.2.0_arm64.deb
 ```
 
 便携包：
 
 ```bash
-tar -xzf sboxkit_0.1.3_amd64_portable.tar.gz
-cd sboxkit_0.1.3_amd64
+tar -xzf sboxkit_0.2.0_amd64_portable.tar.gz
+cd sboxkit_0.2.0_amd64
 sudo ./install.sh
 ```
 
@@ -87,48 +88,70 @@ TUI 主界面聚合为六类：
 
 ## 固定工作目录
 
-用户状态固定存放，不受当前 shell 所在目录影响：
+用户状态、激活版本、缓存和运行锁固定存放，不受当前 shell 所在目录影响。默认结构：
 
 ```text
-$XDG_STATE_HOME/sboxkit/state/
-~/.local/state/sboxkit/state/   # 未设置 XDG_STATE_HOME 时
+/usr/bin/sboxkit
+/usr/lib/sboxkit/sing-box
+/usr/share/sboxkit/ui/
+
+/etc/sboxkit/
+└── config.json                  # 可选，管理员级设置
+
+/var/lib/sboxkit/
+├── state/
+│   ├── customize.json
+│   ├── config.json
+│   ├── active
+│   ├── bin/
+│   │   ├── sing-box
+│   │   └── sing-box.version
+│   ├── subscriptions/
+│   ├── ruleset/
+│   └── ui/
+├── activations/
+│   └── <revision>/
+│       ├── manifest.json
+│       ├── bin/sing-box
+│       ├── config.json
+│       ├── ruleset/
+│       ├── ui/
+│       └── healthcheck.sh
+├── runtime -> activations/<revision>
+└── sing-box/
+    └── cache.db
+
+/var/cache/sboxkit/
+├── downloads/
+└── self-update/
+
+/run/sboxkit/
+└── operation.lock
 ```
 
 可通过 `SBOXKIT_ROOT=/path/to/root` 或命令参数 `--root DIR` 覆盖。
 
-常见用户状态文件：
+使用非默认 root 时，`/var/cache/sboxkit` 和 `/run/sboxkit` 会跟随 root 映射到 `cache/` 与 `run/`，便于测试和便携运行。
+
+systemd 主服务只指向当前 runtime：
 
 ```text
-state/customize.json
-state/config.json
-state/active.json
-state/subscriptions/
-state/downloads/
-state/logs/
-state/ruleset/
-state/ui/
+WorkingDirectory=/var/lib/sboxkit/runtime
+ExecStart=/var/lib/sboxkit/runtime/bin/sing-box run -c /var/lib/sboxkit/runtime/config.json
 ```
 
-systemd 服务运行目录：
+每次 `service install` / `service sync` 会生成新的 activation，`sing-box check` 通过后再切换 `runtime` 符号链接。
 
-```text
-/etc/sboxkit/
-├── sing-box
-├── sboxkit.json
-├── sboxkit.cache.db
-├── ruleset/
-├── ui/
-└── healthcheck.sh
-```
+破坏性升级提示：此目录结构不兼容旧版运行时布局。旧版本升级到新版时，请先完整卸载旧版并清理旧运行时，再安装新版。
 
 ## 配置来源
 
 支持远程订阅和本地配置：
 
 - `clash`：本地解析 Clash YAML，并转换为 sing-box 配置。
-- `sing-box`：直接使用 sing-box JSON；关闭 passthrough 时会重建本地策略组。
+- `sing-box`：远程 sing-box JSON 可选择 passthrough；本地文件导入始终复制到状态目录并走转换器重建本地策略组。
 - `base64`：优先使用 subconverter 后端，必要时可启用本地 Shadowsocks 应急解析。
-- 本地文件：指定 `config.yaml` 或 `config.json` 路径后，程序会复制到固定状态目录再使用。
+- 本地文件：在“添加订阅”里选择 `local-file`，指定 `config.yaml` 或 `config.json` 路径后，程序会复制到固定状态目录并作为订阅源保存；“本地文件覆盖当前配置”会写入固定的 `local-overwrite` 槽位并切为当前订阅。
 
 切换订阅会重建当前配置。节点切换默认只通过运行中的 Clash API 生效，不重启服务；只有选择调整节点顺序并同步服务时才会重启。
 
@@ -137,7 +160,7 @@ systemd 服务运行目录：
 文件日志默认关闭。开启后，`sboxkit` 会把 stderr 记录到固定状态目录：
 
 ```text
-~/.local/state/sboxkit/state/logs/
+/var/lib/sboxkit/state/logs/
 ```
 
 日志会按大小上限自动删除旧文件，默认 10 MB，硬上限 100 MB。
@@ -147,6 +170,17 @@ systemd 服务运行目录：
 WebUI 默认关闭。开启后，sing-box 会从本项目内置的本地资源提供轻量 WebUI，用于查看选择器组和切换节点。页面是 sboxkit 自维护的简洁 switchboard，不下载或复制第三方仪表盘。
 
 WebUI 是辅助功能，终端 TUI 仍然是推荐操作方式。
+
+## 本体更新通道
+
+`sboxkit update --self` 可更新应用本体，默认使用稳定版通道：
+
+```bash
+sudo sboxkit update --self --channel stable
+sudo sboxkit update --self --channel preview
+```
+
+更新流程会下载便携包、校验 SHA-256、解压到版本目录、验证 `sboxkit` 和 `sing-box` 两个二进制、切换 `current` 符号链接，并在服务启动失败时回滚。
 
 ## 卸载
 

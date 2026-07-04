@@ -135,11 +135,41 @@ func TestCheckReportsNoUpdateWhenLatestIsNotNewer(t *testing.T) {
 	}
 }
 
+func TestCheckPreviewUsesPreviewChannel(t *testing.T) {
+	paths := PathsForRoot(t.TempDir())
+	remote := &fakeRemote{releases: map[Channel]Release{
+		ChannelStable:  {Version: "0.2.0"},
+		ChannelPreview: {Version: "0.2.1-beta.1", ArchiveURL: "preview.tar.gz"},
+	}}
+	manager := New(paths, remote, &fakeServiceControl{}, &fakeVerifier{})
+
+	result, err := manager.CheckChannel(context.Background(), "0.2.0", ChannelPreview)
+	if err != nil {
+		t.Fatalf("check preview: %v", err)
+	}
+	if !result.Available || result.LatestVersion != "0.2.1-beta.1" || result.ArchiveURL != "preview.tar.gz" {
+		t.Fatalf("unexpected preview result %#v", result)
+	}
+	if remote.lastChannel != ChannelPreview {
+		t.Fatalf("remote channel = %s, want %s", remote.lastChannel, ChannelPreview)
+	}
+}
+
 type fakeRemote struct {
-	release Release
+	release     Release
+	releases    map[Channel]Release
+	lastChannel Channel
 }
 
 func (r *fakeRemote) Latest(ctx context.Context, arch string) (Release, error) {
+	return r.LatestChannel(ctx, arch, ChannelStable)
+}
+
+func (r *fakeRemote) LatestChannel(ctx context.Context, arch string, channel Channel) (Release, error) {
+	r.lastChannel = channel
+	if r.releases != nil {
+		return r.releases[channel], nil
+	}
 	return r.release, nil
 }
 

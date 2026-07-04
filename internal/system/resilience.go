@@ -128,18 +128,12 @@ func InstallResilience(ctx context.Context, runner Runner, stateDir string, inte
 	for path, text := range map[string]string{
 		healthTmp: RenderHealthcheck(),
 		dispTmp:   RenderDispatcher(debounce, tunDev),
-		svcTmp:    RenderWatchdogService("/etc/sboxkit/healthcheck.sh", tunDev),
+		svcTmp:    RenderWatchdogService(healthTmp, tunDev),
 		timerTmp:  RenderWatchdogTimer(interval),
 	} {
 		if err := os.WriteFile(path, []byte(text), 0o755); err != nil {
 			return err
 		}
-	}
-	if err := runner.Run(ctx, "mkdir", "-p", "/etc/sboxkit"); err != nil {
-		return err
-	}
-	if err := runner.Run(ctx, "install", "-m", "0755", healthTmp, "/etc/sboxkit/healthcheck.sh"); err != nil {
-		return err
 	}
 	if err := runner.Run(ctx, "install", "-m", "0755", dispTmp, "/etc/NetworkManager/dispatcher.d/90-sboxkit-restart"); err != nil {
 		return err

@@ -31,7 +31,7 @@ func TestStatusEndpointReportsRuntimeLayout(t *testing.T) {
 	if body["service"] != "sboxkit" {
 		t.Fatalf("unexpected service %v", body["service"])
 	}
-	if body["runtime"] != "/etc/sboxkit" {
+	if body["runtime"] != p.RuntimeLink {
 		t.Fatalf("unexpected runtime %v", body["runtime"])
 	}
 }
