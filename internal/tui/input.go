@@ -73,6 +73,10 @@ func Pause(prompt string) {
 	_, _ = readInput(prompt)
 }
 
+func Password(prompt string) (string, error) {
+	return readPassword(prompt)
+}
+
 func readInput(prompt string) (string, error) {
 	if !UseTUI() {
 		return readPlainLine(prompt)

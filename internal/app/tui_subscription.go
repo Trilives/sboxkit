@@ -1,6 +1,12 @@
 package app
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/Trilives/sboxkit/internal/paths"
+	"github.com/Trilives/sboxkit/internal/subscription"
+	ui "github.com/Trilives/sboxkit/internal/tui"
+)
 
 func subscriptionTUIItems() []tuiItem {
 	return subscriptionTUIItemsFor(languageEnglish)
@@ -9,11 +15,11 @@ func subscriptionTUIItems() []tuiItem {
 func subscriptionTUIItemsFor(lang uiLanguage) []tuiItem {
 	return []tuiItem{
 		{label(lang, "Switch Active Subscription", "切换当前订阅"), label(lang, "Choose which saved subscription feeds the active runtime config", "选择哪个已保存订阅为当前运行配置提供数据"), promptCommand(label(lang, "Switch Active Subscription", "切换当前订阅"), func(s *tuiSession) ([]string, bool) {
-			name, ok := s.promptRequired("订阅名称")
+			args, ok := s.buildSwitchSubscriptionArgs()
 			if !ok {
 				return nil, false
 			}
-			return []string{"switch", "--name", name}, true
+			return args, true
 		}, runSub)},
 		{label(lang, "Refresh Subscription", "刷新订阅"), label(lang, "Fetch latest remote content and rebuild config", "拉取最新远程内容并重建配置"), promptCommand(label(lang, "Refresh Subscription", "刷新订阅"), func(s *tuiSession) ([]string, bool) {
 			name, ok := s.promptRequired("订阅名称")
@@ -50,6 +56,48 @@ func subscriptionTUIItemsFor(lang uiLanguage) []tuiItem {
 			return []string{"remove", "--name", name}, true
 		}, runSub)},
 	}
+}
+
+func (s *tuiSession) buildSwitchSubscriptionArgs() ([]string, bool) {
+	name, ok := s.chooseSubscriptionName(label(s.language, "Switch Active Subscription", "切换当前订阅"))
+	if !ok {
+		return nil, false
+	}
+	return []string{"switch", "--name", name}, true
+}
+
+func (s *tuiSession) chooseSubscriptionName(title string) (string, bool) {
+	p := paths.FromRoot("")
+	manager := subscription.NewManager(p, loadConfigOrDefault(p.CustomizeFile))
+	subs, err := manager.List()
+	if err != nil {
+		fmt.Fprintf(s.stderr, "list subscriptions: %v\n", err)
+		return "", false
+	}
+	if len(subs) == 0 {
+		fmt.Fprintln(s.stdout, "暂无订阅。")
+		return "", false
+	}
+	active, _ := manager.Active()
+	options, initial := subscriptionSwitchOptions(subs, active)
+	idx, err := s.selectF(title, options, ui.SelectOpts{BackLabel: label(s.language, "Back", "返回"), Initial: initial})
+	if err != nil {
+		return "", false
+	}
+	return subs[idx].Name, true
+}
+
+func subscriptionSwitchOptions(subs []subscription.Subscription, active *subscription.Subscription) ([]string, int) {
+	options := make([]string, len(subs))
+	initial := 0
+	for i, sub := range subs {
+		options[i] = fmt.Sprintf("%s (%s, %d nodes)", sub.Name, sub.SourceType, sub.LastNodeCount)
+		if active != nil && active.Name == sub.Name {
+			options[i] = "当前 · " + options[i]
+			initial = i
+		}
+	}
+	return options, initial
 }
 
 func runTUIAddSubscription(s *tuiSession) bool {

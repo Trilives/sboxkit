@@ -127,3 +127,16 @@ func readPlainLine(prompt string) (string, error) {
 	}
 	return strings.TrimRight(line, "\r\n"), nil
 }
+
+func readPassword(prompt string) (string, error) {
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		return readPlainLine(prompt)
+	}
+	fmt.Print(prompt)
+	line, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Println()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimRight(string(line), "\r\n"), nil
+}

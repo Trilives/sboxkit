@@ -16,7 +16,7 @@ func runService(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 0
 	}
 	root, rest := parseRoot(args[1:])
-	svc := system.NewService(paths.FromRoot(root), system.OSRunner{UseSudo: true})
+	svc := system.NewService(paths.FromRoot(root), newSudoRunner())
 	ctx := context.Background()
 	var err error
 	if serviceCommandStartsOrRestarts(args[0], rest) {
@@ -71,7 +71,7 @@ func runTimer(args []string, stdout io.Writer, stderr io.Writer) int {
 	root, rest := parseRoot(args[1:])
 	p := paths.FromRoot(root)
 	binary := valueFlag(rest, "--binary", "/usr/bin/sboxkit")
-	runner := system.OSRunner{UseSudo: true}
+	runner := newSudoRunner()
 	var err error
 	if args[0] == "install" {
 		err = system.InstallUpdateTimer(context.Background(), runner, p.StateDir, binary, "", "")
@@ -93,7 +93,7 @@ func runResilience(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	root, _ := parseRoot(args[1:])
 	p := paths.FromRoot(root)
-	runner := system.OSRunner{UseSudo: true}
+	runner := newSudoRunner()
 	var err error
 	if args[0] == "install" {
 		err = system.InstallResilience(context.Background(), runner, p.StateDir, "2min", 20, "singbox")
@@ -111,7 +111,7 @@ func runResilience(args []string, stdout io.Writer, stderr io.Writer) int {
 func runUninstall(args []string, stdout io.Writer, stderr io.Writer) int {
 	root, rest := parseRoot(args)
 	p := paths.FromRoot(root)
-	runner := system.OSRunner{UseSudo: true}
+	runner := newSudoRunner()
 	var failed bool
 	if !hasFlag(rest, "--keep-system") {
 		if err := system.RemoveResilience(context.Background(), runner); err != nil {

@@ -2,10 +2,13 @@ package app
 
 import (
 	"bytes"
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/Trilives/sboxkit/internal/paths"
 	ui "github.com/Trilives/sboxkit/internal/tui"
 )
 
@@ -76,6 +79,76 @@ func TestSubscriptionMenuIntegratesLocalFileIntoAddSubscription(t *testing.T) {
 	}
 	if indexOfLabel(labels, "Overwrite Current From Local File") < 0 {
 		t.Fatalf("subscription menu should expose local file overwrite, got %#v", labels)
+	}
+}
+
+func TestSwitchSubscriptionUsesListSelection(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("SBOXKIT_ROOT", root)
+	p := paths.FromRoot(root)
+	for _, sub := range []struct {
+		name          string
+		sourceType    string
+		lastNodeCount int
+	}{
+		{name: "alpha", sourceType: "clash", lastNodeCount: 12},
+		{name: "beta", sourceType: "sing-box", lastNodeCount: 8},
+	} {
+		dir := filepath.Join(p.SubscriptionsDir, sub.name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir subscription dir: %v", err)
+		}
+		meta := map[string]any{
+			"name":            sub.name,
+			"source_type":     sub.sourceType,
+			"last_node_count": sub.lastNodeCount,
+		}
+		data, err := json.Marshal(meta)
+		if err != nil {
+			t.Fatalf("marshal meta: %v", err)
+		}
+		data = append(data, '\n')
+		if err := os.WriteFile(filepath.Join(dir, "meta.json"), data, 0o600); err != nil {
+			t.Fatalf("write meta: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte("{}\n"), 0o600); err != nil {
+			t.Fatalf("write config: %v", err)
+		}
+	}
+	if err := os.WriteFile(p.ActiveFile, []byte("beta\n"), 0o644); err != nil {
+		t.Fatalf("write active: %v", err)
+	}
+
+	var out bytes.Buffer
+	session := newTUISession(&out, &out)
+	session.askF = func(string, ui.AskOpts) (string, error) {
+		t.Fatal("switch subscription should not prompt for manual input")
+		return "", ui.ErrCancelled
+	}
+	session.selectF = func(title string, options []string, opts ui.SelectOpts) (int, error) {
+		if title != "Switch Active Subscription" {
+			t.Fatalf("select title = %q, want switch title", title)
+		}
+		if opts.Initial < 0 || opts.Initial >= len(options) {
+			t.Fatalf("initial selection out of range: %d", opts.Initial)
+		}
+		if !strings.Contains(options[opts.Initial], "当前") {
+			t.Fatalf("initial option should point at active subscription, got %#v", options)
+		}
+		idx := indexOfLabelContaining(options, "alpha")
+		if idx < 0 {
+			t.Fatalf("missing alpha option in %#v", options)
+		}
+		return idx, nil
+	}
+
+	args, ok := session.buildSwitchSubscriptionArgs()
+	if !ok {
+		t.Fatal("expected switch subscription args")
+	}
+	want := []string{"switch", "--name", "alpha"}
+	if strings.Join(args, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("args = %#v, want %#v", args, want)
 	}
 }
 

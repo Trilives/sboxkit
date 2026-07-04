@@ -48,7 +48,7 @@ func runUpdate(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	if hasFlag(rest, "--sync-service") {
 		printServiceTrafficWarning(stdout)
-		if err := system.NewService(p, system.OSRunner{UseSudo: true}).SyncAndRestart(context.Background()); err != nil {
+		if err := system.NewService(p, newSudoRunner()).SyncAndRestart(context.Background()); err != nil {
 			return fail(stderr, "sync service: %v", err)
 		}
 		fmt.Fprintln(stdout, "service synced and restarted")
