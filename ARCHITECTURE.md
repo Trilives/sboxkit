@@ -50,15 +50,13 @@ Layout:
 
 /var/lib/sboxkit/
 ├── state/
-├── activations/<revision>/
-├── runtime -> activations/<revision>
+├── revisions/<revision>/
+├── current -> revisions/<revision>
 └── sing-box/cache.db
 
 /var/cache/sboxkit/
 ├── downloads/
 └── self-update/
-
-/run/sboxkit/operation.lock
 ```
 
 ## Design Boundaries
@@ -78,13 +76,13 @@ Layout:
   bootstrap rules at `/usr/share/sboxkit/base-rules/minimal.json`, the embedded
   WebUI at `/usr/share/sboxkit/ui`, a packaged `sboxkit.service`, and the
   independent upstream core at `/usr/lib/sboxkit/sing-box`.
-- Service installation creates a new `/var/lib/sboxkit/activations/<revision>`
-  directory containing the selected core, generated config, rulesets, UI, and
-  manifest. A user-updated `state/bin/sing-box` takes precedence over the
-  packaged core.
-- `sboxkit.service` starts `/var/lib/sboxkit/runtime/bin/sing-box`, where
-  `runtime` is a symlink to the active activation. The link is switched only
-  after `sing-box check` passes.
+- Service installation creates a new `/var/lib/sboxkit/revisions/<revision>`
+  directory containing the generated config, manifest, and optional
+  healthcheck. The core, rulesets, and WebUI stay in their canonical locations
+  instead of being copied into every revision.
+- `sboxkit.service` starts `/usr/lib/sboxkit/sing-box` with
+  `/var/lib/sboxkit/current/config.json`, where `current` is a symlink to the
+  active revision. The link is switched only after `sing-box check` passes.
 - Large rule sets, subscriptions, and subconverter software are not bundled.
   They remain runtime downloads governed by their upstream licenses.
 
@@ -100,17 +98,15 @@ The runtime deliberately has two phases:
 2. After `sboxkit.service` is running, run `sboxkit update --proxy
    http://127.0.0.1:7890 --sync-service`. This downloads large rule-set assets
    through the running proxy, rebuilds the active
-   subscription config so local `rule_set` entries are enabled, copies the
-   assets into a new activation, checks the runtime config, switches
-   `/var/lib/sboxkit/runtime`, and restarts the service.
+   subscription config so local `rule_set` entries are enabled, writes a new
+   revision config, checks it, switches `/var/lib/sboxkit/current`, and
+   restarts the service.
 
 The sing-box WebUI is project-owned and optional. When `lan_panel` is enabled,
 `sboxkit` writes embedded UI files into `state/ui`, generated configs set
-`experimental.clash_api.external_ui`, and service sync copies those files into
-the next activation. If state UI files are absent, packaged UI files from
-`/usr/share/sboxkit/ui` are used. The UI uses same-origin Clash API calls for
-runtime status and selector switching; it does not download third-party
-dashboards.
+`experimental.clash_api.external_ui` to either `state/ui` or
+`/usr/share/sboxkit/ui`. The UI uses same-origin Clash API calls for runtime
+status and selector switching; it does not download third-party dashboards.
 
 ## Verification
 

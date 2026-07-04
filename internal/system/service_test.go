@@ -57,7 +57,7 @@ func TestServiceStartStopUseSystemctl(t *testing.T) {
 	}
 }
 
-func TestSyncAndRestartCopiesRuntimeAssets(t *testing.T) {
+func TestSyncAndRestartCreatesConfigRevision(t *testing.T) {
 	p := paths.FromRoot(t.TempDir())
 	if err := p.EnsureStateDirs(); err != nil {
 		t.Fatalf("create dirs: %v", err)
@@ -93,15 +93,48 @@ func TestSyncAndRestartCopiesRuntimeAssets(t *testing.T) {
 	joined := runner.JoinedCommands()
 	for _, want := range []string{
 		"mkdir -p " + filepath.Join(p.ActivationsDir),
-		"install -m 0755 " + p.SingBoxBin,
-		"install -m 0644 " + p.GeositeCN,
-		"install -m 0644 " + p.GeoIPCN,
 		"ln -sfn",
 		"systemctl restart sboxkit.service",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("expected command %q in:\n%s", want, joined)
 		}
+	}
+	for _, notWant := range []string{
+		"install -m 0755 " + p.SingBoxBin,
+		"install -m 0644 " + p.GeositeCN,
+		"install -m 0644 " + p.GeoIPCN,
+		"/ruleset/",
+		"/ui",
+	} {
+		if strings.Contains(joined, notWant) {
+			t.Fatalf("revision should not copy runtime asset %q in:\n%s", notWant, joined)
+		}
+	}
+}
+
+func TestPruneActivationsKeepsCurrentAndPrevious(t *testing.T) {
+	p := paths.FromRoot(t.TempDir())
+	for _, name := range []string{"20260704T010000.000000000Z", "20260704T020000.000000000Z", "20260704T030000.000000000Z"} {
+		if err := os.MkdirAll(filepath.Join(p.ActivationsDir, name), 0o755); err != nil {
+			t.Fatalf("mkdir activation: %v", err)
+		}
+	}
+	runner := &FakeRunner{}
+	svc := NewService(p, runner)
+	current := filepath.Join(p.ActivationsDir, "20260704T030000.000000000Z")
+	previous := filepath.Join(p.ActivationsDir, "20260704T020000.000000000Z")
+
+	if err := svc.pruneActivations(context.Background(), current, previous); err != nil {
+		t.Fatalf("prune activations: %v", err)
+	}
+
+	joined := runner.JoinedCommands()
+	if !strings.Contains(joined, "rm -rf "+filepath.Join(p.ActivationsDir, "20260704T010000.000000000Z")) {
+		t.Fatalf("expected oldest activation prune in:\n%s", joined)
+	}
+	if strings.Contains(joined, "20260704T020000.000000000Z") || strings.Contains(joined, "20260704T030000.000000000Z") {
+		t.Fatalf("current/previous activation should be kept:\n%s", joined)
 	}
 }
 

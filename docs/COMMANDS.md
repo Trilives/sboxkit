@@ -249,17 +249,16 @@ sboxkit nettest
 /var/lib/sboxkit/state/config.json
 /var/lib/sboxkit/state/subscriptions/
 /var/lib/sboxkit/state/logs/
-/var/lib/sboxkit/activations/
-/var/lib/sboxkit/runtime
-/var/lib/sboxkit/runtime/config.json
-/var/lib/sboxkit/runtime/bin/sing-box
+/var/lib/sboxkit/revisions/
+/var/lib/sboxkit/current
+/var/lib/sboxkit/current/config.json
 /var/lib/sboxkit/sing-box/cache.db
 /var/cache/sboxkit/downloads/
 /var/cache/sboxkit/self-update/
-/run/sboxkit/operation.lock
 /etc/sboxkit/config.json
 /usr/lib/sboxkit/sing-box
 /usr/share/sboxkit/ui/
+/usr/share/sboxkit/scripts/sboxkit-migrate-legacy.sh
 /lib/systemd/system/sboxkit.service
 ```
 

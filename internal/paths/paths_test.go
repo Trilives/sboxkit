@@ -24,17 +24,14 @@ func TestFromRootBuildsExpectedLayout(t *testing.T) {
 	if p.DownloadsDir != filepath.Join(root, "cache", "downloads") {
 		t.Fatalf("unexpected downloads dir %q", p.DownloadsDir)
 	}
-	if p.ActivationsDir != filepath.Join(root, "activations") {
-		t.Fatalf("unexpected activations dir %q", p.ActivationsDir)
+	if p.ActivationsDir != filepath.Join(root, "revisions") {
+		t.Fatalf("unexpected revisions dir %q", p.ActivationsDir)
 	}
-	if p.RuntimeLink != filepath.Join(root, "runtime") {
-		t.Fatalf("unexpected runtime link %q", p.RuntimeLink)
+	if p.RuntimeLink != filepath.Join(root, "current") {
+		t.Fatalf("unexpected current link %q", p.RuntimeLink)
 	}
 	if p.SingBoxCacheDB != filepath.Join(root, "sing-box", "cache.db") {
 		t.Fatalf("unexpected sing-box cache %q", p.SingBoxCacheDB)
-	}
-	if p.OperationLock != filepath.Join(root, "run", "operation.lock") {
-		t.Fatalf("unexpected operation lock %q", p.OperationLock)
 	}
 	if p.AdminConfigFile != "/etc/sboxkit/config.json" {
 		t.Fatalf("unexpected admin config path %q", p.AdminConfigFile)
@@ -84,9 +81,6 @@ func TestDefaultRootUsesVarLibByDefault(t *testing.T) {
 	p := FromRoot("")
 	if p.DownloadsDir != "/var/cache/sboxkit/downloads" {
 		t.Fatalf("unexpected default downloads dir %q", p.DownloadsDir)
-	}
-	if p.OperationLock != "/run/sboxkit/operation.lock" {
-		t.Fatalf("unexpected default operation lock %q", p.OperationLock)
 	}
 }
 

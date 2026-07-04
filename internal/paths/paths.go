@@ -21,7 +21,6 @@ type Paths struct {
 	RuntimeLink      string
 	SingBoxDir       string
 	SingBoxCacheDB   string
-	OperationLock    string
 	ActiveFile       string
 	ConfigFile       string
 	CustomizeFile    string
@@ -42,10 +41,8 @@ func FromRoot(root string) Paths {
 	bin := filepath.Join(state, "bin")
 	ruleset := filepath.Join(state, "ruleset")
 	cacheRoot := filepath.Join(root, "cache")
-	runRoot := filepath.Join(root, "run")
 	if root == "/var/lib/sboxkit" {
 		cacheRoot = "/var/cache/sboxkit"
-		runRoot = "/run/sboxkit"
 	}
 	singBox := filepath.Join(root, "sing-box")
 
@@ -61,11 +58,10 @@ func FromRoot(root string) Paths {
 		DownloadsDir:     filepath.Join(cacheRoot, "downloads"),
 		LogDir:           filepath.Join(state, "logs"),
 		SubscriptionsDir: filepath.Join(state, "subscriptions"),
-		ActivationsDir:   filepath.Join(root, "activations"),
-		RuntimeLink:      filepath.Join(root, "runtime"),
+		ActivationsDir:   filepath.Join(root, "revisions"),
+		RuntimeLink:      filepath.Join(root, "current"),
 		SingBoxDir:       singBox,
 		SingBoxCacheDB:   filepath.Join(singBox, "cache.db"),
-		OperationLock:    filepath.Join(runRoot, "operation.lock"),
 		ActiveFile:       filepath.Join(state, "active"),
 		ConfigFile:       filepath.Join(state, "config.json"),
 		CustomizeFile:    filepath.Join(state, "customize.json"),
@@ -96,7 +92,6 @@ func (p Paths) EnsureStateDirs() error {
 		p.SubscriptionsDir,
 		p.ActivationsDir,
 		p.SingBoxDir,
-		filepath.Dir(p.OperationLock),
 	} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err

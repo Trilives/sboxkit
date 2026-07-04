@@ -7,8 +7,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/sboxkit/runtime
-ExecStart=/opt/sboxkit/runtime/bin/sing-box run -c /opt/sboxkit/runtime/config.json
+WorkingDirectory=/opt/sboxkit/current
+ExecStart=/usr/lib/sboxkit/sing-box run -c /opt/sboxkit/current/config.json
 Restart=on-failure
 RestartSec=3
 LimitNOFILE=1048576

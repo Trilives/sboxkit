@@ -73,6 +73,7 @@ mkdir -p \
   "$pkg/usr/bin" \
   "$pkg/usr/lib/sboxkit" \
   "$pkg/usr/share/sboxkit/base-rules" \
+  "$pkg/usr/share/sboxkit/scripts" \
   "$pkg/usr/share/sboxkit/ui" \
   "$pkg/usr/share/doc/sboxkit/docs" \
   "$pkg/usr/share/doc/sboxkit" \
@@ -80,6 +81,7 @@ mkdir -p \
 
 install -m 0755 "$binary" "$pkg/usr/bin/sboxkit"
 install -m 0755 "$sing_box" "$pkg/usr/lib/sboxkit/sing-box"
+install -m 0755 packaging/migrations/sboxkit-migrate-legacy.sh "$pkg/usr/share/sboxkit/scripts/sboxkit-migrate-legacy.sh"
 install -m 0644 packaging/base-rules/minimal.json "$pkg/usr/share/sboxkit/base-rules/minimal.json"
 cp -a internal/uiassets/assets/. "$pkg/usr/share/sboxkit/ui/"
 install -m 0644 README.md "$pkg/usr/share/doc/sboxkit/README.md"
@@ -110,8 +112,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/var/lib/sboxkit/runtime
-ExecStart=/var/lib/sboxkit/runtime/bin/sing-box run -c /var/lib/sboxkit/runtime/config.json
+WorkingDirectory=/var/lib/sboxkit/current
+ExecStart=/usr/lib/sboxkit/sing-box run -c /var/lib/sboxkit/current/config.json
 Restart=on-failure
 RestartSec=3
 LimitNOFILE=1048576
@@ -146,7 +148,8 @@ cat > "$pkg/DEBIAN/postinst" <<'POSTINST'
 #!/usr/bin/env sh
 set -e
 echo "sboxkit installed. Run: sboxkit init"
-echo "Breaking layout change: if upgrading from an older release, fully remove the old package and runtime state before reinstalling."
+echo "Breaking layout change: if upgrading from an older release, run the migration helper first if you want to preserve old state:"
+echo "  sudo /usr/share/sboxkit/scripts/sboxkit-migrate-legacy.sh --yes"
 exit 0
 POSTINST
 chmod 0755 "$pkg/DEBIAN/postinst"

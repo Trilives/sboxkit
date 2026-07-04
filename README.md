@@ -35,20 +35,20 @@ sboxkit
 从 GitHub Releases 下载对应架构的安装包：
 
 ```bash
-sudo apt install ./sboxkit_0.2.0_amd64.deb
+sudo apt install ./sboxkit_0.2.0~beta_amd64.deb
 ```
 
 也可以安装 arm64 包：
 
 ```bash
-sudo apt install ./sboxkit_0.2.0_arm64.deb
+sudo apt install ./sboxkit_0.2.0~beta_arm64.deb
 ```
 
 便携包：
 
 ```bash
-tar -xzf sboxkit_0.2.0_amd64_portable.tar.gz
-cd sboxkit_0.2.0_amd64
+tar -xzf sboxkit_0.2.0-beta_amd64_portable.tar.gz
+cd sboxkit_0.2.0-beta_amd64
 sudo ./install.sh
 ```
 
@@ -88,7 +88,7 @@ TUI 主界面聚合为六类：
 
 ## 固定工作目录
 
-用户状态、激活版本、缓存和运行锁固定存放，不受当前 shell 所在目录影响。默认结构：
+用户状态、配置版本和缓存固定存放，不受当前 shell 所在目录影响。默认结构：
 
 ```text
 /usr/bin/sboxkit
@@ -109,40 +109,34 @@ TUI 主界面聚合为六类：
 │   ├── subscriptions/
 │   ├── ruleset/
 │   └── ui/
-├── activations/
+├── revisions/
 │   └── <revision>/
 │       ├── manifest.json
-│       ├── bin/sing-box
 │       ├── config.json
-│       ├── ruleset/
-│       ├── ui/
 │       └── healthcheck.sh
-├── runtime -> activations/<revision>
+├── current -> revisions/<revision>
 └── sing-box/
     └── cache.db
 
 /var/cache/sboxkit/
 ├── downloads/
 └── self-update/
-
-/run/sboxkit/
-└── operation.lock
 ```
 
 可通过 `SBOXKIT_ROOT=/path/to/root` 或命令参数 `--root DIR` 覆盖。
 
-使用非默认 root 时，`/var/cache/sboxkit` 和 `/run/sboxkit` 会跟随 root 映射到 `cache/` 与 `run/`，便于测试和便携运行。
+使用非默认 root 时，`/var/cache/sboxkit` 会跟随 root 映射到 `cache/`，便于测试和便携运行。
 
-systemd 主服务只指向当前 runtime：
+systemd 主服务只指向当前配置版本，sing-box 内核和 WebUI 不复制进每个版本目录：
 
 ```text
-WorkingDirectory=/var/lib/sboxkit/runtime
-ExecStart=/var/lib/sboxkit/runtime/bin/sing-box run -c /var/lib/sboxkit/runtime/config.json
+WorkingDirectory=/var/lib/sboxkit/current
+ExecStart=/usr/lib/sboxkit/sing-box run -c /var/lib/sboxkit/current/config.json
 ```
 
-每次 `service install` / `service sync` 会生成新的 activation，`sing-box check` 通过后再切换 `runtime` 符号链接。
+每次 `service install` / `service sync` 会生成新的 revision，`sing-box check` 通过后再切换 `current` 符号链接。
 
-破坏性升级提示：此目录结构不兼容旧版运行时布局。旧版本升级到新版时，请先完整卸载旧版并清理旧运行时，再安装新版。
+破坏性升级提示：此目录结构不兼容旧版运行时布局。旧版本升级到 0.2.0 beta 时，如果要保留旧配置，请先运行 release 附带的 `sboxkit-migrate-legacy.sh --yes`；如果不需要保留，完整卸载旧版并清理旧运行时后再安装新版。
 
 ## 配置来源
 

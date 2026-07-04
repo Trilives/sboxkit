@@ -5,6 +5,7 @@ GO ?= go
 GOCACHE ?= $(CURDIR)/.tools/go-build
 GOMODCACHE ?= $(CURDIR)/.tools/go-mod
 VERSION ?= $(shell cat VERSION)
+DEB_VERSION ?= $(subst -,~,$(VERSION))
 SING_BOX_BIN ?=
 
 test:
@@ -18,7 +19,7 @@ build:
 
 deb: build
 	@test -n "$(SING_BOX_BIN)" || (echo "SING_BOX_BIN=/path/to/sing-box is required for make deb" >&2; exit 2)
-	packaging/deb/build-deb.sh --binary $(BIN) --sing-box $(SING_BOX_BIN) --version $(VERSION) --arch amd64 --out-dir dist
+	packaging/deb/build-deb.sh --binary $(BIN) --sing-box $(SING_BOX_BIN) --version $(DEB_VERSION) --arch amd64 --out-dir dist
 
 clean:
 	rm -f $(BIN)
