@@ -218,7 +218,7 @@ func initialConfigSource(p paths.Paths, t *txn.Transaction) (bool, error) {
 	if info == nil {
 		return false, nil
 	}
-	sub, err := subscription.Add(p, info.Name, info.URL, info.SourceType, info.ApplyOverlay, true)
+	sub, err := subscription.Add(p, info.Name, info.URL, info.SourceType, info.ApplyOverlay, true, info.FetchViaProxy)
 	if err != nil {
 		return false, err
 	}

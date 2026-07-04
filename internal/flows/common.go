@@ -52,10 +52,11 @@ func normalizeProxy(raw string) string {
 }
 
 type newSub struct {
-	Name         string
-	URL          string
-	SourceType   string
-	ApplyOverlay bool
+	Name          string
+	URL           string
+	SourceType    string
+	ApplyOverlay  bool
+	FetchViaProxy bool
 }
 
 // askNewSubscription 交互收集新订阅信息；订阅链接留空 → (nil, nil) 表示「暂不配置」。
@@ -101,7 +102,14 @@ func askNewSubscription() (*newSub, error) {
 			return nil, err
 		}
 	}
-	return &newSub{Name: name, URL: subURL, SourceType: sourceType, ApplyOverlay: rebuild}, nil
+	fetchViaProxy := false
+	if sourceType != "local" {
+		fetchViaProxy, err = tui.Confirm(i18n.T("使用下载代理拉取此订阅？默认否＝直连"), false)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &newSub{Name: name, URL: subURL, SourceType: sourceType, ApplyOverlay: rebuild, FetchViaProxy: fetchViaProxy}, nil
 }
 
 // EnsureStateRoot 确保固定数据目录存在且当前用户可写：能直接建则直接建，

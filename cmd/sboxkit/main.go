@@ -119,21 +119,48 @@ func switchLabel() string {
 	return i18n.T("启动服务 ▶")
 }
 
-func interactive(p paths.Paths) int {
-	// 服务不存在（含已停止但仍注册的情况，IsInstalled 只看单元文件是否存在）时，
-	// 先选语言（确保后续这句问询本身、以及整个初始化流程都以用户选定的语言展示），
-	// 再询问是否现在进入初始化；主菜单不再需要单独的「初始化」入口，但是否进入由用户选择。
-	if !sysd.IsInstalled(sysd.DefaultName) {
-		if lerr := flows.PickLanguage(p); lerr != nil {
-			execx.Error(lerr.Error())
-		}
-		ok, err := tui.Confirm(i18n.T("未检测到已注册的服务，是否现在进行初始化？"), true)
-		if err == nil && ok {
-			if ierr := flows.Init(p); ierr != nil && !errors.Is(ierr, errs.ErrCancelled) {
-				execx.Error(ierr.Error())
-			}
+// firstRunDeps 把 maybeOfferFirstRunInit 依赖的外部调用抽成可注入字段，
+// 便于单测覆盖「先选语言、再询问是否初始化」这个调用顺序，不必真的跑 TUI/systemd。
+type firstRunDeps struct {
+	isInstalled  func(string) bool
+	pickLanguage func(paths.Paths) error
+	confirm      func(string, bool) (bool, error)
+	initFlow     func(paths.Paths) error
+	reportError  func(string)
+}
+
+func defaultFirstRunDeps() firstRunDeps {
+	return firstRunDeps{
+		isInstalled:  sysd.IsInstalled,
+		pickLanguage: flows.PickLanguage,
+		confirm:      tui.Confirm,
+		initFlow:     flows.Init,
+		reportError:  execx.Error,
+	}
+}
+
+// maybeOfferFirstRunInit 服务不存在（含已停止但仍注册的情况，IsInstalled 只看
+// 单元文件是否存在）时，先选语言（确保后续这句问询本身、以及整个初始化流程都
+// 以用户选定的语言展示），再询问是否现在进入初始化；主菜单不再需要单独的
+// 「初始化」入口，但是否进入由用户选择。
+func maybeOfferFirstRunInit(p paths.Paths, deps firstRunDeps) {
+	if deps.isInstalled(sysd.DefaultName) {
+		return
+	}
+	if err := deps.pickLanguage(p); err != nil {
+		deps.reportError(err.Error())
+		return
+	}
+	ok, err := deps.confirm(i18n.T("未检测到已注册的服务，是否现在进行初始化？"), true)
+	if err == nil && ok {
+		if ierr := deps.initFlow(p); ierr != nil && !errors.Is(ierr, errs.ErrCancelled) {
+			deps.reportError(ierr.Error())
 		}
 	}
+}
+
+func interactive(p paths.Paths) int {
+	maybeOfferFirstRunInit(p, defaultFirstRunDeps())
 	idx := 0
 	for {
 		// 顺序按常用程度排列：运行时管理/配置变更/网络测试等日常操作在前，

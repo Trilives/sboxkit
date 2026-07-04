@@ -197,7 +197,7 @@ func subAdd(p paths.Paths) error {
 			return err
 		}
 	}
-	if _, err := subscription.Add(p, info.Name, info.URL, info.SourceType, info.ApplyOverlay, setActive); err != nil {
+	if _, err := subscription.Add(p, info.Name, info.URL, info.SourceType, info.ApplyOverlay, setActive, info.FetchViaProxy); err != nil {
 		return err
 	}
 	if setActive {

@@ -69,8 +69,12 @@ func Defaults() Config {
 		DirectDomainSuffixes: []string{},
 		LocalBypassDomains:   []string{"localhost"},
 		RouteExcludeIPCidrs: []string{
+			// 不含 172.16.0.0/12：与 TUN 自身子网（172.19.0.0/30）同段，
+			// sing-box auto_route 会把系统 DNS 指向该子网内的合成地址，
+			// 排除网段若覆盖它会导致 DNS 查询绕过 hijack-dns 直接拨号到
+			// 不可达地址，造成全局断网（参考 singbox_cli_ui 的取值）。
 			"127.0.0.0/8", "0.0.0.0/8", "::1/128",
-			"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "fc00::/7", "fe80::/10",
+			"10.0.0.0/8", "192.168.0.0/16", "169.254.0.0/16", "fc00::/7", "fe80::/10",
 			"100.64.0.0/10",
 		},
 		BypassProcessNames:  []string{"tailscale", "tailscaled"},

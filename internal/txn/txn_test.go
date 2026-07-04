@@ -174,3 +174,37 @@ func TestRunPropagatesOtherErrorsAfterRollback(t *testing.T) {
 		t.Fatalf("出错后应回退, 内容 = %q", got)
 	}
 }
+
+func TestRunRollbackKeepsChangesCommittedBetweenModules(t *testing.T) {
+	dir := t.TempDir()
+	core := filepath.Join(dir, "service.txt")
+	optional := filepath.Join(dir, "resources.txt")
+	sentinel := errors.New("download failed")
+
+	err := Run("初始化", func(tx *Transaction) error {
+		if err := tx.BackupFile(core); err != nil {
+			return err
+		}
+		if err := os.WriteFile(core, []byte("started"), 0o644); err != nil {
+			return err
+		}
+		tx.Commit()
+
+		if err := tx.BackupFile(optional); err != nil {
+			return err
+		}
+		if err := os.WriteFile(optional, []byte("partial"), 0o644); err != nil {
+			return err
+		}
+		return sentinel
+	})
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("其他错误应原样返回, got %v", err)
+	}
+	if got, err := os.ReadFile(core); err != nil || string(got) != "started" {
+		t.Fatalf("已提交的服务模块不应被后续模块回退, got %q, err %v", got, err)
+	}
+	if _, err := os.Stat(optional); !os.IsNotExist(err) {
+		t.Fatal("失败的后续模块仍应独立回退")
+	}
+}

@@ -121,8 +121,11 @@ func GetActive(p paths.Paths) *Subscription {
 // 增 / 改
 // --------------------------------------------------------------------------
 
-// Add 新增订阅（拉取 → 生成配置）；setActive 时切换生效。
-func Add(p paths.Paths, name, subURL, sourceType string, applyOverlay, setActive bool) (*Subscription, error) {
+// Add 新增订阅（拉取 → 生成配置）；setActive 时切换生效。fetchViaProxy 为 false
+// （默认）时本次拉取强制直连，忽略 customize.json 里配置的下载代理——避免像
+// api.github.com 这类被单独封锁的域名因为下载代理默认启用而不必要地绕路，
+// 也让用户能按订阅逐个选择是否需要代理。
+func Add(p paths.Paths, name, subURL, sourceType string, applyOverlay, setActive, fetchViaProxy bool) (*Subscription, error) {
 	name = Slug(name)
 	if _, err := os.Stat(metaFile(p, name)); err == nil {
 		return nil, fmt.Errorf(i18n.T("订阅「%s」已存在，请改名或先删除"), name)
@@ -131,7 +134,11 @@ func Add(p paths.Paths, name, subURL, sourceType string, applyOverlay, setActive
 		Name: name, URL: subURL, SourceType: sourceType, ApplyOverlay: applyOverlay,
 		CreatedAt: now(), UpdatedAt: now(),
 	}
-	if err := build(p, sub); err != nil {
+	cfg := config.Load(p)
+	if !fetchViaProxy {
+		cfg.DownloadProxy = ""
+	}
+	if err := build(p, sub, cfg); err != nil {
 		return nil, err
 	}
 	if setActive {
@@ -142,14 +149,15 @@ func Add(p paths.Paths, name, subURL, sourceType string, applyOverlay, setActive
 	return sub, nil
 }
 
-// Refresh 联网重新拉取订阅原文并重建（用于「刷新订阅」/ 定时更新）。
+// Refresh 联网重新拉取订阅原文并重建（用于「刷新订阅」/ 定时更新）；
+// 沿用 customize.json 当前的下载代理设置（不像 Add 那样可按次选择）。
 func Refresh(p paths.Paths, name string) (*Subscription, error) {
 	sub := Get(p, name)
 	if sub == nil {
 		return nil, fmt.Errorf(i18n.T("订阅不存在: %s"), name)
 	}
 	sub.UpdatedAt = now()
-	if err := build(p, sub); err != nil {
+	if err := build(p, sub, config.Load(p)); err != nil {
 		return nil, err
 	}
 	if active := GetActive(p); active != nil && active.Name == name {
@@ -185,9 +193,9 @@ func Rebuild(p paths.Paths, name string) (*Subscription, error) {
 	return sub, nil
 }
 
-// build 拉取（或读本地文件）→ 写 raw → 生成配置写盘。
-func build(p paths.Paths, sub *Subscription) error {
-	cfg := config.Load(p)
+// build 拉取（或读本地文件）→ 写 raw → 生成配置写盘；cfg.DownloadProxy 决定
+// 本次拉取是否走下载代理（调用方按场景决定传入原样加载的 cfg 还是清空代理后的）。
+func build(p paths.Paths, sub *Subscription, cfg config.Config) error {
 	var raw []byte
 	var err error
 	if sub.SourceType == "local" {
@@ -200,9 +208,8 @@ func build(p paths.Paths, sub *Subscription) error {
 			return fmt.Errorf(i18n.T("读取本地文件: %w"), err)
 		}
 	} else {
-		proxy := cfg.DownloadProxy
 		execx.Info(fmt.Sprintf(i18n.T("拉取订阅「%s」…"), sub.Name))
-		raw, err = Fetch(sub.URL, sub.SourceType, proxy)
+		raw, err = Fetch(sub.URL, sub.SourceType, cfg.DownloadProxy)
 		if err != nil {
 			return err
 		}
@@ -229,8 +236,12 @@ func build(p paths.Paths, sub *Subscription) error {
 //     节点重新走一遍与 clash 来源一致的生成管线（分组 / TUN / DNS 与其它订阅一致）。
 //   - base64：先经 ToClashDict 转成 Clash 字典，序列化后走 ClashToSingBox。
 //
-// "local" 来源复用 URL 字段声明的原始类型（由调用方在 Add 时已经把
-// 探测到的真实类型写进 SourceType，local 只是拉取方式的旁路标记）。
+// "local" 来源只是拉取方式的旁路标记（URL 字段复用为本地文件路径，build 时
+// os.ReadFile 而非联网拉取），并不代表内容格式——本地文件既可以是 Clash YAML
+// 也可以是 sing-box JSON（见 askNewSubscription 的提示文案）。sub.SourceType
+// 本身继续保留字面量 "local"（Refresh/build 依赖它判断要不要重新按本地路径
+// 读取，而不是当成 URL 去发起 HTTP 请求），真正决定走哪条转换路径的是这里
+// 按内容现场探测出的 kind，无法判断时回退按 Clash YAML 处理。
 func convertAndWrite(p paths.Paths, sub *Subscription, raw []byte, cfg config.Config) error {
 	// 内置面板始终物化到 state/ui（sysd 部署运行时会把它连同内核一起暂存到
 	// runtime 目录），与 mihomo 版当年下载 metacubexd 到同一位置的角色一致。
@@ -240,12 +251,20 @@ func convertAndWrite(p paths.Paths, sub *Subscription, raw []byte, cfg config.Co
 
 	text := string(raw)
 
+	kind := SourceKind(sub.SourceType)
+	if sub.SourceType == "local" {
+		kind = SourceClash
+		if detected := Detect(raw); detected != SourceUnknown {
+			kind = detected
+		}
+	}
+
 	var (
 		result converter.Config
 		info   converter.Info
 		err    error
 	)
-	switch SourceKind(sub.SourceType) {
+	switch kind {
 	case SourceSingBox:
 		execx.Info(i18n.T("生成 sing-box 配置（原生订阅）…"))
 		result, info, err = converter.SingBoxDirect(text, cfg, p, sub.ApplyOverlay)
@@ -261,7 +280,7 @@ func convertAndWrite(p paths.Paths, sub *Subscription, raw []byte, cfg config.Co
 		}
 		execx.Info(i18n.T("生成 sing-box 配置…"))
 		result, info, err = converter.ClashToSingBox(string(clashJSON), cfg, p)
-	default: // clash / local(clash 声明)
+	default: // clash（含未探测出具体格式的本地文件，回退按 Clash YAML 处理）
 		execx.Info(i18n.T("生成 sing-box 配置…"))
 		result, info, err = converter.ClashToSingBox(text, cfg, p)
 	}

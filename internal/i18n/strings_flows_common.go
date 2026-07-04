@@ -12,6 +12,7 @@ func init() {
 		"订阅链接，留空=暂不配置":                               "Subscription URL, empty = skip for now",
 		"本地文件路径（Clash YAML 或 sing-box JSON），留空=暂不配置": "Local file path (Clash YAML or sing-box JSON), empty = skip for now",
 		"按 sboxkit 统一规则重建该订阅（TUN / DNS / AI / 流媒体 / 地区自动测速组）？否则仅信任你的原生配置，只补齐面板/控制器设置。": "Rebuild this subscription using sboxkit's unified rules (TUN / DNS / AI / streaming / region auto-test groups)? Otherwise trust your native config as-is, only filling in panel/controller settings.",
+		"使用下载代理拉取此订阅？默认否＝直连": "Use the download proxy to fetch this subscription? Default no = direct connection",
 
 		"创建数据目录 ": "Create data directory ",
 
