@@ -1,6 +1,9 @@
 // Package fetchx 下载通道（对应 core.py 的 _Fetcher，net/http 取代 curl 子进程）：
-// 「直连优先 → 代理兜底」。直连可达即彻底绕过环境代理（显式 Proxy=nil），
-// 避免下载被静默隧道进本地 sing-box → 机场节点（慢）；直连不可达才用配置的代理。
+// 「直连优先 → 代理兜底」。直连探测用的是一个通用探针（Google generate_204），
+// 结果只决定"先试哪个通道"，不代表目标域名本身一定直连可达——像 GitHub 这种
+// 在部分网络环境下被单独封锁/DNS 劫持的域名，直连探针可能通过而实际请求仍然
+// 失败，因此任一通道失败后总会尝试另一通道，不会因为探针一次性通过就完全放弃
+// 代理兜底。
 package fetchx
 
 import (
@@ -66,11 +69,13 @@ func (f *Fetcher) DirectReachable() bool {
 }
 
 func (f *Fetcher) channels() []string {
-	noProxy := os.Getenv("SBOXKIT_NO_PROXY") == "1"
-	if f.Proxy != "" && !noProxy && !f.DirectReachable() {
-		return []string{"proxy", "direct"}
+	if f.Proxy == "" || os.Getenv("SBOXKIT_NO_PROXY") == "1" {
+		return []string{"direct"}
 	}
-	return []string{"direct"}
+	if f.DirectReachable() {
+		return []string{"direct", "proxy"}
+	}
+	return []string{"proxy", "direct"}
 }
 
 // do 按通道顺序执行 fn，首个成功即返回；全失败返回最后一个错误。

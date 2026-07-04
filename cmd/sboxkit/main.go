@@ -43,6 +43,9 @@ func main() {
 	case "-h", "--help", "help":
 		fmt.Println(usageText())
 	case "init":
+		if lerr := flows.PickLanguage(p); lerr != nil {
+			execx.Error(lerr.Error())
+		}
 		exitFlow(flows.Init(p))
 	case "modify":
 		exitFlow(flows.ModifyConfig(p))
@@ -118,8 +121,12 @@ func switchLabel() string {
 
 func interactive(p paths.Paths) int {
 	// 服务不存在（含已停止但仍注册的情况，IsInstalled 只看单元文件是否存在）时，
-	// 询问是否现在进入初始化；主菜单不再需要单独的「初始化」入口，但是否进入由用户选择。
+	// 先选语言（确保后续这句问询本身、以及整个初始化流程都以用户选定的语言展示），
+	// 再询问是否现在进入初始化；主菜单不再需要单独的「初始化」入口，但是否进入由用户选择。
 	if !sysd.IsInstalled(sysd.DefaultName) {
+		if lerr := flows.PickLanguage(p); lerr != nil {
+			execx.Error(lerr.Error())
+		}
 		ok, err := tui.Confirm(i18n.T("未检测到已注册的服务，是否现在进行初始化？"), true)
 		if err == nil && ok {
 			if ierr := flows.Init(p); ierr != nil && !errors.Is(ierr, errs.ErrCancelled) {

@@ -1,12 +1,17 @@
 // 初始化（首次部署）全流程（对应 flows/init.py）。
-// 整个流程包在事务内：任意步骤 ESC / 出错都会回退已应用的改动。
+// 每个独立配置组件各自一个事务：某一步 ESC / 出错只回退它自己已应用的改动，
+// 不会连带撤销更早已经成功提交的步骤（例如服务已注册启动后，后续下载资源
+// 失败不应该把已经跑起来的服务也卸载掉）。语言选择由调用方在进入 Init 前
+// 完成，不属于本流程的一部分。
 package flows
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
 	"github.com/Trilives/sboxkit/internal/config"
+	"github.com/Trilives/sboxkit/internal/errs"
 	"github.com/Trilives/sboxkit/internal/execx"
 	"github.com/Trilives/sboxkit/internal/firewall"
 	"github.com/Trilives/sboxkit/internal/i18n"
@@ -19,22 +24,71 @@ import (
 	"github.com/Trilives/sboxkit/internal/txn"
 )
 
-// Init 初始化流程；ErrCancelled 由 txn.Run 回退并吞掉。
-// 第一步先选语言（在事务外执行，不随后续步骤的取消/回退而撤销），
-// 确保后续所有提示都以用户选定的语言展示。
+// Init 初始化流程。
 func Init(p paths.Paths) error {
-	if err := PickLanguage(p); err != nil {
+	execx.Header(i18n.T("初始化（首次部署）"))
+
+	// 0. deb 种子接管（若从系统包安装，离线即可获得内核与基础规则）
+	if _, err := kernel.SeedFromSystem(p); err != nil {
+		execx.Warn(i18n.T("种子接管失败（不影响后续下载）：") + err.Error())
+	}
+
+	// 1. 部署设置：下载代理 / TUN / 局域网代理，独立一个事务。
+	if err := initDeploymentSettings(p); err != nil {
 		return err
 	}
-	return txn.Run(i18n.T("初始化"), func(t *txn.Transaction) error {
-		execx.Header(i18n.T("初始化（首次部署）"))
 
-		// 0. deb 种子接管（若从系统包安装，离线即可获得内核与基础规则）
-		if _, err := kernel.SeedFromSystem(p); err != nil {
-			execx.Warn(i18n.T("种子接管失败（不影响后续下载）：") + err.Error())
+	// 2. 添加首个订阅（Clash / base64 / 本地 YAML 文件三选一），独立一个事务：
+	// 这里取消/出错只回退订阅本身，不影响步骤 1 已保存的部署设置。
+	ready, err := addInitialSubscription(p)
+	if err != nil {
+		return err
+	}
+	if !ready {
+		execx.Info(i18n.T("已跳过订阅与服务注册，结束初始化。设置已保存，") +
+			i18n.T("稍后可在主菜单「订阅 → 添加订阅」补配并启动服务。"))
+		return nil
+	}
+
+	// 3. 注册并启动 systemd 服务，独立一个事务：deb 安装已内置内核与基础规则，
+	// 优先直接使用；非 deb / 资源缺失场景才在启动前下载兜底。一旦服务成功启动，
+	// 后续可选步骤（更新资源/自愈/定时器）失败都不应该把它卸载回退。
+	installed, err := registerService(p)
+	if err != nil {
+		return err
+	}
+	if !installed {
+		return nil
+	}
+
+	// 4. 服务已经跑起来；是否顺带更新内核/geo 数据属于锦上添花，失败只提示，
+	// 不影响已经成功启动的服务。
+	if err := optionalPostStartUpdate(p); err != nil && !errors.Is(err, errs.ErrCancelled) {
+		execx.Warn(fmt.Sprintf(i18n.T("更新内核/geo 数据失败（服务仍按原资源正常运行）：%v"), err))
+	}
+
+	// 5. 可选增强：网络自愈 / 每周更新，各自独立，互不影响、也不影响服务本身。
+	optionalExtras()
+
+	// 6. 提示切换 / 固定节点
+	ok, err := tui.Confirm(i18n.T("配置已就绪，是否现在切换 / 固定节点？"), false)
+	if err != nil {
+		return err
+	}
+	if ok {
+		if err := NodeSelect(p, p.ConfigFile, ""); err != nil {
+			return err
 		}
+	}
 
-		// 1. 局域网下载代理 / TUN / 局域网代理
+	execx.Ok(i18n.T("初始化完成。"))
+	printAccessHint(p)
+	return nil
+}
+
+// initDeploymentSettings 步骤 1：下载代理 / TUN / 局域网代理，独立事务。
+func initDeploymentSettings(p paths.Paths) error {
+	return txn.Run(i18n.T("部署设置"), func(t *txn.Transaction) error {
 		cfg := config.Load(p)
 		proxy, err := tui.Ask(
 			i18n.T("订阅/资源下载代理 IP:端口（出海慢时走它，如 192.168.1.10:7890），留空=保留当前/无则直连"),
@@ -90,20 +144,27 @@ func Init(p paths.Paths) error {
 				firewall.Allow(firewall.ProxyPort)
 			}
 		}
+		return nil
+	})
+}
 
-		// 2. 添加首个订阅（Clash / base64 / 本地 YAML 文件三选一）。
-		ready, err := initialConfigSource(p, t)
-		if err != nil {
-			return err
-		}
-		if !ready {
-			execx.Info(i18n.T("已跳过订阅与服务注册，结束初始化。设置已保存，") +
-				i18n.T("稍后可在主菜单「订阅 → 添加订阅」补配并启动服务。"))
-			return nil // 正常返回 → 事务提交，保留步骤 1-2 成果
-		}
+// addInitialSubscription 步骤 2：独立事务；ready=false 表示用户主动跳过
+// （非取消/出错），Init 据此结束流程而不注册服务。
+func addInitialSubscription(p paths.Paths) (bool, error) {
+	ready := false
+	err := txn.Run(i18n.T("添加订阅"), func(t *txn.Transaction) error {
+		r, err := initialConfigSource(p, t)
+		ready = r
+		return err
+	})
+	return ready, err
+}
 
-		// 3. 注册并启动 systemd 服务。deb 安装已内置内核与基础规则，优先直接使用；
-		// 非 deb / 资源缺失场景才在启动前下载兜底。
+// registerService 步骤 3：独立事务；installed=false 表示用户取消（已回退），
+// Init 据此结束流程而不继续后续可选步骤。
+func registerService(p paths.Paths) (bool, error) {
+	installed := false
+	err := txn.Run(i18n.T("注册服务"), func(t *txn.Transaction) error {
 		if err := ensureStartupResources(p); err != nil {
 			return err
 		}
@@ -111,32 +172,10 @@ func Init(p paths.Paths) error {
 		if err := sysd.Install(p, sysd.DefaultName, true); err != nil {
 			return err
 		}
-
-		// 4. 服务先跑起来；再询问是否在线下载/更新内核、geo 与可选 Web UI。
-		if err := optionalPostStartUpdate(p); err != nil {
-			return err
-		}
-
-		// 5. 可选增强：网络自愈 / 每周更新
-		if err := optionalExtras(t); err != nil {
-			return err
-		}
-
-		// 6. 提示切换 / 固定节点
-		ok, err := tui.Confirm(i18n.T("配置已就绪，是否现在切换 / 固定节点？"), false)
-		if err != nil {
-			return err
-		}
-		if ok {
-			if err := NodeSelect(p, p.ConfigFile, ""); err != nil {
-				return err
-			}
-		}
-
-		execx.Ok(i18n.T("初始化完成。"))
-		printAccessHint(p)
+		installed = true
 		return nil
 	})
+	return installed, err
 }
 
 // initialConfigSource 添加首个订阅。若状态目录（/var/lib/sboxkit）里已有
@@ -234,26 +273,41 @@ func optionalPostStartUpdate(p paths.Paths) error {
 	return sysd.Install(p, sysd.DefaultName, true)
 }
 
-func optionalExtras(t *txn.Transaction) error {
-	ok, err := tui.Confirm(i18n.T("安装网络切换自愈？"), true)
-	if err != nil {
-		return err
+// optionalExtras 步骤 5：网络自愈 / 每周更新各自独立一个事务，互不影响，
+// 也不影响此前已经成功注册启动的服务；任一项失败只警告、不中断另一项。
+func optionalExtras() {
+	if err := installResilienceIfWanted(); err != nil && !errors.Is(err, errs.ErrCancelled) {
+		execx.Warn(fmt.Sprintf(i18n.T("安装网络自愈失败：%v"), err))
 	}
-	if ok {
+	if err := installTimerIfWanted(); err != nil && !errors.Is(err, errs.ErrCancelled) {
+		execx.Warn(fmt.Sprintf(i18n.T("安装每周更新定时器失败：%v"), err))
+	}
+}
+
+func installResilienceIfWanted() error {
+	return txn.Run(i18n.T("网络自愈"), func(t *txn.Transaction) error {
+		ok, err := tui.Confirm(i18n.T("安装网络切换自愈？"), true)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
 		t.AddUndo(i18n.T("卸载网络自愈"), func() error { return sysd.RemoveResilience(sysd.DefaultName) })
-		if err := sysd.InstallResilience(sysd.ResilienceOptions{}); err != nil {
+		return sysd.InstallResilience(sysd.ResilienceOptions{})
+	})
+}
+
+func installTimerIfWanted() error {
+	return txn.Run(i18n.T("每周更新定时器"), func(t *txn.Transaction) error {
+		ok, err := tui.Confirm(i18n.T("安装每周自动更新定时器？"), false)
+		if err != nil {
 			return err
 		}
-	}
-	ok, err = tui.Confirm(i18n.T("安装每周自动更新定时器？"), false)
-	if err != nil {
-		return err
-	}
-	if ok {
+		if !ok {
+			return nil
+		}
 		t.AddUndo(i18n.T("卸载每周更新"), sysd.RemoveTimer)
-		if err := sysd.InstallTimer(""); err != nil {
-			return err
-		}
-	}
-	return nil
+		return sysd.InstallTimer("")
+	})
 }

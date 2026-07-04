@@ -6,6 +6,11 @@ func init() {
 		"初始化（首次部署）": "Initialize (first-time deployment)",
 		"种子接管失败（不影响后续下载）：": "Seed takeover failed (does not affect later downloads): ",
 
+		"部署设置": "Deployment settings",
+		"添加订阅": "Add subscription",
+		"注册服务": "Register service",
+		"网络自愈": "Network self-healing",
+
 		"订阅/资源下载代理 IP:端口（出海慢时走它，如 192.168.1.10:7890），留空=保留当前/无则直连": "Subscription/resource download proxy IP:port (used when overseas access is slow, e.g. 192.168.1.10:7890); empty = keep current, or direct if none",
 		"启用 TUN 模式？（整机流量自动走代理；否=纯代理，需各 App 手动设代理）":                 "Enable TUN mode? (all system traffic auto-routes through the proxy; no = pure proxy mode, each app must set its own proxy)",
 		"开启局域网代理？（让局域网其他主机可用本机作为代理，监听 0.0.0.0:7890）":               "Enable LAN proxy? (lets other hosts on the LAN use this machine as a proxy, listening on 0.0.0.0:7890)",
@@ -34,10 +39,13 @@ func init() {
 		"服务已启动。现在下载/更新内核和 geo 数据？（内置 Web 面板已随服务部署，浏览器访问 http://host:9090/ui/ 即可查看/切换节点）": "Service started. Download/update the core and geo data now? (The built-in web panel is already deployed with the service; browse http://host:9090/ui/ to view/switch nodes.)",
 		"下载/更新 内核 / geo 数据（出海慢时会用上面的代理）…":                                                "Downloading/updating core / geo data (will use the proxy above if overseas access is slow)…",
 		"已更新资源，重新部署运行时并重启服务…":                                                            "Resources updated; redeploying the runtime and restarting the service…",
+		"更新内核/geo 数据失败（服务仍按原资源正常运行）：%v":                                                  "Failed to update core/geo data (the service keeps running fine on its existing resources): %v",
 
-		"安装网络切换自愈？":    "Install network self-healing?",
-		"卸载网络自愈":       "Uninstall network self-healing",
-		"安装每周自动更新定时器？": "Install weekly auto-update timer?",
-		"卸载每周更新":       "Uninstall weekly update",
+		"安装网络切换自愈？":      "Install network self-healing?",
+		"卸载网络自愈":         "Uninstall network self-healing",
+		"安装网络自愈失败：%v":    "Failed to install network self-healing: %v",
+		"安装每周自动更新定时器？":   "Install weekly auto-update timer?",
+		"卸载每周更新":         "Uninstall weekly update",
+		"安装每周更新定时器失败：%v": "Failed to install the weekly update timer: %v",
 	})
 }
