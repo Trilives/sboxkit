@@ -3,261 +3,208 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>sboxkit switchboard</title>
+    <title>sboxkit panel</title>
     <style>
       :root {
         color-scheme: light dark;
-        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: #f4f7f5;
-        color: #1d2522;
-      }
-      * {
-        box-sizing: border-box;
-      }
-      body {
-        margin: 0;
-      }
-      main {
-        min-height: 100vh;
-        display: grid;
-        grid-template-columns: minmax(220px, 280px) 1fr;
-      }
-      aside {
-        background: #17211d;
-        color: #d8eee3;
-        padding: 24px;
-      }
-      h1,
-      h2,
-      p {
-        margin: 0;
-      }
-      h1 {
-        font-size: 24px;
-        font-weight: 720;
-      }
-      .tagline {
-        margin-top: 8px;
-        color: #99b5a8;
-        font-size: 13px;
-        line-height: 1.5;
-      }
-      .sideBlock {
-        border-top: 1px solid #31463d;
-        margin-top: 22px;
-        padding-top: 18px;
-      }
-      .sideLabel {
-        color: #8ba69a;
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: .08em;
-        text-transform: uppercase;
-      }
-      .sideValue {
-        margin-top: 8px;
-        overflow-wrap: anywhere;
-        font-size: 13px;
-        line-height: 1.5;
-      }
-      .workspace {
-        padding: 28px;
-      }
-      .topbar {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 16px;
-        border-bottom: 1px solid #d6dfda;
-        padding-bottom: 18px;
-      }
-      h2 {
-        font-size: 20px;
-      }
-      .status {
-        min-width: 170px;
-        border: 1px solid #b9c8c0;
-        border-radius: 8px;
-        padding: 8px 10px;
-        font-size: 13px;
-        text-align: center;
-      }
-      .grid {
-        display: grid;
-        gap: 12px;
-        margin-top: 20px;
-      }
-      .group {
-        display: grid;
-        grid-template-columns: minmax(160px, 240px) 1fr;
-        gap: 14px;
-        align-items: start;
-        border: 1px solid #d6dfda;
-        border-radius: 8px;
-        background: #ffffff;
-        padding: 14px;
-      }
-      .groupName {
-        font-weight: 700;
-        overflow-wrap: anywhere;
-      }
-      .current {
-        color: #52645c;
-        font-size: 13px;
-        margin-top: 6px;
-        overflow-wrap: anywhere;
-      }
-      .choices {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-      }
-      button {
-        border: 1px solid #b5c3bc;
-        border-radius: 6px;
-        background: #f9fbfa;
-        color: inherit;
-        cursor: pointer;
-        min-height: 34px;
-        padding: 7px 10px;
-        max-width: 100%;
-        overflow-wrap: anywhere;
-      }
-      button:hover {
-        border-color: #527568;
-      }
-      button[aria-pressed="true"] {
-        background: #163c2d;
-        border-color: #163c2d;
-        color: #effaf5;
-      }
-      .empty {
-        border: 1px dashed #aebdb5;
-        border-radius: 8px;
-        color: #52645c;
-        padding: 24px;
-      }
-      @media (max-width: 760px) {
-        main {
-          grid-template-columns: 1fr;
-        }
-        aside {
-          padding: 20px;
-        }
-        .workspace {
-          padding: 20px;
-        }
-        .topbar {
-          align-items: stretch;
-          flex-direction: column;
-        }
-        .status {
-          text-align: left;
-        }
-        .group {
-          grid-template-columns: 1fr;
-        }
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        --bg: #f3f2fb;
+        --panel: #ffffff;
+        --ink: #1c1930;
+        --muted: #6a6484;
+        --line: #ddd8ef;
+        --accent: #4b3fd6;
+        --accent-ink: #f5f3ff;
+        --ok: #1f8a5f;
+        --bad: #c23b3b;
       }
       @media (prefers-color-scheme: dark) {
         :root {
-          background: #0f1513;
-          color: #e6efe9;
+          --bg: #100e1c;
+          --panel: #191630;
+          --ink: #ecebf7;
+          --muted: #9b93c4;
+          --line: #322c56;
+          --accent: #8b7bff;
+          --accent-ink: #14102b;
+          --ok: #4fd699;
+          --bad: #ff8080;
         }
-        .workspace {
-          background: #111815;
-        }
-        .topbar,
-        .group,
-        .status {
-          border-color: #2f3f38;
-        }
-        .group,
-        button {
-          background: #18211d;
-        }
-        button[aria-pressed="true"] {
-          background: #9bd2ba;
-          border-color: #9bd2ba;
-          color: #102019;
-        }
-        .current,
-        .empty {
-          color: #a8bbb2;
-        }
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: var(--ink); }
+      header {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        padding: 20px 24px 0;
+      }
+      header .mark {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        border-radius: 8px;
+        background: var(--accent);
+        color: var(--accent-ink);
+        font-weight: 800;
+        font-size: 14px;
+      }
+      header h1 { font-size: 18px; margin: 0; font-weight: 700; }
+      header .sub { color: var(--muted); font-size: 12px; }
+      main {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 16px 24px 40px;
+        display: grid;
+        gap: 16px;
+      }
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 10px;
+      }
+      .stat {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 12px 14px;
+      }
+      .stat .k {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: .08em;
+        color: var(--muted);
+      }
+      .stat .v {
+        margin-top: 4px;
+        font-size: 13px;
+        overflow-wrap: anywhere;
+      }
+      .toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .toolbar .status { font-size: 12px; color: var(--muted); }
+      button.action {
+        border: 1px solid var(--line);
+        background: var(--panel);
+        color: var(--ink);
+        border-radius: 8px;
+        padding: 7px 12px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      button.action:hover { border-color: var(--accent); }
+      .groups { display: grid; gap: 12px; }
+      .group {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 14px;
+      }
+      .group .head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        margin-bottom: 10px;
+      }
+      .group .name { font-weight: 700; font-size: 14px; }
+      .group .now { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+      .nodes { display: grid; gap: 6px; }
+      .node {
+        display: grid;
+        grid-template-columns: 1fr auto auto;
+        align-items: center;
+        gap: 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 8px 10px;
+        font-size: 13px;
+      }
+      .node.current { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
+      .node .nodeName { overflow-wrap: anywhere; }
+      .node .delay { font-variant-numeric: tabular-nums; font-size: 12px; min-width: 56px; text-align: right; }
+      .node .delay.ok { color: var(--ok); }
+      .node .delay.bad { color: var(--bad); }
+      .node button {
+        border: 1px solid var(--line);
+        background: transparent;
+        color: var(--ink);
+        border-radius: 6px;
+        padding: 5px 9px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .node button.use { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+      .node button:disabled { opacity: .5; cursor: default; }
+      .empty {
+        border: 1px dashed var(--line);
+        border-radius: 10px;
+        color: var(--muted);
+        padding: 24px;
+        text-align: center;
+        font-size: 13px;
       }
     </style>
   </head>
   <body>
+    <header>
+      <span class="mark">SB</span>
+      <h1>sboxkit panel</h1>
+      <span class="sub">selector groups for this sing-box instance</span>
+    </header>
     <main>
-      <aside>
-        <h1>sboxkit</h1>
-        <p class="tagline">A compact switchboard for a deployed sing-box service.</p>
-        <div class="sideBlock">
-          <div class="sideLabel">Active source</div>
-          <div class="sideValue" id="active">loading</div>
-        </div>
-        <div class="sideBlock">
-          <div class="sideLabel">State directory</div>
-          <div class="sideValue" id="state">-</div>
-        </div>
-        <div class="sideBlock">
-          <div class="sideLabel">Runtime directory</div>
-          <div class="sideValue" id="runtime">-</div>
-        </div>
-      </aside>
-      <section class="workspace">
-        <div class="topbar">
-          <h2>Node selectors</h2>
-          <div class="status" id="status">connecting</div>
-        </div>
-        <div class="grid" id="groups">
-          <div class="empty">Loading selector groups...</div>
-        </div>
-      </section>
+      <div class="stats">
+        <div class="stat"><div class="k">sing-box version</div><div class="v" id="version">loading</div></div>
+      </div>
+      <div class="toolbar">
+        <span class="status" id="status">connecting</span>
+        <button class="action" id="refresh" type="button">Refresh</button>
+      </div>
+      <div class="groups" id="groups">
+        <div class="empty">Loading selector groups...</div>
+      </div>
     </main>
     <script>
+      // 本页面与 sing-box 的 clash_api 同源同端口提供（experimental.clash_api.
+      // external_ui 指向本目录），下面直接调用 sing-box 原生 Clash API 端点
+      // （/version、/proxies、/proxies/{group}、/proxies/{name}/delay），
+      // 不经过任何 sboxkit 自带的后端网关。
       const statusEl = document.getElementById("status");
       const groupsEl = document.getElementById("groups");
-      const activeEl = document.getElementById("active");
-      const stateEl = document.getElementById("state");
-      const runtimeEl = document.getElementById("runtime");
+      const versionEl = document.getElementById("version");
+      const refreshBtn = document.getElementById("refresh");
 
-      async function fetchJSON(paths, options) {
-        let lastError;
-        for (const path of paths) {
-          try {
-            const response = await fetch(path, options);
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            if (response.status === 204) return null;
-            return await response.json();
-          } catch (error) {
-            lastError = error;
-          }
-        }
-        throw lastError;
+      async function fetchJSON(path, options) {
+        const response = await fetch(path, options);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        if (response.status === 204) return null;
+        return await response.json();
       }
 
       async function loadStatus() {
         try {
-          const data = await fetchJSON(["/api/status"]);
-          activeEl.textContent = data.active ? `${data.active.name} (${data.active.nodes} nodes)` : "none";
-          stateEl.textContent = data.state || "-";
-          runtimeEl.textContent = data.runtime || "-";
+          const data = await fetchJSON("/version");
+          versionEl.textContent = data.version || "unknown";
         } catch {
-          activeEl.textContent = "served by sing-box";
-          stateEl.textContent = "not exposed";
-          runtimeEl.textContent = location.origin;
+          versionEl.textContent = "unavailable";
         }
       }
 
       async function loadGroups() {
+        statusEl.textContent = "loading...";
         try {
-          const data = await fetchJSON(["/api/proxies", "/proxies"]);
-          const groups = Array.isArray(data.groups)
-            ? data.groups
-            : Object.values(data.proxies || {}).filter((item) => Array.isArray(item.all) && item.all.length);
+          const data = await fetchJSON("/proxies");
+          const proxies = data.proxies || {};
+          const groups = Object.values(proxies)
+            .filter((p) => Array.isArray(p.all) && p.all.length > 0)
+            .sort((a, b) => a.name.localeCompare(b.name));
           renderGroups(groups);
-          statusEl.textContent = `${groups.length} selector groups`;
+          statusEl.textContent = groups.length ? `${groups.length} selector group(s)` : "no selector groups";
         } catch {
           statusEl.textContent = "Clash API unavailable";
           groupsEl.innerHTML = '<div class="empty">No selector data is available from the running service.</div>';
@@ -273,43 +220,81 @@
       }
 
       function renderGroup(group) {
-        const row = document.createElement("article");
-        row.className = "group";
+        const card = document.createElement("article");
+        card.className = "group";
 
-        const meta = document.createElement("div");
-        const title = document.createElement("div");
-        title.className = "groupName";
-        title.textContent = group.name;
-        const current = document.createElement("div");
-        current.className = "current";
-        current.textContent = `Current: ${group.now || "-"}`;
-        meta.append(title, current);
+        const head = document.createElement("div");
+        head.className = "head";
+        const name = document.createElement("div");
+        name.className = "name";
+        name.textContent = group.name;
+        const now = document.createElement("div");
+        now.className = "now";
+        now.textContent = `current: ${group.now || "-"}`;
+        head.append(name, now);
 
-        const choices = document.createElement("div");
-        choices.className = "choices";
+        const nodes = document.createElement("div");
+        nodes.className = "nodes";
         for (const choice of group.all || []) {
-          const button = document.createElement("button");
-          button.type = "button";
-          button.textContent = choice;
-          button.setAttribute("aria-pressed", String(choice === group.now));
-          button.onclick = () => switchGroup(group.name, choice);
-          choices.appendChild(button);
+          nodes.appendChild(renderNode(group.name, choice, choice === group.now));
         }
-        row.append(meta, choices);
+
+        card.append(head, nodes);
+        return card;
+      }
+
+      function renderNode(group, name, isCurrent) {
+        const row = document.createElement("div");
+        row.className = "node" + (isCurrent ? " current" : "");
+
+        const label = document.createElement("div");
+        label.className = "nodeName";
+        label.textContent = name + (isCurrent ? " ★" : "");
+
+        const delay = document.createElement("div");
+        delay.className = "delay";
+        delay.textContent = "";
+
+        const testBtn = document.createElement("button");
+        testBtn.type = "button";
+        testBtn.textContent = "Test";
+        testBtn.onclick = () => testDelay(name, delay, testBtn);
+
+        const useBtn = document.createElement("button");
+        useBtn.type = "button";
+        useBtn.className = "use";
+        useBtn.textContent = isCurrent ? "in use" : "Use";
+        useBtn.disabled = isCurrent;
+        useBtn.onclick = () => switchGroup(group, name);
+
+        row.append(label, delay, testBtn, useBtn);
         return row;
       }
 
-      async function switchGroup(group, name) {
-        statusEl.textContent = "switching";
-        const body = JSON.stringify({ name });
+      async function testDelay(name, delayEl, button) {
+        button.disabled = true;
+        delayEl.textContent = "...";
+        delayEl.className = "delay";
         try {
-          await fetchJSON([
-            `/api/proxies/${encodeURIComponent(group)}`,
-            `/proxies/${encodeURIComponent(group)}`,
-          ], {
+          const query = new URLSearchParams({ timeout: "5000", url: "https://www.gstatic.com/generate_204" });
+          const data = await fetchJSON(`/proxies/${encodeURIComponent(name)}/delay?${query}`);
+          delayEl.textContent = `${data.delay}ms`;
+          delayEl.className = "delay ok";
+        } catch {
+          delayEl.textContent = "timeout";
+          delayEl.className = "delay bad";
+        } finally {
+          button.disabled = false;
+        }
+      }
+
+      async function switchGroup(group, name) {
+        statusEl.textContent = "switching...";
+        try {
+          await fetchJSON(`/proxies/${encodeURIComponent(group)}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body,
+            body: JSON.stringify({ name }),
           });
           await loadGroups();
         } catch (error) {
@@ -317,9 +302,10 @@
         }
       }
 
+      refreshBtn.addEventListener("click", () => { loadStatus(); loadGroups(); });
       loadStatus();
       loadGroups();
-      setInterval(loadGroups, 15000);
+      setInterval(loadGroups, 20000);
     </script>
   </body>
 </html>

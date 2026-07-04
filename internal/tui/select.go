@@ -5,23 +5,30 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/Trilives/sboxkit/internal/errs"
+	"github.com/Trilives/sboxkit/internal/i18n"
 )
 
+// SelectOpts Select 的选项。SaveLabel 缺省与 BackLabel 相同——多数菜单里两个键
+// 效果一致；仅在需要区分「保存」与「放弃」时才各传各的。Initial 为初始光标位置，
+// 同一菜单重入时传上次选中的下标使光标停留原位。
 type SelectOpts struct {
 	BackLabel string
 	SaveLabel string
 	Initial   int
 }
 
+// Select 返回选中项下标；esc → ErrSaveExit，^R → ErrCancelled。
 func Select(title string, options []string, opts SelectOpts) (int, error) {
 	if opts.BackLabel == "" {
-		opts.BackLabel = "Back"
+		opts.BackLabel = i18n.T("返回")
 	}
 	if opts.SaveLabel == "" {
 		opts.SaveLabel = opts.BackLabel
 	}
 	if len(options) == 0 {
-		return 0, ErrCancelled
+		return 0, errs.ErrCancelled
 	}
 	if !UseTUI() {
 		return selectPlain(title, options, opts)
@@ -34,7 +41,7 @@ func Select(title string, options []string, opts SelectOpts) (int, error) {
 		title:   title,
 		options: options,
 		idx:     idx,
-		footer:  fmt.Sprintf("↑/↓ move   Enter select   Esc %s   Ctrl+R %s", opts.BackLabel, opts.SaveLabel),
+		footer:  fmt.Sprintf(i18n.T("↑/↓ 选择   ⏎ 确认   esc %s   ^R %s"), opts.SaveLabel, opts.BackLabel),
 		width:   80,
 		height:  24,
 	}
@@ -68,17 +75,17 @@ func (m *selectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		n := len(m.options)
 		switch msg.String() {
-		case "up", "k":
+		case "up":
 			m.idx = (m.idx - 1 + n) % n
-		case "down", "j":
+		case "down":
 			m.idx = (m.idx + 1) % n
 		case "enter":
 			return m, tea.Quit
-		case "esc", "q", "ctrl+c":
-			m.err = ErrCancelled
+		case "esc", "ctrl+c": // Python 版 Ctrl-C 亦按 ESC 处理
+			m.err = errs.ErrSaveExit
 			return m, tea.Quit
 		case "ctrl+r":
-			m.err = ErrSaveExit
+			m.err = errs.ErrCancelled
 			return m, tea.Quit
 		default:
 			s := msg.String()
@@ -96,7 +103,9 @@ func (m *selectModel) View() string {
 	return strings.Join(buildSelect(m.title, m.options, m.idx, m.footer, m.width, m.height), "\n") + "\n"
 }
 
-func buildSelect(title string, options []string, idx int, footer string, termCols int, termLines int) []string {
+// buildSelect 渲染选择框（对应 menu._build_select）：选项多于一屏时滑动显示；
+// 单行内容按终端宽度截断（省略号收尾），避免超长选项把边框撑破。
+func buildSelect(title string, options []string, idx int, footer string, termCols, termLines int) []string {
 	n := len(options)
 	visible := min(maxVisibleRows(termLines), n)
 	top := scrollTop(n, idx, visible)
@@ -105,10 +114,10 @@ func buildSelect(title string, options []string, idx int, footer string, termCol
 
 	upHint, downHint := "", ""
 	if top > 0 {
-		upHint = truncate(fmt.Sprintf("  ▲ %d more above", top), maxW)
+		upHint = truncate(fmt.Sprintf(i18n.T("  ▲ 上方还有 %d 项"), top), maxW)
 	}
 	if end < n {
-		downHint = truncate(fmt.Sprintf("  ▼ %d more below", n-end), maxW)
+		downHint = truncate(fmt.Sprintf(i18n.T("  ▼ 下方还有 %d 项"), n-end), maxW)
 	}
 	label := truncate(fmt.Sprintf("─ %s ", title), maxW)
 	footerText := truncate("  "+footer, maxW)
@@ -120,7 +129,7 @@ func buildSelect(title string, options []string, idx int, footer string, termCol
 		if i == idx {
 			mark = "❯"
 		}
-		t := truncate(fmt.Sprintf("  %s %s %s ", mark, num(i), options[i]), maxW)
+		t := truncate(fmt.Sprintf("  %s %s %s ", mark, numFor(n, i), options[i]), maxW)
 		rowsText[i] = t
 		widths = append(widths, dispWidth(t))
 	}

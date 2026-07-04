@@ -5,84 +5,60 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Trilives/sboxkit/internal/config"
 	"github.com/Trilives/sboxkit/internal/paths"
-	"github.com/Trilives/sboxkit/internal/testkit"
 )
 
-func TestManagerAddAndSwitchSubscription(t *testing.T) {
-	p := paths.FromRoot(t.TempDir())
-	manager := NewManager(p, config.Defaults())
-	manager.fetch = func(rawURL string, source SourceKind, proxy string) ([]byte, error) {
-		return []byte(testkit.ReadFixture(t, "testdata/converter/clash-basic.yaml")), nil
+func TestSlug(t *testing.T) {
+	cases := map[string]string{
+		"  Hua  ": "Hua",
+		"a/b\\c":  "a-b-c",
+		"x .. y":  "x---y",
+		"":        "sub",
+		". ":      "sub",
+		"多 词  订阅": "多-词-订阅",
 	}
-
-	sub, err := manager.Add("My Sub", "https://example.com/sub", SourceClash, true, true)
-	if err != nil {
-		t.Fatalf("add subscription: %v", err)
-	}
-	if sub.Name != "My-Sub" {
-		t.Fatalf("unexpected slug %q", sub.Name)
-	}
-	if sub.LastNodeCount != 2 {
-		t.Fatalf("expected 2 converted nodes, got %d", sub.LastNodeCount)
-	}
-
-	active, err := os.ReadFile(p.ActiveFile)
-	if err != nil {
-		t.Fatalf("read active: %v", err)
-	}
-	if string(active) != "My-Sub\n" {
-		t.Fatalf("unexpected active content %q", active)
-	}
-	if _, err := os.Stat(filepath.Join(p.SubscriptionsDir, "My-Sub", "config.json")); err != nil {
-		t.Fatalf("expected generated config: %v", err)
-	}
-}
-
-func TestManagerAddFileCopiesSourceAndSwitches(t *testing.T) {
-	p := paths.FromRoot(t.TempDir())
-	manager := NewManager(p, config.Defaults())
-	source := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(source, []byte(testkit.ReadFixture(t, "testdata/converter/clash-basic.yaml")), 0o600); err != nil {
-		t.Fatalf("write source: %v", err)
-	}
-
-	sub, err := manager.AddFile("local", source, "", true, true)
-	if err != nil {
-		t.Fatalf("add file: %v", err)
-	}
-
-	if sub.SourceType != SourceClash {
-		t.Fatalf("expected detected clash source, got %s", sub.SourceType)
-	}
-	if sub.LastNodeCount != 2 {
-		t.Fatalf("expected 2 converted nodes, got %d", sub.LastNodeCount)
-	}
-	for _, want := range []string{
-		filepath.Join(p.SubscriptionsDir, "local", "source.yaml"),
-		filepath.Join(p.SubscriptionsDir, "local", "raw.yaml"),
-		p.ConfigFile,
-	} {
-		if _, err := os.Stat(want); err != nil {
-			t.Fatalf("expected copied/generated file %s: %v", want, err)
+	for in, want := range cases {
+		if got := Slug(in); got != want {
+			t.Errorf("Slug(%q) = %q, 期望 %q", in, got, want)
 		}
 	}
 }
 
-func TestManagerWritesEmbeddedUIOnlyWhenLanPanelEnabled(t *testing.T) {
-	p := paths.FromRoot(t.TempDir())
-	cfg := config.Defaults()
-	cfg.LanPanel = true
-	manager := NewManager(p, cfg)
-	manager.fetch = func(rawURL string, source SourceKind, proxy string) ([]byte, error) {
-		return []byte(testkit.ReadFixture(t, "testdata/converter/clash-basic.yaml")), nil
+func TestMetaRoundtripPythonCompatible(t *testing.T) {
+	t.Setenv("SBOXKIT_HOME", t.TempDir())
+	p := paths.Detect()
+	if err := p.EnsureStateDirs(); err != nil {
+		t.Fatal(err)
+	}
+	// Python 版写出的 meta.json（字段名快照）
+	pyMeta := `{
+  "name": "Hua",
+  "url": "https://example.com/sub",
+  "source_type": "clash",
+  "apply_overlay": false,
+  "created_at": "2026-07-01T10:00:00+00:00",
+  "updated_at": "2026-07-02T10:00:00+00:00",
+  "last_node_count": 42
+}`
+	dir := p.SubscriptionDir("Hua")
+	os.MkdirAll(dir, 0o755)
+	os.WriteFile(filepath.Join(dir, "meta.json"), []byte(pyMeta), 0o644)
+
+	sub := Get(p, "Hua")
+	if sub == nil {
+		t.Fatal("应能直读 Python 版 meta.json")
+	}
+	if sub.Name != "Hua" || sub.SourceType != "clash" || sub.LastNodeCount != 42 {
+		t.Errorf("meta 字段解析不符: %+v", sub)
 	}
 
-	if _, err := manager.Add("panel", "https://example.com/sub", SourceClash, true, true); err != nil {
-		t.Fatalf("add subscription: %v", err)
+	os.WriteFile(p.ActiveFile, []byte("Hua\n"), 0o644)
+	if active := GetActive(p); active == nil || active.Name != "Hua" {
+		t.Error("GetActive 应解析 active 指针")
 	}
-	if _, err := os.Stat(filepath.Join(p.UIDir, "index.html")); err != nil {
-		t.Fatalf("expected embedded UI index: %v", err)
+
+	subs := ListAll(p)
+	if len(subs) != 1 || subs[0].Name != "Hua" {
+		t.Errorf("ListAll = %+v", subs)
 	}
 }

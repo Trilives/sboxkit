@@ -1,117 +1,128 @@
 package tui
 
 import (
+	"os"
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	"github.com/Trilives/sboxkit/internal/i18n"
 )
+
+// TestMain 强制中文模式：本文件断言的是源码里的中文原文，与界面默认语言无关。
+func TestMain(m *testing.M) {
+	i18n.SetLang(i18n.ZH)
+	os.Exit(m.Run())
+}
 
 func TestTruncateCJK(t *testing.T) {
 	s := "生成新加坡自动测速聚合组"
 	got := truncate(s, 10)
 	if !strings.HasSuffix(got, "…") {
-		t.Fatalf("wide text should end with ellipsis: %q", got)
+		t.Fatalf("超宽应以省略号收尾: %q", got)
 	}
 	if dispWidth(got) > 10 {
-		t.Fatalf("truncated width %d exceeds limit 10", dispWidth(got))
+		t.Fatalf("截断后宽度 %d 超过上限 10", dispWidth(got))
 	}
 	if truncate("short", 10) != "short" {
-		t.Fatal("short text should not be truncated")
+		t.Fatal("未超宽不应截断")
 	}
 }
 
 func TestScrollTop(t *testing.T) {
 	if scrollTop(5, 2, 10) != 0 {
-		t.Fatal("short list should not scroll")
+		t.Fatal("项数少于窗口时不滚动")
 	}
 	if got := scrollTop(100, 0, 10); got != 0 {
-		t.Fatalf("top should not underflow: %d", got)
+		t.Fatalf("顶部不越界: %d", got)
 	}
 	if got := scrollTop(100, 99, 10); got != 90 {
-		t.Fatalf("bottom should not overflow: %d", got)
+		t.Fatalf("底部不越界: %d", got)
 	}
 	if got := scrollTop(100, 50, 10); got != 45 {
-		t.Fatalf("selection should be centered where possible: %d", got)
+		t.Fatalf("选中项应尽量居中: %d", got)
 	}
 }
 
 func TestBuildSelectBoxAligned(t *testing.T) {
-	rows := buildSelect("Test menu", []string{"Option one", "A longer option", "Third"}, 1, "footer", 80, 24)
+	rows := buildSelect("测试菜单", []string{"选项一", "第二个更长的选项 option", "三"}, 1,
+		"↑/↓ 选择   ⏎ 确认   esc 返回   ^R 返回", 80, 24)
 	if len(rows) < 6 {
-		t.Fatalf("unexpected row count: %d", len(rows))
+		t.Fatalf("盒子行数异常: %d", len(rows))
 	}
 	w := dispWidth(stripAnsi(rows[0]))
 	for i, r := range rows {
 		if got := dispWidth(stripAnsi(r)); got != w {
-			t.Errorf("row %d width %d != first row %d: %q", i, got, w, stripAnsi(r))
+			t.Errorf("第 %d 行宽度 %d ≠ 首行 %d: %q", i, got, w, stripAnsi(r))
 		}
 	}
 	joined := stripAnsi(strings.Join(rows, "\n"))
-	if !strings.Contains(joined, "❯ ② A longer option") {
-		t.Error("selected row should include pointer and circled number")
+	if !strings.Contains(joined, "❯ ② 第二个更长的选项 option") {
+		t.Error("选中行应带 ❯ 与圈号")
 	}
-	if !strings.HasPrefix(rows[0], "┌─ Test menu ") || !strings.HasPrefix(rows[len(rows)-1], "└") {
-		t.Error("box border structure mismatch")
+	if !strings.HasPrefix(rows[0], "┌─ 测试菜单 ") || !strings.HasPrefix(rows[len(rows)-1], "└") {
+		t.Error("边框结构不符")
+	}
+}
+
+func TestBuildSelectCapsWidth(t *testing.T) {
+	long := strings.Repeat("ghp_verylongtoken", 20)
+	rows := buildSelect("编辑定制层", []string{"GitHub Token：" + long}, 0, "footer", 60, 24)
+	maxW := maxBoxWidth(60) + 2 // 边框两列
+	for i, r := range rows {
+		if got := dispWidth(stripAnsi(r)); got > maxW {
+			t.Errorf("第 %d 行宽度 %d 超过终端上限 %d", i, got, maxW)
+		}
+	}
+	if !strings.Contains(stripAnsi(strings.Join(rows, "")), "…") {
+		t.Error("超长行应被省略号截断")
 	}
 }
 
 func TestBuildSelectScrollHints(t *testing.T) {
 	opts := make([]string, 40)
 	for i := range opts {
-		opts[i] = "Node " + strings.Repeat("x", i%5)
+		opts[i] = "节点 " + strings.Repeat("x", i%5)
 	}
-	rows := buildSelect("Select node", opts, 20, "footer", 80, 24)
+	rows := buildSelect("选择节点", opts, 20, "footer", 80, 24)
 	joined := stripAnsi(strings.Join(rows, "\n"))
-	if !strings.Contains(joined, "more above") || !strings.Contains(joined, "more below") {
-		t.Error("scrolling window should show up and down hints")
+	if !strings.Contains(joined, "▲ 上方还有") || !strings.Contains(joined, "▼ 下方还有") {
+		t.Error("滚动窗口应显示上下提示")
 	}
 }
 
-func TestConfirmPromptUsesYN(t *testing.T) {
-	if got := confirmSuffix(true); got != " [Y/n]" {
-		t.Fatalf("confirmSuffix(true) = %q, want [Y/n]", got)
+func TestNumFor(t *testing.T) {
+	// 总数在圈号范围内：整份统一用带圈数字。
+	if numFor(20, 0) != "①" || numFor(20, 19) != "⑳" {
+		t.Error("总数≤20 时应整份使用带圈数字")
 	}
-	if got := confirmSuffix(false); got != " [y/N]" {
-		t.Fatalf("confirmSuffix(false) = %q, want [y/N]", got)
+	// 总数超出圈号范围：整份统一退化为普通数字（含前 20 项也不例外），
+	// 避免同一菜单内前面带圈、后面变数字的不统一观感。
+	if numFor(25, 0) != "1" || numFor(25, 19) != "20" || numFor(25, 24) != "25" {
+		t.Error("总数超过 20 时应整份统一使用普通数字，不应部分带圈")
 	}
 }
 
-func TestInputModelWrapsLongPrompt(t *testing.T) {
-	model := &inputModel{
-		prompt: "This is a very long prompt that should wrap instead of pushing the input field outside of the terminal width",
-		width:  32,
+func TestWrapText(t *testing.T) {
+	short := wrapText("hello world", 20)
+	if len(short) != 1 || short[0] != "hello world" {
+		t.Errorf("短文本不应换行: %#v", short)
 	}
-	rows := strings.Split(strings.TrimSuffix(stripAnsi(model.View()), "\n"), "\n")
-	if len(rows) < 3 {
-		t.Fatalf("expected wrapped prompt plus input row, got %#v", rows)
-	}
-	for _, row := range rows[:len(rows)-1] {
-		if got := dispWidth(row); got > 32 {
-			t.Fatalf("wrapped prompt row width %d exceeds terminal width: %q", got, row)
+	words := wrapText("aaaa bbbb cccc dddd", 9)
+	for _, l := range words {
+		if dispWidth(l) > 9 {
+			t.Errorf("按词换行超出宽度: %q", l)
 		}
 	}
-}
-
-func TestSelectEscCancelsAndCtrlRSaves(t *testing.T) {
-	model := &selectModel{options: []string{"A"}, idx: 0}
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	if got := updated.(*selectModel).err; got != ErrCancelled {
-		t.Fatalf("Esc error = %v, want ErrCancelled", got)
+	if len(words) < 2 {
+		t.Error("超宽文本应换成多行")
 	}
-
-	model = &selectModel{options: []string{"A"}, idx: 0}
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
-	if got := updated.(*selectModel).err; got != ErrSaveExit {
-		t.Fatalf("Ctrl+R error = %v, want ErrSaveExit", got)
+	cjk := wrapText("这是一段很长的中文提示语用来测试自动换行是否正常工作", 10)
+	if len(cjk) < 2 {
+		t.Error("长中文提示语应按字符宽度换成多行")
 	}
-}
-
-func TestNum(t *testing.T) {
-	if num(0) != "①" || num(19) != "⑳" {
-		t.Error("circled number mapping mismatch")
-	}
-	if num(20) != "21" {
-		t.Error("numbers above circled range should fall back to digits")
+	for _, l := range cjk {
+		if dispWidth(l) > 10 {
+			t.Errorf("中文换行超出宽度: %q", l)
+		}
 	}
 }

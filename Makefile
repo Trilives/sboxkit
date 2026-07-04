@@ -1,25 +1,20 @@
-.PHONY: test vet build deb clean
+BIN     := sboxkit
+VERSION := $(shell cat VERSION 2>/dev/null || echo dev)
+GO      ?= go
 
-BIN := sboxkit
-GO ?= go
-GOCACHE ?= $(CURDIR)/.tools/go-build
-GOMODCACHE ?= $(CURDIR)/.tools/go-mod
-VERSION ?= $(shell cat VERSION)
-DEB_VERSION ?= $(subst -,~,$(VERSION))
-SING_BOX_BIN ?=
-
-test:
-	GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) test ./...
-
-vet:
-	GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) vet ./...
+.PHONY: build test vet fmt release-snapshot
 
 build:
-	GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) build -o $(BIN) ./cmd/sboxkit
+	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o $(BIN) ./cmd/sboxkit
 
-deb: build
-	@test -n "$(SING_BOX_BIN)" || (echo "SING_BOX_BIN=/path/to/sing-box is required for make deb" >&2; exit 2)
-	packaging/deb/build-deb.sh --binary $(BIN) --sing-box $(SING_BOX_BIN) --version $(DEB_VERSION) --arch amd64 --out-dir dist
+test:
+	$(GO) test ./...
 
-clean:
-	rm -f $(BIN)
+vet:
+	$(GO) vet ./...
+
+fmt:
+	gofmt -l -w cmd internal
+
+release-snapshot:
+	goreleaser release --snapshot --clean

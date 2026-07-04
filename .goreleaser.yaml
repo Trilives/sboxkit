@@ -1,0 +1,78 @@
+version: 2
+project_name: sboxkit
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: sboxkit
+    main: ./cmd/sboxkit
+    binary: sboxkit
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+nfpms:
+  - id: deb
+    package_name: sboxkit
+    formats: [deb]
+    vendor: Trilives
+    homepage: https://github.com/Trilives/sboxkit
+    maintainer: Trilives <trlives.j@gmail.com>
+    description: |-
+      Interactive TUI to deploy and manage sing-box on Linux.
+      Bundles the sing-box core and basic geo rule-sets so the service can
+      start offline right after installation; can be updated online later.
+    license: MIT
+    section: net
+    contents:
+      # sing-box 内核（GPL-3.0，见 copyright / LICENSE.sing-box）
+      - src: packaging/deps/{{ .Arch }}/sing-box
+        dst: /usr/libexec/sboxkit/sing-box
+        file_info:
+          mode: 0755
+      # 基础 geo 规则集种子：先能离线启动，之后可在线更新到最新版本
+      - src: packaging/deps/rules/geosite-cn.srs
+        dst: /usr/share/sboxkit/ruleset/geosite-cn.srs
+      - src: packaging/deps/rules/geoip-cn.srs
+        dst: /usr/share/sboxkit/ruleset/geoip-cn.srs
+      # 许可与归属
+      - src: packaging/copyright
+        dst: /usr/share/doc/sboxkit/copyright
+      - src: packaging/deps/LICENSE.sing-box
+        dst: /usr/share/doc/sboxkit/LICENSE.sing-box
+
+checksum:
+  name_template: checksums.txt
+
+# prerelease: auto 让打了 semver 预发布后缀的 tag（如 v0.1.7-beta.1）自动标记
+# 为 GitHub prerelease：不会顶替"Latest release"，也不会被 /releases/latest
+# 接口返回——self-update 的稳定渠道天然只看得到正式版，预览渠道另走 /releases
+# 列表读取最新一项（见 internal/selfupdate）。
+release:
+  prerelease: auto
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
+      - "^test:"

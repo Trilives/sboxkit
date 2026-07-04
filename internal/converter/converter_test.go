@@ -42,17 +42,24 @@ func TestClashToSingBoxConvertsBasicFixture(t *testing.T) {
 	}
 }
 
-func TestClashToSingBoxOmitsExternalUIByDefault(t *testing.T) {
-	result, _, err := ClashToSingBox(testkit.ReadFixture(t, "testdata/converter/clash-basic.yaml"), config.Defaults(), paths.FromRoot(t.TempDir()))
+func TestClashToSingBoxAlwaysSetsExternalUI(t *testing.T) {
+	// 面板走 sing-box 内置的 :9090/ui/ 路径（与 mihomo 版一致），因此 external_ui
+	// 始终指向内置面板目录，不随 lan_panel 开关变化——lan_panel 只决定
+	// external_controller 绑定 127.0.0.1 还是 0.0.0.0。
+	p := paths.FromRoot(t.TempDir())
+	result, _, err := ClashToSingBox(testkit.ReadFixture(t, "testdata/converter/clash-basic.yaml"), config.Defaults(), p)
 	if err != nil {
 		t.Fatalf("convert clash: %v", err)
 	}
-	if result.Experimental.ClashAPI.ExternalUI != "" {
-		t.Fatalf("expected external UI disabled by default, got %q", result.Experimental.ClashAPI.ExternalUI)
+	if result.Experimental.ClashAPI.ExternalUI != p.UI {
+		t.Fatalf("expected external UI to always point at %q, got %q", p.UI, result.Experimental.ClashAPI.ExternalUI)
+	}
+	if result.Experimental.ClashAPI.ExternalController != "127.0.0.1:9090" {
+		t.Fatalf("unexpected controller %q", result.Experimental.ClashAPI.ExternalController)
 	}
 }
 
-func TestClashToSingBoxEnablesExternalUIWhenLanPanelEnabled(t *testing.T) {
+func TestClashToSingBoxBindsControllerToLANWhenLanPanelEnabled(t *testing.T) {
 	p := paths.FromRoot(t.TempDir())
 	cfg := config.Defaults()
 	cfg.LanPanel = true
@@ -61,7 +68,7 @@ func TestClashToSingBoxEnablesExternalUIWhenLanPanelEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("convert clash: %v", err)
 	}
-	if result.Experimental.ClashAPI.ExternalUI != p.UIDir {
+	if result.Experimental.ClashAPI.ExternalUI != p.UI {
 		t.Fatalf("unexpected external UI path %q", result.Experimental.ClashAPI.ExternalUI)
 	}
 	if result.Experimental.ClashAPI.ExternalController != "0.0.0.0:9090" {

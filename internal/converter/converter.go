@@ -615,11 +615,9 @@ func buildExperimental(cfg config.Config, p paths.Paths) Experimental {
 	}
 	api := ClashAPI{
 		ExternalController:               controller,
+		ExternalUI:                       p.UI,
 		DefaultMode:                      "rule",
 		AccessControlAllowPrivateNetwork: cfg.LanPanel,
-	}
-	if cfg.LanPanel {
-		api.ExternalUI = p.UIDir
 	}
 	return Experimental{ClashAPI: api}
 }

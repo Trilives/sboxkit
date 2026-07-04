@@ -4,19 +4,28 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/Trilives/sboxkit/internal/paths"
 )
 
+func testPaths(t *testing.T) paths.Paths {
+	t.Helper()
+	t.Setenv("SBOXKIT_HOME", t.TempDir())
+	p := paths.Detect()
+	if err := p.EnsureStateDirs(); err != nil {
+		t.Fatalf("ensure state dirs: %v", err)
+	}
+	return p
+}
+
 func TestLoadMergesKnownFieldsWithDefaults(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "customize.json")
-	if err := os.WriteFile(path, []byte(`{"enable_tun":false,"unknown":"ignored","download_proxy":"http://127.0.0.1:7890","enable_file_log":true,"log_max_mb":12}`), 0o600); err != nil {
+	p := testPaths(t)
+	data := []byte(`{"enable_tun":false,"unknown":"ignored","download_proxy":"http://127.0.0.1:7890","enable_file_log":true,"log_max_mb":12}`)
+	if err := os.WriteFile(p.CustomizeFile, data, 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(path)
-	if err != nil {
-		t.Fatalf("load config: %v", err)
-	}
-
+	cfg := Load(p)
 	if cfg.EnableTun {
 		t.Fatal("expected enable_tun override to be false")
 	}
@@ -34,27 +43,19 @@ func TestLoadMergesKnownFieldsWithDefaults(t *testing.T) {
 	}
 }
 
-func TestSaveWritesJSONWithPrivateMode(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "nested", "customize.json")
+func TestSaveWritesJSON(t *testing.T) {
+	p := testPaths(t)
 	cfg := Defaults()
 	cfg.GitHubToken = "secret"
 
-	if err := Save(path, cfg); err != nil {
+	if err := Save(p, cfg); err != nil {
 		t.Fatalf("save config: %v", err)
 	}
-
-	info, err := os.Stat(path)
-	if err != nil {
+	if _, err := os.Stat(p.CustomizeFile); err != nil {
 		t.Fatalf("stat config: %v", err)
 	}
-	if got := info.Mode().Perm(); got != 0o600 {
-		t.Fatalf("expected mode 0600, got %o", got)
-	}
 
-	loaded, err := Load(path)
-	if err != nil {
-		t.Fatalf("load saved config: %v", err)
-	}
+	loaded := Load(p)
 	if loaded.GitHubToken != "secret" {
 		t.Fatal("expected saved GitHub token to round-trip")
 	}
@@ -94,4 +95,18 @@ func TestSetFieldUpdatesLoggingFields(t *testing.T) {
 	if cfg.LogMaxMB != 20 {
 		t.Fatalf("log_max_mb = %d, want 20", cfg.LogMaxMB)
 	}
+}
+
+func TestEnsureExistsWritesDefaultsOnce(t *testing.T) {
+	p := testPaths(t)
+	if _, err := os.Stat(p.CustomizeFile); err == nil {
+		t.Fatal("customize.json should not exist yet")
+	}
+	if _, err := EnsureExists(p); err != nil {
+		t.Fatalf("ensure exists: %v", err)
+	}
+	if _, err := os.Stat(p.CustomizeFile); err != nil {
+		t.Fatalf("expected customize.json to be created: %v", err)
+	}
+	_ = filepath.Base(p.CustomizeFile)
 }

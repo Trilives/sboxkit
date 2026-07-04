@@ -1,42 +1,90 @@
-# Modularity Constraints
+# 模块化约束
 
-This project should stay small enough to reason about from the terminal. New
-work should keep behavior grouped by domain and avoid single-file growth.
+本文约束 sboxkit 后续改动的文件规模、包边界与拆分规则，目标是避免单个文件持续膨胀，
+让流程编排、系统操作、订阅转换、下载逻辑各自保持清晰。
 
-## File Size
+## 规模红线
 
-- Prefer files under 300 lines.
-- Files over 400 lines need a clear reason and should be split before adding
-  unrelated behavior.
-- Files over 600 lines are considered a refactor target.
+| 对象 | 目标 | 软上限 | 硬上限 |
+|---|---:|---:|---:|
+| 普通 `.go` 文件 | 200-400 行 | 500 行 | 800 行 |
+| 流程编排文件（`internal/flows/*.go`） | 150-300 行 | 400 行 | 600 行 |
+| 单个函数 | 20-50 行 | 80 行 | 120 行 |
+| 单个测试文件 | 150-300 行 | 500 行 | 800 行 |
 
-## Package Boundaries
+规则：
 
-- `internal/tui` owns terminal rendering, key handling, text input, confirmation,
-  width handling, and non-TTY fallback.
-- `internal/app` owns command dispatch and flow composition. It should call TUI
-  primitives but must not implement raw terminal rendering.
-- `internal/system` owns systemd, firewall, timers, and OS command execution.
-- `internal/subscription` owns subscription storage, fetching, detection, and
-  conversion entry points.
-- `internal/converter` owns config conversion only. It should not fetch network
-  assets or run system commands.
-- `internal/download` owns external asset downloads and cache updates.
+- 新增代码不得让文件越过硬上限。
+- 修改已超过软上限的文件时，优先把新增逻辑放到同包新文件中。
+- 如果一次改动让文件增加超过 120 行，必须说明为什么不拆分。
+- 流程函数只负责串联步骤；具体判断、IO、转换、系统命令应下沉到同包 helper 或领域包。
 
-## TUI Rules
+## 拆分触发条件
 
-- Add new interactive screens as focused flow files, for example
-  `tui_config.go`, `tui_subscription.go`, or `tui_system.go`.
-- Use `internal/tui.Select`, `Ask`, `Confirm`, and `Pause`; do not add new
-  ad-hoc raw terminal code in `internal/app`.
-- Put related toggles under submenus instead of growing a flat top-level list.
-- Keep business operations callable from CLI commands first, then wire the TUI
-  to those commands.
+遇到以下任一情况，应拆成新文件或新包：
 
-## Change Rules
+- 文件里出现两个以上独立职责，例如“交互提示 + HTTP 下载 + systemd unit 渲染”。
+- 一个流程函数连续出现三段以上可命名步骤。
+- 同类 helper 超过 5 个，且只服务某个子主题。
+- 测试需要大量构造夹具才能覆盖某段逻辑，说明该逻辑应抽成可测函数。
+- 文件名已经无法准确概括新增代码。
 
-- When a feature crosses package boundaries, add tests at the smallest practical
-  level first.
-- Keep package APIs narrow. Export only what another package actually needs.
-- Prefer moving code into a cohesive package over adding another helper block to
-  an already large file.
+拆分时优先使用同包多文件，而不是过早新建包。只有当新职责能被多个包复用，或依赖方向更清楚时，
+才新建 `internal/<domain>` 包。
+
+## 包边界
+
+现有边界保持如下：
+
+- `cmd/sboxkit`：只做 CLI 分发、版本输出、顶层子命令入口。
+- `internal/flows`：交互流程编排，允许调用领域包，但不直接承载复杂转换或下载实现。
+- `internal/subscription`：订阅拉取、来源识别、调用 converter 生成配置、active 切换。
+- `internal/converter`：Clash / sing-box 原生 / base64 → sing-box 配置的协议转换。
+- `internal/kernel`：sing-box 内核/geo 规则集下载、系统包种子接管、资源更新策略。
+- `internal/sysd`：systemd unit、运行时暂存、服务/面板/自愈/定时器管理。
+- `internal/config`：`customize.json` 默认值、字段元数据、读写兼容性。
+- `internal/txn`：事务和回滚原语，不知道业务语义。
+- `internal/tui`：通用交互组件，不依赖业务包。
+
+依赖方向：
+
+- `flows` 可以依赖领域包。
+- 领域包不得依赖 `flows`。
+- `tui`、`txn`、`paths`、`errs` 应保持底层工具属性，避免反向依赖业务。
+- `sysd` 可以依赖 `paths/config/execx/jsonx`，不得依赖 `flows`。
+
+## 文件命名
+
+按职责命名文件，避免 `utils.go`、`helpers.go` 成为垃圾桶。
+
+推荐模式：
+
+- `initflow.go`：初始化主流程和少量只读步骤 glue。
+- `init_resources.go`：初始化资源判定、种子使用、下载兜底。
+- `service.go`：主 systemd 服务。
+- `resilience.go`：NetworkManager/watchdog 安装卸载。
+- `healthcheck.go`：watchdog 探针实现。
+- `selfupdate.go`：sboxkit 自更新（版本化目录 + 原子符号链接切换）。
+
+测试文件跟随被测职责命名，例如 `init_resources_test.go`，不要把所有流程测试堆进
+`initflow_test.go`。
+
+## 修改流程
+
+每次新增功能或改业务逻辑时执行：
+
+1. 先看目标文件行数：`wc -l internal/<pkg>/*.go`。
+2. 如果目标文件超过软上限，先选择同包新文件承载新增职责。
+3. 为新 helper 写小范围单元测试；流程本身只保留少量集成式测试。
+4. 跑 `gofmt`、`go test ./...`、`go vet ./...`。
+5. 在评审 diff 时检查是否引入了新的“大文件吸附点”。
+
+## 例外
+
+以下情况可以临时超过软上限，但不能超过硬上限：
+
+- 协议/格式兼容逻辑必须集中保持可读，例如同一转换表或字段元数据。
+- release 前临时稳定化，后续必须单独开拆分任务。
+- generated 或第三方嵌入内容，但生成源和用途必须明确。
+
+例外应在 PR/提交说明中写清楚，并标注后续拆分边界。

@@ -1,11 +1,19 @@
+// 来源类型识别：校验拉取内容与用户所选类型是否相符（也支持启发式判断）。
+//
+// 与 mihomo 版最大的不同：mihomo 只需区分 clash（直接可用）/ base64（需转换），
+// 因为 mihomo 自己也吃 Clash 配置；sing-box 有自己的原生订阅格式（JSON，字段
+// 为 outbounds），所以这里是三态：clash / sing-box / base64。
 package subscription
 
 import (
-	"bytes"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"strings"
+
+	"gopkg.in/yaml.v3"
+
+	"github.com/Trilives/sboxkit/internal/i18n"
 )
 
 type SourceKind string
@@ -14,53 +22,77 @@ const (
 	SourceClash   SourceKind = "clash"
 	SourceSingBox SourceKind = "sing-box"
 	SourceBase64  SourceKind = "base64"
+	SourceUnknown SourceKind = "unknown"
 )
 
-func Detect(content []byte) (SourceKind, error) {
-	trimmed := bytes.TrimSpace(content)
-	if len(trimmed) == 0 {
-		return "", errors.New("empty subscription content")
+// Detect 启发式判断订阅类型：返回 clash | sing-box | base64 | unknown。
+func Detect(raw []byte) SourceKind {
+	text := strings.TrimSpace(string(raw))
+	if text == "" {
+		return SourceUnknown
 	}
 
-	if looksLikeSingBox(trimmed) {
-		return SourceSingBox, nil
-	}
-	if looksLikeClash(trimmed) {
-		return SourceClash, nil
-	}
-	if looksLikeBase64(trimmed) {
-		return SourceBase64, nil
+	// sing-box：JSON 且含 outbounds 列表
+	if looksLikeSingBox(text) {
+		return SourceSingBox
 	}
 
-	return "", errors.New("unknown subscription source")
+	// clash：YAML 且含 proxies 列表
+	if strings.Contains(text, "proxies:") || strings.Contains(text, "proxy-groups:") {
+		var d any
+		if err := yaml.Unmarshal([]byte(text), &d); err == nil {
+			if m, ok := d.(map[string]any); ok {
+				if _, ok := m["proxies"].([]any); ok {
+					return SourceClash
+				}
+			}
+		}
+	}
+
+	// base64：可解码且含节点分享链接
+	if looksBase64(text) {
+		compact := strings.Join(strings.Fields(text), "")
+		if pad := len(compact) % 4; pad != 0 {
+			compact += strings.Repeat("=", 4-pad)
+		}
+		if decoded, err := base64.StdEncoding.DecodeString(compact); err == nil {
+			if strings.Contains(string(decoded), "://") {
+				return SourceBase64
+			}
+		}
+	}
+
+	return SourceUnknown
 }
 
-func looksLikeSingBox(content []byte) bool {
+func looksLikeSingBox(text string) bool {
 	var data map[string]any
-	if err := json.Unmarshal(content, &data); err != nil {
+	if err := json.Unmarshal([]byte(text), &data); err != nil {
 		return false
 	}
 	_, ok := data["outbounds"]
 	return ok
 }
 
-func looksLikeClash(content []byte) bool {
-	text := string(content)
-	return strings.Contains(text, "proxies:")
-}
-
-func looksLikeBase64(content []byte) bool {
-	text := strings.TrimSpace(string(content))
-	if text == "" {
+func looksBase64(text string) bool {
+	sample := strings.Join(strings.Fields(text), "")
+	if len(sample) < 16 {
 		return false
 	}
-	_, err := base64.StdEncoding.DecodeString(padBase64(text))
-	return err == nil
+	const allowed = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=-_"
+	for _, c := range sample {
+		if !strings.ContainsRune(allowed, c) {
+			return false
+		}
+	}
+	return true
 }
 
-func padBase64(text string) string {
-	if rem := len(text) % 4; rem != 0 {
-		text += strings.Repeat("=", 4-rem)
+// WarnIfMismatch 若检测类型与声明不符，返回提示文本；相符或无法判断返回空串。
+func WarnIfMismatch(declared SourceKind, raw []byte) string {
+	found := Detect(raw)
+	if found != SourceUnknown && found != declared {
+		return fmt.Sprintf(i18n.T("内容看起来更像「%s」而非你选择的「%s」。"), found, declared)
 	}
-	return text
+	return ""
 }

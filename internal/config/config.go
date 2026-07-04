@@ -1,3 +1,11 @@
+// Package config 定制层（对应 Python 版 customize.py）：
+// customize.json 的默认值、加载/保存与字段元数据。
+//
+// 与 mihomo 版最大的不同：mihomo 直用订阅 + 最小改写，因此定制层只需覆写少量
+// 部署字段；sing-box 不能解析 Clash 配置，internal/converter 要用这些字段
+// 现场构造整份 inbounds/outbounds/route/dns，所以这里改用类型化的 Config
+// struct（而非 map[string]any）供 converter 直接按字段访问，字段集合与
+// internal/converter、internal/kernel、internal/subscription 的实际用量一一对应。
 package config
 
 import (
@@ -5,9 +13,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/Trilives/sboxkit/internal/execx"
+	"github.com/Trilives/sboxkit/internal/i18n"
+	"github.com/Trilives/sboxkit/internal/paths"
 )
 
 type Config struct {
@@ -35,14 +46,16 @@ type Config struct {
 	GitHubToken             string   `json:"github_token"`
 	EnableFileLog           bool     `json:"enable_file_log"`
 	LogMaxMB                int      `json:"log_max_mb"`
+	Language                string   `json:"language"`
 }
 
+// Defaults 返回一份全新的默认配置（列表均为拷贝，可放心修改）。
 func Defaults() Config {
 	return Config{
 		AIDomainSuffixes: []string{
 			"openai.com", "chatgpt.com", "oaistatic.com", "oaiusercontent.com",
-			"anthropic.com", "claude.ai", "github.com", "githubusercontent.com",
-			"githubassets.com", "github.io", "huggingface.co", "hf.co",
+			"anthropic.com", "claude.ai", "gemini.google.com", "huggingface.co",
+			"github.com", "githubusercontent.com", "githubassets.com", "github.io",
 			"npmjs.com", "npmjs.org", "pypi.org", "pythonhosted.org",
 			"files.pythonhosted.org", "docker.com", "docker.io", "ghcr.io",
 		},
@@ -57,8 +70,8 @@ func Defaults() Config {
 		LocalBypassDomains:   []string{"localhost"},
 		RouteExcludeIPCidrs: []string{
 			"127.0.0.0/8", "0.0.0.0/8", "::1/128",
-			"10.0.0.0/8", "192.168.0.0/16", "169.254.0.0/16", "fc00::/7", "fe80::/10",
-			"100.64.0.0/10", "fd7a:115c:a1e0::/48", "10.126.126.0/24", "10.14.14.0/24",
+			"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "fc00::/7", "fe80::/10",
+			"100.64.0.0/10",
 		},
 		BypassProcessNames:  []string{"tailscale", "tailscaled"},
 		TunExcludeUIDs:      []int{},
@@ -79,8 +92,13 @@ func Defaults() Config {
 		GitHubToken:         "",
 		EnableFileLog:       false,
 		LogMaxMB:            10,
+		Language:            "en",
 	}
 }
+
+// --------------------------------------------------------------------------
+// 字段元数据（交互式编辑器与展示用）
+// --------------------------------------------------------------------------
 
 var ListFields = map[string]string{
 	"ai_domain_suffixes":        "AI 域名后缀",
@@ -97,7 +115,7 @@ var ListFields = map[string]string{
 var BoolFields = map[string]string{
 	"enable_tun":            "TUN 模式（全局透明代理）",
 	"lan_proxy":             "局域网代理（其他主机可用本机代理）",
-	"lan_panel":             "内置 WebUI",
+	"lan_panel":             "面板对外监听（0.0.0.0，否则仅本机 127.0.0.1）",
 	"generate_sg_groups":    "生成新加坡自动测速聚合组",
 	"generate_hk_groups":    "生成香港自动测速聚合组",
 	"base64_local_fallback": "base64 应急本地解析",
@@ -107,7 +125,7 @@ var BoolFields = map[string]string{
 var ScalarFields = map[string]string{
 	"bootstrap_dns_server": "引导 DNS 服务器",
 	"bootstrap_dns_port":   "引导 DNS 端口",
-	"default_outbound":     "默认出站",
+	"default_outbound":     "默认出站（节点切换的目标分组）",
 	"subconverter_backend": "subconverter 后端",
 	"github_mirror":        "GitHub 加速前缀",
 	"download_proxy":       "下载代理",
@@ -115,24 +133,31 @@ var ScalarFields = map[string]string{
 	"log_max_mb":           "日志大小上限（MB）",
 }
 
-var FieldOrder = []string{
+// DeploymentFields 部署字段编辑分组（始终生效：TUN / 网络 / 面板 / 下载设置）。
+var DeploymentFields = []string{
 	"enable_tun",
 	"lan_proxy",
 	"lan_panel",
+	"default_outbound",
 	"download_proxy",
 	"github_mirror",
 	"github_token",
-	"enable_file_log",
-	"log_max_mb",
 	"subconverter_backend",
 	"base64_local_fallback",
 	"bootstrap_dns_server",
 	"bootstrap_dns_port",
-	"default_outbound",
 	"route_exclude_ip_cidrs",
 	"tun_exclude_uids",
 	"bypass_process_names",
 	"local_bypass_domains",
+	"enable_file_log",
+	"log_max_mb",
+}
+
+// OverlayFields 分流增强字段编辑分组（地区自动测速聚合组 + AI / 流媒体分流，
+// 始终按各自开关/名单生效，不再有统一的 enable_overlay 总开关——
+// sing-box 路径下配置整份由 converter 现场生成，没有"保留订阅原状"的顾虑）。
+var OverlayFields = []string{
 	"generate_sg_groups",
 	"generate_hk_groups",
 	"prefer_keywords",
@@ -142,46 +167,53 @@ var FieldOrder = []string{
 	"direct_domain_suffixes",
 }
 
+// FieldOrder 全部字段顺序（两个编辑分组拼接而成）。
+var FieldOrder = append(append([]string{}, DeploymentFields...), OverlayFields...)
+
+// SensitiveFields 涉密字段：菜单展示与编辑提示里都不出现明文。
 var SensitiveFields = map[string]bool{"github_token": true}
 
+// MaskSecret 已设置密钥的脱敏展示（保留末 4 位）。
 func MaskSecret(value string) string {
 	if value == "" {
-		return "未设置"
+		return i18n.T("未设置")
 	}
-	runes := []rune(value)
-	if len(runes) > 4 {
-		return "已设置（***" + string(runes[len(runes)-4:]) + "）"
+	r := []rune(value)
+	if len(r) > 4 {
+		return fmt.Sprintf(i18n.T("已设置（***%s）"), string(r[len(r)-4:]))
 	}
-	return "已设置（***）"
+	return i18n.T("已设置（***）")
 }
 
+// FieldLabel 编辑器里的整行标签（名称 + 摘要）。
 func FieldLabel(cfg Config, key string) string {
 	if label, ok := ListFields[key]; ok {
-		return fmt.Sprintf("%s（%s）", label, FieldSummary(cfg, key))
+		return fmt.Sprintf(i18n.T("%s（%s）"), i18n.T(label), FieldSummary(cfg, key))
 	}
 	if label, ok := BoolFields[key]; ok {
-		return fmt.Sprintf("%s：%s", label, FieldSummary(cfg, key))
+		return fmt.Sprintf(i18n.T("%s：%s"), i18n.T(label), FieldSummary(cfg, key))
 	}
-	return fmt.Sprintf("%s：%s", ScalarFields[key], FieldSummary(cfg, key))
+	return fmt.Sprintf(i18n.T("%s：%s"), i18n.T(ScalarFields[key]), FieldSummary(cfg, key))
 }
 
+// FieldSummary 字段值的单行摘要（列表→条数，布尔→开/关，涉密→脱敏）。
 func FieldSummary(cfg Config, key string) string {
 	switch key {
 	case "enable_tun", "lan_panel", "lan_proxy", "generate_sg_groups", "generate_hk_groups", "base64_local_fallback", "enable_file_log":
-		if getBool(cfg, key) {
-			return "开"
+		if Bool(cfg, key) {
+			return i18n.T("开")
 		}
-		return "关"
+		return i18n.T("关")
 	case "ai_domain_suffixes", "streaming_domain_suffixes", "direct_domain_suffixes", "local_bypass_domains", "route_exclude_ip_cidrs", "bypass_process_names", "prefer_keywords", "hk_prefer_keywords":
-		return listSummary(getStringList(cfg, key))
+		return listSummary(StrList(cfg, key))
 	case "tun_exclude_uids":
-		return intListSummary(cfg.TunExcludeUIDs)
+		return listSummary(intListToStr(cfg.TunExcludeUIDs))
 	case "github_token":
 		return MaskSecret(cfg.GitHubToken)
 	default:
-		value := getString(cfg, key)
+		value := Str(cfg, key)
 		if value == "" {
-			return "未设置"
+			return i18n.T("未设置")
 		}
 		return value
 	}
@@ -189,19 +221,24 @@ func FieldSummary(cfg Config, key string) string {
 
 func listSummary(items []string) string {
 	if len(items) == 0 {
-		return "空"
+		return i18n.T("空")
 	}
-	return fmt.Sprintf("%d 条", len(items))
+	return fmt.Sprintf(i18n.T("%d 条"), len(items))
 }
 
-func intListSummary(items []int) string {
-	if len(items) == 0 {
-		return "空"
+func intListToStr(items []int) []string {
+	out := make([]string, len(items))
+	for i, v := range items {
+		out[i] = strconv.Itoa(v)
 	}
-	return fmt.Sprintf("%d 条", len(items))
+	return out
 }
 
-func getBool(cfg Config, key string) bool {
+// --------------------------------------------------------------------------
+// 容错取值（供编辑器/展示统一按字段名取值）
+// --------------------------------------------------------------------------
+
+func Bool(cfg Config, key string) bool {
 	switch key {
 	case "enable_tun":
 		return cfg.EnableTun
@@ -222,7 +259,7 @@ func getBool(cfg Config, key string) bool {
 	}
 }
 
-func getString(cfg Config, key string) string {
+func Str(cfg Config, key string) string {
 	switch key {
 	case "bootstrap_dns_server":
 		return cfg.BootstrapDNSServer
@@ -240,12 +277,14 @@ func getString(cfg Config, key string) string {
 		return cfg.GitHubToken
 	case "log_max_mb":
 		return strconv.Itoa(cfg.LogMaxMB)
+	case "language":
+		return cfg.Language
 	default:
 		return ""
 	}
 }
 
-func getStringList(cfg Config, key string) []string {
+func StrList(cfg Config, key string) []string {
 	switch key {
 	case "ai_domain_suffixes":
 		return append([]string(nil), cfg.AIDomainSuffixes...)
@@ -268,182 +307,55 @@ func getStringList(cfg Config, key string) []string {
 	}
 }
 
-func Load(path string) (Config, error) {
-	cfg := Defaults()
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return cfg, nil
+func IntList(cfg Config, key string) []int {
+	if key == "tun_exclude_uids" {
+		return append([]int(nil), cfg.TunExcludeUIDs...)
 	}
-	if err != nil {
-		return cfg, err
-	}
-
-	var overrides struct {
-		AIDomainSuffixes        *[]string `json:"ai_domain_suffixes"`
-		StreamingDomainSuffixes *[]string `json:"streaming_domain_suffixes"`
-		DirectDomainSuffixes    *[]string `json:"direct_domain_suffixes"`
-		LocalBypassDomains      *[]string `json:"local_bypass_domains"`
-		RouteExcludeIPCidrs     *[]string `json:"route_exclude_ip_cidrs"`
-		BypassProcessNames      *[]string `json:"bypass_process_names"`
-		TunExcludeUIDs          *[]int    `json:"tun_exclude_uids"`
-		EnableTun               *bool     `json:"enable_tun"`
-		LanPanel                *bool     `json:"lan_panel"`
-		LanProxy                *bool     `json:"lan_proxy"`
-		BootstrapDNSServer      *string   `json:"bootstrap_dns_server"`
-		BootstrapDNSPort        *int      `json:"bootstrap_dns_port"`
-		GenerateSGGroups        *bool     `json:"generate_sg_groups"`
-		GenerateHKGroups        *bool     `json:"generate_hk_groups"`
-		PreferKeywords          *[]string `json:"prefer_keywords"`
-		HKPreferKeywords        *[]string `json:"hk_prefer_keywords"`
-		DefaultOutbound         *string   `json:"default_outbound"`
-		SubconverterBackend     *string   `json:"subconverter_backend"`
-		Base64LocalFallback     *bool     `json:"base64_local_fallback"`
-		GitHubMirror            *string   `json:"github_mirror"`
-		DownloadProxy           *string   `json:"download_proxy"`
-		GitHubToken             *string   `json:"github_token"`
-		EnableFileLog           *bool     `json:"enable_file_log"`
-		LogMaxMB                *int      `json:"log_max_mb"`
-	}
-	if err := json.Unmarshal(data, &overrides); err != nil {
-		return cfg, err
-	}
-
-	applyOverrides(&cfg, overrides)
-	return cfg, nil
+	return nil
 }
 
-func Save(path string, cfg Config) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-
-	data, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return err
-	}
-	data = append(data, '\n')
-
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".customize-*.json")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpName, path)
+// ToggleBool 原地翻转一个布尔字段。
+func ToggleBool(cfg *Config, key string) {
+	SetField(cfg, key, boolStr(!Bool(*cfg, key)))
 }
 
-func applyOverrides(cfg *Config, o struct {
-	AIDomainSuffixes        *[]string `json:"ai_domain_suffixes"`
-	StreamingDomainSuffixes *[]string `json:"streaming_domain_suffixes"`
-	DirectDomainSuffixes    *[]string `json:"direct_domain_suffixes"`
-	LocalBypassDomains      *[]string `json:"local_bypass_domains"`
-	RouteExcludeIPCidrs     *[]string `json:"route_exclude_ip_cidrs"`
-	BypassProcessNames      *[]string `json:"bypass_process_names"`
-	TunExcludeUIDs          *[]int    `json:"tun_exclude_uids"`
-	EnableTun               *bool     `json:"enable_tun"`
-	LanPanel                *bool     `json:"lan_panel"`
-	LanProxy                *bool     `json:"lan_proxy"`
-	BootstrapDNSServer      *string   `json:"bootstrap_dns_server"`
-	BootstrapDNSPort        *int      `json:"bootstrap_dns_port"`
-	GenerateSGGroups        *bool     `json:"generate_sg_groups"`
-	GenerateHKGroups        *bool     `json:"generate_hk_groups"`
-	PreferKeywords          *[]string `json:"prefer_keywords"`
-	HKPreferKeywords        *[]string `json:"hk_prefer_keywords"`
-	DefaultOutbound         *string   `json:"default_outbound"`
-	SubconverterBackend     *string   `json:"subconverter_backend"`
-	Base64LocalFallback     *bool     `json:"base64_local_fallback"`
-	GitHubMirror            *string   `json:"github_mirror"`
-	DownloadProxy           *string   `json:"download_proxy"`
-	GitHubToken             *string   `json:"github_token"`
-	EnableFileLog           *bool     `json:"enable_file_log"`
-	LogMaxMB                *int      `json:"log_max_mb"`
-}) {
-	if o.AIDomainSuffixes != nil {
-		cfg.AIDomainSuffixes = *o.AIDomainSuffixes
+func boolStr(b bool) string {
+	if b {
+		return "true"
 	}
-	if o.StreamingDomainSuffixes != nil {
-		cfg.StreamingDomainSuffixes = *o.StreamingDomainSuffixes
-	}
-	if o.DirectDomainSuffixes != nil {
-		cfg.DirectDomainSuffixes = *o.DirectDomainSuffixes
-	}
-	if o.LocalBypassDomains != nil {
-		cfg.LocalBypassDomains = *o.LocalBypassDomains
-	}
-	if o.RouteExcludeIPCidrs != nil {
-		cfg.RouteExcludeIPCidrs = *o.RouteExcludeIPCidrs
-	}
-	if o.BypassProcessNames != nil {
-		cfg.BypassProcessNames = *o.BypassProcessNames
-	}
-	if o.TunExcludeUIDs != nil {
-		cfg.TunExcludeUIDs = *o.TunExcludeUIDs
-	}
-	if o.EnableTun != nil {
-		cfg.EnableTun = *o.EnableTun
-	}
-	if o.LanPanel != nil {
-		cfg.LanPanel = *o.LanPanel
-	}
-	if o.LanProxy != nil {
-		cfg.LanProxy = *o.LanProxy
-	}
-	if o.BootstrapDNSServer != nil {
-		cfg.BootstrapDNSServer = *o.BootstrapDNSServer
-	}
-	if o.BootstrapDNSPort != nil {
-		cfg.BootstrapDNSPort = *o.BootstrapDNSPort
-	}
-	if o.GenerateSGGroups != nil {
-		cfg.GenerateSGGroups = *o.GenerateSGGroups
-	}
-	if o.GenerateHKGroups != nil {
-		cfg.GenerateHKGroups = *o.GenerateHKGroups
-	}
-	if o.PreferKeywords != nil {
-		cfg.PreferKeywords = *o.PreferKeywords
-	}
-	if o.HKPreferKeywords != nil {
-		cfg.HKPreferKeywords = *o.HKPreferKeywords
-	}
-	if o.DefaultOutbound != nil {
-		cfg.DefaultOutbound = *o.DefaultOutbound
-	}
-	if o.SubconverterBackend != nil {
-		cfg.SubconverterBackend = *o.SubconverterBackend
-	}
-	if o.Base64LocalFallback != nil {
-		cfg.Base64LocalFallback = *o.Base64LocalFallback
-	}
-	if o.GitHubMirror != nil {
-		cfg.GitHubMirror = *o.GitHubMirror
-	}
-	if o.DownloadProxy != nil {
-		cfg.DownloadProxy = *o.DownloadProxy
-	}
-	if o.GitHubToken != nil {
-		cfg.GitHubToken = *o.GitHubToken
-	}
-	if o.EnableFileLog != nil {
-		cfg.EnableFileLog = *o.EnableFileLog
-	}
-	if o.LogMaxMB != nil {
-		cfg.LogMaxMB = clampLogMaxMB(*o.LogMaxMB)
+	return "false"
+}
+
+// SetStrList 原地写入一个字符串列表字段。
+func SetStrList(cfg *Config, key string, items []string) {
+	switch key {
+	case "ai_domain_suffixes":
+		cfg.AIDomainSuffixes = items
+	case "streaming_domain_suffixes":
+		cfg.StreamingDomainSuffixes = items
+	case "direct_domain_suffixes":
+		cfg.DirectDomainSuffixes = items
+	case "local_bypass_domains":
+		cfg.LocalBypassDomains = items
+	case "route_exclude_ip_cidrs":
+		cfg.RouteExcludeIPCidrs = items
+	case "bypass_process_names":
+		cfg.BypassProcessNames = items
+	case "prefer_keywords":
+		cfg.PreferKeywords = items
+	case "hk_prefer_keywords":
+		cfg.HKPreferKeywords = items
 	}
 }
 
+// SetIntList 原地写入一个整数列表字段。
+func SetIntList(cfg *Config, key string, items []int) {
+	if key == "tun_exclude_uids" {
+		cfg.TunExcludeUIDs = items
+	}
+}
+
+// SetField 按字段名写入标量字段（编辑器文本输入用）。
 func SetField(cfg *Config, key string, value string) error {
 	switch key {
 	case "enable_tun":
@@ -478,30 +390,16 @@ func SetField(cfg *Config, key string, value string) error {
 		cfg.DownloadProxy = value
 	case "github_token":
 		cfg.GitHubToken = value
+	case "language":
+		cfg.Language = value
 	case "log_max_mb":
 		maxMB, err := strconv.Atoi(value)
 		if err != nil {
 			return err
 		}
 		cfg.LogMaxMB = clampLogMaxMB(maxMB)
-	case "ai_domain_suffixes":
-		cfg.AIDomainSuffixes = splitList(value)
-	case "streaming_domain_suffixes":
-		cfg.StreamingDomainSuffixes = splitList(value)
-	case "direct_domain_suffixes":
-		cfg.DirectDomainSuffixes = splitList(value)
-	case "local_bypass_domains":
-		cfg.LocalBypassDomains = splitList(value)
-	case "route_exclude_ip_cidrs":
-		cfg.RouteExcludeIPCidrs = splitList(value)
-	case "bypass_process_names":
-		cfg.BypassProcessNames = splitList(value)
-	case "prefer_keywords":
-		cfg.PreferKeywords = splitList(value)
-	case "hk_prefer_keywords":
-		cfg.HKPreferKeywords = splitList(value)
 	default:
-		return errors.New("unknown config field: " + key)
+		return errors.New("unknown scalar config field: " + key)
 	}
 	return nil
 }
@@ -525,8 +423,11 @@ func parseBool(value string) bool {
 	}
 }
 
-func splitList(value string) []string {
+func SplitList(value string) []string {
 	parts := strings.Split(value, ",")
+	if len(parts) == 1 {
+		parts = strings.Fields(value)
+	}
 	out := make([]string, 0, len(parts))
 	for _, part := range parts {
 		if trimmed := strings.TrimSpace(part); trimmed != "" {
@@ -534,4 +435,71 @@ func splitList(value string) []string {
 		}
 	}
 	return out
+}
+
+// --------------------------------------------------------------------------
+// 读写 customize.json
+// --------------------------------------------------------------------------
+
+// Load 读 customize.json：缺失/损坏回退默认值并告警。
+func Load(p paths.Paths) Config {
+	cfg := Defaults()
+	data, err := os.ReadFile(p.CustomizeFile)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			execx.Warn(i18n.T("customize.json 读取失败，使用默认值：") + err.Error())
+		}
+		return cfg
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		execx.Warn(i18n.T("customize.json 解析失败，使用默认值：") + err.Error())
+		return Defaults()
+	}
+	return cfg
+}
+
+// Save 写盘（2 空格缩进、非 ASCII 不转义）。
+func Save(p paths.Paths, cfg Config) error {
+	if err := p.EnsureStateDirs(); err != nil {
+		return err
+	}
+	var buf []byte
+	buf, err := marshalNoEscape(cfg)
+	if err != nil {
+		return fmt.Errorf(i18n.T("序列化 customize.json: %w"), err)
+	}
+	tmp, err := os.CreateTemp(p.State, ".customize-*.json")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.Write(buf); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	return os.Rename(tmpName, p.CustomizeFile)
+}
+
+// EnsureExists 首次运行时落地默认 customize.json。
+func EnsureExists(p paths.Paths) (Config, error) {
+	cfg := Load(p)
+	if _, err := os.Stat(p.CustomizeFile); os.IsNotExist(err) {
+		if err := Save(p, cfg); err != nil {
+			return cfg, err
+		}
+	}
+	return cfg, nil
+}
+
+func marshalNoEscape(v any) ([]byte, error) {
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(data, '\n'), nil
 }

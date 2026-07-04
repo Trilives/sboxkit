@@ -1,27 +1,30 @@
 # 运行期产物，全部本地生成（内核 / UI / 规则集 / 下载缓存 / 订阅 / 配置）
 state/
 
-# 语言 / 工具缓存
+# Python 字节码与缓存
 __pycache__/
 *.py[cod]
 *$py.class
 
-# 测试 / 类型 / 覆盖率 / 本地工具缓存
+# 测试 / 类型 / 覆盖率工具缓存
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .coverage
 htmlcov/
-.tools/
 
-# 打包产物
+# 测试临时产物
+tests/.gen_check.json
+
+# 打包产物（本项目零依赖、免安装，一般不会出现）
 build/
 dist/
-/sboxkit
-/singboxdock
 *.egg-info/
 
-# 虚拟环境
+# Go 构建产物
+/sboxkit
+
+# 虚拟环境（本项目不使用，防御性忽略）
 .venv/
 venv/
 
@@ -34,3 +37,6 @@ venv/
 # 操作系统
 .DS_Store
 Thumbs.db
+
+# deb 打包预下载资产（fetch-deb-deps.sh 生成）
+packaging/deps/

@@ -6,14 +6,21 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/Trilives/sboxkit/internal/errs"
+	"github.com/Trilives/sboxkit/internal/execx"
+	"github.com/Trilives/sboxkit/internal/i18n"
 )
 
+// AskOpts Ask 的选项。DisplayDefault 仅用于替换提示行里展示的默认值（如脱敏），
+// 留空回车仍取 Default 本身。
 type AskOpts struct {
 	Default        string
 	DisplayDefault string
 	AllowEmpty     bool
 }
 
+// Ask 读取一行输入；esc / ^C → ErrCancelled。
 func Ask(prompt string, opts AskOpts) (string, error) {
 	shown := opts.Default
 	if opts.DisplayDefault != "" {
@@ -36,55 +43,51 @@ func Ask(prompt string, opts AskOpts) (string, error) {
 			if opts.AllowEmpty {
 				return "", nil
 			}
-			fmt.Println("Value cannot be empty.")
+			execx.Warn(i18n.T("不能为空。"))
 			continue
 		}
 		return raw, nil
 	}
 }
 
+// Confirm y/N 确认；esc / ^C → ErrCancelled。
 func Confirm(prompt string, def bool) (bool, error) {
-	raw, err := readInput(prompt + confirmSuffix(def) + ": ")
+	suffix := " [y/N]"
+	if def {
+		suffix = " [Y/n]"
+	}
+	raw, err := readInput(prompt + suffix + ": ")
 	if err != nil {
 		return false, err
 	}
-	raw = strings.TrimSpace(strings.ToLower(raw))
+	raw = strings.ToLower(strings.TrimSpace(raw))
 	if raw == "" {
 		return def, nil
 	}
-	switch raw {
-	case "y", "yes", "true", "是", "对", "好", "1", "t", "ok":
-		return true, nil
-	case "n", "no", "false", "否", "不", "错", "0", "f", "off":
-		return false, nil
-	default:
-		return def, nil
-	}
+	return raw == "y" || raw == "yes" || raw == "是", nil
 }
 
-func confirmSuffix(def bool) string {
-	if def {
-		return " [Y/n]"
-	}
-	return " [y/N]"
-}
-
+// Pause 等待回车（对应 Python keys.read_line 的「回车返回」用法）；取消亦返回。
 func Pause(prompt string) {
-	_, _ = readInput(prompt)
-}
-
-func Password(prompt string) (string, error) {
-	return readPassword(prompt)
+	readInput(prompt) //nolint:errcheck // 取消与回车等价
 }
 
 func readInput(prompt string) (string, error) {
 	if !UseTUI() {
 		return readPlainLine(prompt)
 	}
+	// 长提示语先按终端宽度自动换行打印，只把最后一行接在输入光标前——
+	// bubbles/textinput 的 Prompt 是单行组件，直接塞入整段长文本会把行撑
+	// 破或被硬截断，观感很差。
+	last := prompt
+	if lines := wrapText(prompt, termWidth()-2); len(lines) > 1 {
+		fmt.Println(strings.Join(lines[:len(lines)-1], "\n"))
+		last = lines[len(lines)-1]
+	}
 	ti := textinput.New()
-	ti.Prompt = ansiCyan + "❯ " + ansiReset
+	ti.Prompt = ansiCyan + "❯ " + ansiReset + last
 	ti.Focus()
-	m := &inputModel{ti: ti, prompt: prompt, width: 80}
+	m := &inputModel{ti: ti}
 	out, err := tea.NewProgram(m).Run()
 	if err != nil {
 		return "", err
@@ -97,24 +100,19 @@ func readInput(prompt string) (string, error) {
 }
 
 type inputModel struct {
-	ti     textinput.Model
-	prompt string
-	width  int
-	err    error
+	ti  textinput.Model
+	err error
 }
 
 func (m *inputModel) Init() tea.Cmd { return textinput.Blink }
 
 func (m *inputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
-		m.width = msg.Width
-	case tea.KeyMsg:
-		switch msg.String() {
+	if key, ok := msg.(tea.KeyMsg); ok {
+		switch key.String() {
 		case "enter":
 			return m, tea.Quit
 		case "esc", "ctrl+c":
-			m.err = ErrCancelled
+			m.err = errs.ErrCancelled
 			return m, tea.Quit
 		}
 	}
@@ -123,69 +121,4 @@ func (m *inputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m *inputModel) View() string {
-	width := maxBoxWidth(m.width)
-	promptRows := wrapText(m.prompt, width)
-	return strings.Join(promptRows, "\n") + "\n" + m.ti.View() + "\n"
-}
-
-func wrapText(text string, width int) []string {
-	if width <= 0 {
-		width = 80
-	}
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return []string{""}
-	}
-	words := strings.Fields(text)
-	if len(words) == 0 {
-		return []string{text}
-	}
-	rows := []string{}
-	current := ""
-	for _, word := range words {
-		if dispWidth(word) > width {
-			if current != "" {
-				rows = append(rows, current)
-				current = ""
-			}
-			rows = append(rows, splitWideWord(word, width)...)
-			continue
-		}
-		if current == "" {
-			current = word
-			continue
-		}
-		next := current + " " + word
-		if dispWidth(next) <= width {
-			current = next
-			continue
-		}
-		rows = append(rows, current)
-		current = word
-	}
-	if current != "" {
-		rows = append(rows, current)
-	}
-	return rows
-}
-
-func splitWideWord(word string, width int) []string {
-	rows := []string{}
-	var current strings.Builder
-	currentWidth := 0
-	for _, ch := range word {
-		chWidth := dispWidth(string(ch))
-		if currentWidth > 0 && currentWidth+chWidth > width {
-			rows = append(rows, current.String())
-			current.Reset()
-			currentWidth = 0
-		}
-		current.WriteRune(ch)
-		currentWidth += chWidth
-	}
-	if current.Len() > 0 {
-		rows = append(rows, current.String())
-	}
-	return rows
-}
+func (m *inputModel) View() string { return m.ti.View() + "\n" }
