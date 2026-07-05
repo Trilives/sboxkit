@@ -1,7 +1,8 @@
 // Package kernel 核心资源下载/更新：sing-box 内核 + geo 规则集。
 //
-// 下载相关设置（download_proxy / github_mirror / github_token）读 customize.json，
-// 未配置回退环境变量（DOWNLOAD_PROXY、http_proxy 系、GITHUB_TOKEN/GH_TOKEN）。
+// 下载相关设置（github_mirror / github_token）读 customize.json，
+// Token 未配置时回退环境变量（GITHUB_TOKEN/GH_TOKEN）。download_proxy 仅供订阅拉取使用，
+// 不再影响内核 / geo / 自更新资产下载。
 // 另提供 deb 种子接管：/usr/libexec/sboxkit 与 /usr/share/sboxkit/ruleset 里
 // 打包附带的 sing-box 与基础规则文件，在 state 缺失时复制为初始资源，安装后离线即可启动。
 //
@@ -50,16 +51,9 @@ type Settings struct {
 	GithubToken   string
 }
 
-// LoadSettings 读 customize.json 的下载字段，缺失回退环境变量。
+// LoadSettings 读 customize.json 的 GitHub 下载字段，Token 缺失时回退环境变量。
 func LoadSettings(p paths.Paths) Settings {
 	cfg := config.Load(p)
-	proxy := cfg.DownloadProxy
-	if proxy == "" {
-		proxy = os.Getenv("DOWNLOAD_PROXY")
-	}
-	if proxy == "" {
-		proxy = ambientProxy()
-	}
 	token := cfg.GitHubToken
 	if token == "" {
 		token = os.Getenv("GITHUB_TOKEN")
@@ -68,21 +62,10 @@ func LoadSettings(p paths.Paths) Settings {
 		token = os.Getenv("GH_TOKEN")
 	}
 	return Settings{
-		DownloadProxy: strings.TrimSpace(proxy),
+		DownloadProxy: "",
 		GithubMirror:  strings.TrimSpace(cfg.GitHubMirror),
 		GithubToken:   strings.TrimSpace(token),
 	}
-}
-
-// ambientProxy 当前 shell 的代理环境变量（proxyenv 写入 bashrc 的那套），
-// 仅作 download_proxy 的隐式回退；fetchx 直连可达时会彻底绕过它。
-func ambientProxy() string {
-	for _, v := range []string{"https_proxy", "HTTPS_PROXY", "all_proxy", "ALL_PROXY", "http_proxy", "HTTP_PROXY"} {
-		if s := strings.TrimSpace(os.Getenv(v)); s != "" {
-			return s
-		}
-	}
-	return ""
 }
 
 // Mirror 对 GitHub 下载/raw 链接套加速前缀；api.github.com 不套（多数镜像不代理 API）。
@@ -366,10 +349,7 @@ func SeedFromSystem(p paths.Paths) ([]string, error) {
 // NewFetcher 按设置构造下载器（Token 缺失时的交互式补充由上层流程负责）。
 func NewFetcher(p paths.Paths) (*fetchx.Fetcher, Settings) {
 	s := LoadSettings(p)
-	if s.DownloadProxy != "" {
-		execx.Info(i18n.T("下载代理（直连不可用时回退）: ") + s.DownloadProxy)
-	}
-	return fetchx.New(s.DownloadProxy, s.GithubToken), s
+	return fetchx.New("", s.GithubToken), s
 }
 
 // Options DownloadAll 的选项。

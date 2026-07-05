@@ -1,35 +1,40 @@
 const state = {
   groups: [],
   proxies: {},
-  selected: "",
   filter: "all",
   query: "",
-  delaySort: false,
   delays: new Map(),
+  testingGroups: new Set(),
+  collapsed: new Set(JSON.parse(localStorage.getItem("sboxkit.collapsedGroups") || "[]")),
   token: localStorage.getItem("sboxkit.clashToken") || "",
+  theme: localStorage.getItem("sboxkit.theme") || preferredTheme(),
 };
 
 const ids = {
   apiLine: document.getElementById("apiLine"),
   authBox: document.getElementById("authBox"),
   clearTokenBtn: document.getElementById("clearTokenBtn"),
-  detailMeta: document.getElementById("detailMeta"),
-  detailName: document.getElementById("detailName"),
-  groupList: document.getElementById("groupList"),
+  groupBoard: document.getElementById("groupBoard"),
   groupValue: document.getElementById("groupValue"),
   modeValue: document.getElementById("modeValue"),
-  nodeList: document.getElementById("nodeList"),
-  nodeValue: document.getElementById("nodeValue"),
   reloadBtn: document.getElementById("reloadBtn"),
   searchInput: document.getElementById("searchInput"),
-  showCurrentBtn: document.getElementById("showCurrentBtn"),
-  sortDelayBtn: document.getElementById("sortDelayBtn"),
   testAllBtn: document.getElementById("testAllBtn"),
-  testCurrentBtn: document.getElementById("testCurrentBtn"),
+  themeBtn: document.getElementById("themeBtn"),
   tokenInput: document.getElementById("tokenInput"),
   updatedAt: document.getElementById("updatedAt"),
   versionValue: document.getElementById("versionValue"),
+  nodeValue: document.getElementById("nodeValue"),
 };
+
+function preferredTheme() {
+  return matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function applyTheme() {
+  document.documentElement.dataset.theme = state.theme;
+  ids.themeBtn.textContent = state.theme === "dark" ? "Light" : "Dark";
+}
 
 async function api(path, options = {}) {
   const headers = new Headers(options.headers || {});
@@ -91,17 +96,14 @@ async function loadProxies() {
   state.groups = Object.values(state.proxies)
     .filter((proxy) => Array.isArray(proxy.all) && proxy.all.length)
     .sort(groupCompare);
-  if (!state.selected || !state.groups.some((group) => group.name === state.selected)) {
-    state.selected = state.groups[0]?.name || "";
-  }
   ids.groupValue.textContent = String(state.groups.length);
   ids.nodeValue.textContent = String(countNodes(state.groups));
-  render();
+  renderGroups();
 }
 
 function groupCompare(a, b) {
   const rank = (name) => {
-    const order = ["Proxy", "AI", "Streaming", "Direct", "SG-Auto", "HK-Auto", "Auto", "Fallback"];
+    const order = ["Proxy", "AI", "Streaming", "Direct", "Fallback", "Auto", "SG-Auto", "SG-Fallback", "HK-Auto", "HK-Fallback"];
     const index = order.indexOf(name);
     return index === -1 ? 100 : index;
   };
@@ -125,99 +127,77 @@ function visibleGroups() {
   });
 }
 
-function currentGroup() {
-  return state.groups.find((group) => group.name === state.selected) || null;
-}
-
-function render() {
-  renderGroups();
-  renderNodes();
-}
-
 function renderGroups() {
   const groups = visibleGroups();
   if (!groups.length) {
-    ids.groupList.innerHTML = "";
-    ids.groupList.append(notice("No matching groups"));
+    renderEmpty("No matching groups");
     return;
   }
-  ids.groupList.replaceChildren(...groups.map((group) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = `group-item${group.name === state.selected ? " active" : ""}`;
-    button.onclick = () => {
-      state.selected = group.name;
-      render();
-    };
-
-    const main = document.createElement("div");
-    main.className = "group-main";
-    main.append(textNode("div", "group-name", group.name));
-    main.append(textNode("div", "group-now", group.now || "-"));
-
-    const pill = textNode("div", "pill", String((group.all || []).length));
-    button.append(main, pill);
-    return button;
-  }));
+  ids.groupBoard.replaceChildren(...groups.map(renderGroup));
 }
 
-function renderNodes() {
-  const group = currentGroup();
-  if (!group) {
-    ids.detailName.textContent = "No group selected";
-    ids.detailMeta.textContent = "-";
-    renderEmpty("No selector group available");
-    return;
-  }
+function renderGroup(group) {
+  const card = document.createElement("article");
+  const collapsed = state.collapsed.has(group.name);
+  card.className = `group-card${collapsed ? " collapsed" : ""}`;
 
-  ids.detailName.textContent = group.name;
-  ids.detailMeta.textContent = `${group.type || "group"} / current: ${group.now || "-"}`;
-  const nodes = sortedNodes(group);
-  if (!nodes.length) {
-    renderEmpty("No nodes in this group");
-    return;
-  }
-  ids.nodeList.replaceChildren(...nodes.map((name) => renderNode(group, name)));
-}
+  const header = document.createElement("div");
+  header.className = "group-head";
 
-function sortedNodes(group) {
-  const nodes = [...(group.all || [])];
-  if (!state.delaySort) return nodes;
-  return nodes.sort((a, b) => {
-    const ad = state.delays.get(a);
-    const bd = state.delays.get(b);
-    const av = ad && ad.ok ? ad.value : Number.MAX_SAFE_INTEGER;
-    const bv = bd && bd.ok ? bd.value : Number.MAX_SAFE_INTEGER;
-    return av - bv || a.localeCompare(b);
-  });
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "collapse-btn";
+  toggle.textContent = collapsed ? "+" : "-";
+  toggle.onclick = () => toggleGroup(group.name);
+
+  const title = document.createElement("button");
+  title.type = "button";
+  title.className = "group-title";
+  title.onclick = () => toggleGroup(group.name);
+  title.append(textNode("span", "group-name", group.name));
+  title.append(textNode("span", "group-now", group.now || "-"));
+
+  const meta = textNode("span", "pill", String((group.all || []).length));
+  const test = document.createElement("button");
+  test.type = "button";
+  test.className = "group-test";
+  test.textContent = state.testingGroups.has(group.name) ? "Testing" : "Test";
+  test.disabled = state.testingGroups.has(group.name);
+  test.onclick = () => testGroup(group);
+
+  header.append(toggle, title, meta, test);
+  card.append(header);
+
+  if (!collapsed) {
+    const nodes = document.createElement("div");
+    nodes.className = "node-grid";
+    nodes.replaceChildren(...(group.all || []).map((name) => renderNode(group, name)));
+    card.append(nodes);
+  }
+  return card;
 }
 
 function renderNode(group, name) {
-  const row = document.createElement("div");
+  const card = document.createElement("button");
   const current = name === group.now;
-  row.className = `node${current ? " current" : ""}`;
+  card.type = "button";
+  card.className = `node-card${current ? " current" : ""}`;
+  card.disabled = current;
+  card.onclick = () => switchNode(group.name, name);
+  card.append(textNode("span", "node-name", name));
+  card.append(textNode("span", "node-meta", proxyType(name)));
+  card.append(textNode("span", delayClass(name), delayText(name)));
+  return card;
+}
 
-  const main = document.createElement("div");
-  main.className = "node-main";
-  main.append(textNode("div", "node-name", name));
-  main.append(textNode("div", "node-meta", proxyType(name)));
-
-  const delay = textNode("div", delayClass(name), delayText(name));
-  const test = document.createElement("button");
-  test.type = "button";
-  test.textContent = "Test";
-  test.disabled = state.delays.get(name)?.pending || false;
-  test.onclick = () => testDelay(name);
-
-  const use = document.createElement("button");
-  use.type = "button";
-  use.className = "use";
-  use.textContent = current ? "Active" : "Use";
-  use.disabled = current;
-  use.onclick = () => switchNode(group.name, name);
-
-  row.append(main, delay, test, use);
-  return row;
+function toggleGroup(name) {
+  if (state.collapsed.has(name)) {
+    state.collapsed.delete(name);
+  } else {
+    state.collapsed.add(name);
+  }
+  localStorage.setItem("sboxkit.collapsedGroups", JSON.stringify([...state.collapsed]));
+  renderGroups();
 }
 
 function proxyType(name) {
@@ -259,7 +239,7 @@ async function switchNode(group, name) {
 
 async function testDelay(name) {
   state.delays.set(name, { pending: true, ok: true, value: 0 });
-  renderNodes();
+  renderGroups();
   try {
     const data = await api(apiPath(["proxies", name, "delay"], {
       timeout: "5000",
@@ -269,18 +249,25 @@ async function testDelay(name) {
   } catch {
     state.delays.set(name, { ok: false, value: 0 });
   } finally {
-    renderNodes();
+    renderGroups();
   }
 }
 
+async function testGroup(group) {
+  state.testingGroups.add(group.name);
+  renderGroups();
+  await testNames(group.all || []);
+  state.testingGroups.delete(group.name);
+  renderGroups();
+}
+
 async function testNames(names) {
-  ids.apiLine.textContent = `Testing ${names.length} node(s)`;
-  setBusy(true);
   const queue = [...new Set(names)];
+  ids.apiLine.textContent = `Testing ${queue.length} node(s)`;
+  setBusy(true);
   const workers = Array.from({ length: Math.min(6, queue.length) }, async () => {
     while (queue.length) {
-      const name = queue.shift();
-      await testDelay(name);
+      await testDelay(queue.shift());
     }
   });
   await Promise.all(workers);
@@ -290,12 +277,11 @@ async function testNames(names) {
 
 function setBusy(busy) {
   ids.testAllBtn.disabled = busy;
-  ids.testCurrentBtn.disabled = busy;
 }
 
 function renderEmpty(message) {
-  ids.nodeList.innerHTML = "";
-  ids.nodeList.append(notice(message));
+  ids.groupBoard.innerHTML = "";
+  ids.groupBoard.append(notice(message));
 }
 
 function notice(message) {
@@ -310,25 +296,14 @@ function textNode(tag, className, text) {
 }
 
 ids.reloadBtn.onclick = refresh;
-ids.testCurrentBtn.onclick = () => {
-  const group = currentGroup();
-  if (group) testNames(group.all || []);
-};
 ids.testAllBtn.onclick = () => {
   const names = visibleGroups().flatMap((group) => group.all || []);
   testNames(names);
 };
-ids.showCurrentBtn.onclick = () => {
-  const group = currentGroup();
-  if (!group || !group.now) return;
-  state.query = group.now;
-  ids.searchInput.value = state.query;
-  render();
-};
-ids.sortDelayBtn.onclick = () => {
-  state.delaySort = !state.delaySort;
-  ids.sortDelayBtn.textContent = state.delaySort ? "Natural Sort" : "Sort Delay";
-  renderNodes();
+ids.themeBtn.onclick = () => {
+  state.theme = state.theme === "dark" ? "light" : "dark";
+  localStorage.setItem("sboxkit.theme", state.theme);
+  applyTheme();
 };
 ids.searchInput.oninput = (event) => {
   state.query = event.target.value;
@@ -355,5 +330,6 @@ ids.clearTokenBtn.onclick = () => {
 };
 
 ids.tokenInput.value = state.token;
+applyTheme();
 refresh();
 setInterval(refresh, 20000);

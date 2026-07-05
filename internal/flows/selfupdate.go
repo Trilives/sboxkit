@@ -8,6 +8,7 @@ import (
 	"github.com/Trilives/sboxkit/internal/i18n"
 	"github.com/Trilives/sboxkit/internal/paths"
 	"github.com/Trilives/sboxkit/internal/selfupdate"
+	"github.com/Trilives/sboxkit/internal/sysd"
 	"github.com/Trilives/sboxkit/internal/tui"
 )
 
@@ -56,7 +57,18 @@ func doSelfUpdate(p paths.Paths, currentVersion string, channel selfupdate.Chann
 		return nil
 	}
 	execx.Ok(fmt.Sprintf(i18n.T("sboxkit 已更新到 %s，下次运行即生效。"), version))
-	return nil
+	return syncRestartAfterSelfUpdate(p)
+}
+
+func syncRestartAfterSelfUpdate(p paths.Paths) error {
+	if !sysd.IsInstalled(sysd.DefaultName) {
+		return nil
+	}
+	ok, err := tui.Confirm(i18n.T("重新生成当前配置并重启服务？"), false)
+	if err != nil || !ok {
+		return err
+	}
+	return sysd.SyncAndRestart(p, sysd.DefaultName)
 }
 
 func doRollbackStable(p paths.Paths) error {

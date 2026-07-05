@@ -18,8 +18,8 @@
         </div>
         <div class="commands">
           <button id="reloadBtn" class="primary" type="button">Refresh</button>
-          <button id="testCurrentBtn" type="button">Test Group</button>
           <button id="testAllBtn" type="button">Test Visible</button>
+          <button id="themeBtn" type="button">Dark</button>
         </div>
       </div>
 
@@ -36,33 +36,18 @@
         <div class="metric"><div class="metric-label">Nodes</div><div class="metric-value" id="nodeValue">-</div></div>
       </section>
 
-      <section class="layout">
-        <aside class="panel">
-          <div class="panel-head">
-            <div class="panel-title"><strong>Proxy Groups</strong><span class="fine" id="updatedAt">Never updated</span></div>
-            <input class="search" id="searchInput" type="search" placeholder="Filter groups or nodes">
-            <div class="tabs" role="tablist" aria-label="Group filter">
-              <button class="active" type="button" data-filter="all">All</button>
-              <button type="button" data-filter="selector">Selector</button>
-              <button type="button" data-filter="urltest">URL Test</button>
-            </div>
-          </div>
-          <div class="group-list" id="groupList"><div class="notice">Loading</div></div>
-        </aside>
+      <section class="controls panel">
+        <div class="panel-title"><strong>Proxy Groups</strong><span class="fine" id="updatedAt">Never updated</span></div>
+        <input class="search" id="searchInput" type="search" placeholder="Filter groups or nodes">
+        <div class="tabs" role="tablist" aria-label="Group filter">
+          <button class="active" type="button" data-filter="all">All</button>
+          <button type="button" data-filter="selector">Selector</button>
+          <button type="button" data-filter="urltest">URL Test</button>
+        </div>
+      </section>
 
-        <section class="panel detail">
-          <div class="detail-head">
-            <div class="detail-title">
-              <h2 id="detailName">No group selected</h2>
-              <div class="fine" id="detailMeta">-</div>
-            </div>
-            <div class="detail-actions">
-              <button id="showCurrentBtn" type="button">Current</button>
-              <button id="sortDelayBtn" type="button">Sort Delay</button>
-            </div>
-          </div>
-          <div class="nodes" id="nodeList"><div class="notice">Waiting for proxy data</div></div>
-        </section>
+      <section class="group-board" id="groupBoard">
+        <div class="notice">Loading</div>
       </section>
     </main>
     <script src="app.js"></script>

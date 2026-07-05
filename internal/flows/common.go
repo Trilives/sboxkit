@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/Trilives/sboxkit/internal/config"
@@ -29,27 +28,6 @@ var sourceOptions = []string{
 }
 
 var sourceTypes = []string{"clash", "sing-box", "base64", "local"}
-
-// stripScheme 去掉 http:// / https:// 前缀，便于以 IP:端口 形式回显默认值。
-func stripScheme(proxy string) string {
-	p := strings.TrimSpace(proxy)
-	if i := strings.Index(p, "://"); i >= 0 {
-		return p[i+3:]
-	}
-	return p
-}
-
-// normalizeProxy 把用户输入的代理归一化为可用 URL：空→空；含 scheme 原样；否则补 http://。
-func normalizeProxy(raw string) string {
-	p := strings.TrimSpace(raw)
-	if p == "" {
-		return ""
-	}
-	if strings.Contains(p, "://") {
-		return p
-	}
-	return "http://" + p
-}
 
 type newSub struct {
 	Name          string

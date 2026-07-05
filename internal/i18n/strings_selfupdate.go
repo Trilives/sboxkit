@@ -6,6 +6,7 @@ func init() {
 		"已是最新版本（%s）。":              "Already on the latest version (%s).",
 		"发现新版本 %s（当前 %s），现在更新？":    "New version %s available (current %s). Update now?",
 		"sboxkit 已更新到 %s，下次运行即生效。": "sboxkit updated to %s; takes effect next run.",
+		"重新生成当前配置并重启服务？":           "Regenerate the current config and restart the service?",
 
 		"发行版没有有效的版本号":                 "The release has no valid version number",
 		"未找到本机架构的发行包: %s":             "No release asset found for this architecture: %s",

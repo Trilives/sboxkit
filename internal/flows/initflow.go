@@ -33,7 +33,7 @@ func Init(p paths.Paths) error {
 		execx.Warn(i18n.T("种子接管失败（不影响后续下载）：") + err.Error())
 	}
 
-	// 1. 部署设置：下载代理 / TUN / 局域网代理，独立一个事务。
+	// 1. 部署设置：TUN / 局域网代理，独立一个事务。
 	if err := initDeploymentSettings(p); err != nil {
 		return err
 	}
@@ -70,13 +70,13 @@ func Init(p paths.Paths) error {
 	// 5. 可选增强：网络自愈 / 每周更新，各自独立，互不影响、也不影响服务本身。
 	optionalExtras()
 
-	// 6. 提示切换 / 固定节点
-	ok, err := tui.Confirm(i18n.T("配置已就绪，是否现在切换 / 固定节点？"), false)
+	// 6. 提示是否临时切换节点
+	ok, err := tui.Confirm(i18n.T("配置已就绪，是否现在切换节点？"), false)
 	if err != nil {
 		return err
 	}
 	if ok {
-		if err := NodeSelect(p, p.ConfigFile, ""); err != nil {
+		if err := NodeSwitchLive(p, p.ConfigFile, ""); err != nil {
 			return err
 		}
 	}
@@ -86,17 +86,10 @@ func Init(p paths.Paths) error {
 	return nil
 }
 
-// initDeploymentSettings 步骤 1：下载代理 / TUN / 局域网代理，独立事务。
+// initDeploymentSettings 步骤 1：TUN / 局域网代理，独立事务。
 func initDeploymentSettings(p paths.Paths) error {
 	return txn.Run(i18n.T("部署设置"), func(t *txn.Transaction) error {
 		cfg := config.Load(p)
-		proxy, err := tui.Ask(
-			i18n.T("订阅/资源下载代理 IP:端口（出海慢时走它，如 192.168.1.10:7890），留空=保留当前/无则直连"),
-			tui.AskOpts{Default: stripScheme(cfg.DownloadProxy), AllowEmpty: true})
-		if err != nil {
-			return err
-		}
-		cfg.DownloadProxy = normalizeProxy(proxy)
 		// TUN 模式：全局透明代理；关则纯代理，需各 App 自设代理
 		enableTun, err := tui.Confirm(i18n.T("启用 TUN 模式？（整机流量自动走代理；否=纯代理，需各 App 手动设代理）"),
 			cfg.EnableTun)
@@ -264,7 +257,7 @@ func optionalPostStartUpdate(p paths.Paths) error {
 	if err != nil || !ok {
 		return err
 	}
-	execx.Info(i18n.T("下载/更新 内核 / geo 数据（出海慢时会用上面的代理）…"))
+	execx.Info(i18n.T("下载/更新内核 / geo 数据…"))
 	ensureGithubToken(p)
 	if _, err := kernel.DownloadAll(p, kernel.Options{Force: true}); err != nil {
 		return err
