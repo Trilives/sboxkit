@@ -7,49 +7,103 @@
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
-    <main class="shell">
-      <div class="topbar">
-        <div class="brand">
+    <!-- ============ LOGIN / PORT VIEW ============ -->
+    <main class="login-view" id="loginView">
+      <form class="login-card" id="loginForm" autocomplete="off">
+        <div class="login-brand">
           <div class="brand-mark">SB</div>
-          <div>
-            <h1>sboxkit console</h1>
-            <div class="subtitle" id="apiLine">Connecting to Clash API</div>
+          <div class="login-brand-text">
+            <h1>sboxkit</h1>
+            <p>Web console</p>
+          </div>
+          <button class="ghost-btn theme-toggle" id="loginThemeBtn" type="button" title="Toggle theme" aria-label="Toggle theme">
+            <span class="theme-ico" aria-hidden="true"></span>
+          </button>
+        </div>
+
+        <p class="login-lead">Connect to the sing-box Clash API controller.</p>
+
+        <label class="field">
+          <span class="field-label">Host</span>
+          <input id="hostInput" type="text" inputmode="url" placeholder="127.0.0.1" spellcheck="false">
+        </label>
+
+        <label class="field">
+          <span class="field-label">Port</span>
+          <input id="portInput" type="text" inputmode="numeric" placeholder="9090" spellcheck="false">
+        </label>
+
+        <label class="field">
+          <span class="field-label">Secret <span class="field-opt">(optional)</span></span>
+          <input id="secretInput" type="password" placeholder="API secret" spellcheck="false">
+        </label>
+
+        <label class="check">
+          <input id="rememberInput" type="checkbox">
+          <span>Skip this screen next time</span>
+        </label>
+
+        <button class="primary-btn login-submit" type="submit">Connect</button>
+        <div class="login-msg" id="loginMsg" role="status"></div>
+      </form>
+      <footer class="login-foot">sing-box control panel · <span id="loginVersion">offline</span></footer>
+    </main>
+
+    <!-- ============ DASHBOARD / NODE VIEW ============ -->
+    <main class="dash-view" id="dashView" hidden>
+      <header class="appbar">
+        <div class="appbar-brand">
+          <div class="brand-mark small">SB</div>
+          <div class="appbar-title">
+            <strong>sboxkit</strong>
+            <span class="conn-chip" id="connChip"><i class="dot"></i><span id="connText">connected</span></span>
           </div>
         </div>
-        <div class="commands">
-          <button id="reloadBtn" class="primary" type="button">Refresh</button>
-          <button id="testAllBtn" type="button">Test Visible</button>
-          <button id="themeBtn" type="button">Dark</button>
+        <div class="appbar-actions">
+          <button class="ghost-btn" id="refreshBtn" type="button" title="Refresh">
+            <span class="ico ico-refresh" aria-hidden="true"></span><span class="btn-label">Refresh</span>
+          </button>
+          <button class="ghost-btn" id="testAllBtn" type="button" title="Test all visible nodes">
+            <span class="ico ico-bolt" aria-hidden="true"></span><span class="btn-label">Test all</span>
+          </button>
+          <button class="ghost-btn theme-toggle" id="themeBtn" type="button" title="Toggle theme" aria-label="Toggle theme">
+            <span class="theme-ico" aria-hidden="true"></span>
+          </button>
+          <button class="ghost-btn danger" id="disconnectBtn" type="button" title="Disconnect">
+            <span class="ico ico-power" aria-hidden="true"></span>
+          </button>
         </div>
-      </div>
+      </header>
 
-      <form class="auth" id="authBox">
-        <input id="tokenInput" type="password" autocomplete="off" placeholder="API token">
-        <button type="submit">Apply</button>
-        <button id="clearTokenBtn" type="button">Clear</button>
-      </form>
-
-      <section class="status-grid" aria-label="Status">
-        <div class="metric"><div class="metric-label">Version</div><div class="metric-value" id="versionValue">-</div></div>
-        <div class="metric"><div class="metric-label">Mode</div><div class="metric-value" id="modeValue">-</div></div>
-        <div class="metric"><div class="metric-label">Groups</div><div class="metric-value" id="groupValue">-</div></div>
-        <div class="metric"><div class="metric-label">Nodes</div><div class="metric-value" id="nodeValue">-</div></div>
+      <section class="stat-row" aria-label="Status">
+        <div class="stat"><span class="stat-label">Version</span><span class="stat-value" id="versionValue">–</span></div>
+        <div class="stat"><span class="stat-label">Mode</span><span class="stat-value" id="modeValue">–</span></div>
+        <div class="stat"><span class="stat-label">Groups</span><span class="stat-value" id="groupValue">–</span></div>
+        <div class="stat"><span class="stat-label">Nodes</span><span class="stat-value" id="nodeValue">–</span></div>
       </section>
 
-      <section class="controls panel">
-        <div class="panel-title"><strong>Proxy Groups</strong><span class="fine" id="updatedAt">Never updated</span></div>
-        <input class="search" id="searchInput" type="search" placeholder="Filter groups or nodes">
-        <div class="tabs" role="tablist" aria-label="Group filter">
+      <section class="toolbar">
+        <div class="search-wrap">
+          <span class="ico ico-search" aria-hidden="true"></span>
+          <input class="search" id="searchInput" type="search" placeholder="Filter groups or nodes">
+        </div>
+        <div class="segmented" role="tablist" aria-label="Group filter">
           <button class="active" type="button" data-filter="all">All</button>
-          <button type="button" data-filter="selector">Selector</button>
-          <button type="button" data-filter="urltest">URL Test</button>
+          <button type="button" data-filter="selector">Selectors</button>
+          <button type="button" data-filter="urltest">URL-test</button>
+        </div>
+        <div class="toolbar-side">
+          <button class="ghost-btn tiny" id="expandAllBtn" type="button">Expand all</button>
+          <button class="ghost-btn tiny" id="collapseAllBtn" type="button">Collapse all</button>
         </div>
       </section>
 
       <section class="group-board" id="groupBoard">
-        <div class="notice">Loading</div>
+        <div class="skeleton-note">Loading proxy groups…</div>
       </section>
     </main>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="app.js"></script>
   </body>
 </html>

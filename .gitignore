@@ -40,3 +40,6 @@ Thumbs.db
 
 # deb 打包预下载资产（fetch-deb-deps.sh 生成）
 packaging/deps/
+
+# tmp 目录（本项目不使用，防御性忽略）
+tmp/
