@@ -3,309 +3,68 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>sboxkit panel</title>
-    <style>
-      :root {
-        color-scheme: light dark;
-        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-        --bg: #f3f2fb;
-        --panel: #ffffff;
-        --ink: #1c1930;
-        --muted: #6a6484;
-        --line: #ddd8ef;
-        --accent: #4b3fd6;
-        --accent-ink: #f5f3ff;
-        --ok: #1f8a5f;
-        --bad: #c23b3b;
-      }
-      @media (prefers-color-scheme: dark) {
-        :root {
-          --bg: #100e1c;
-          --panel: #191630;
-          --ink: #ecebf7;
-          --muted: #9b93c4;
-          --line: #322c56;
-          --accent: #8b7bff;
-          --accent-ink: #14102b;
-          --ok: #4fd699;
-          --bad: #ff8080;
-        }
-      }
-      * { box-sizing: border-box; }
-      body { margin: 0; background: var(--bg); color: var(--ink); }
-      header {
-        display: flex;
-        align-items: baseline;
-        gap: 10px;
-        padding: 20px 24px 0;
-      }
-      header .mark {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 28px;
-        height: 28px;
-        border-radius: 8px;
-        background: var(--accent);
-        color: var(--accent-ink);
-        font-weight: 800;
-        font-size: 14px;
-      }
-      header h1 { font-size: 18px; margin: 0; font-weight: 700; }
-      header .sub { color: var(--muted); font-size: 12px; }
-      main {
-        max-width: 1080px;
-        margin: 0 auto;
-        padding: 16px 24px 40px;
-        display: grid;
-        gap: 16px;
-      }
-      .stats {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-        gap: 10px;
-      }
-      .stat {
-        background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: 10px;
-        padding: 12px 14px;
-      }
-      .stat .k {
-        font-size: 10px;
-        text-transform: uppercase;
-        letter-spacing: .08em;
-        color: var(--muted);
-      }
-      .stat .v {
-        margin-top: 4px;
-        font-size: 13px;
-        overflow-wrap: anywhere;
-      }
-      .toolbar {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-      }
-      .toolbar .status { font-size: 12px; color: var(--muted); }
-      button.action {
-        border: 1px solid var(--line);
-        background: var(--panel);
-        color: var(--ink);
-        border-radius: 8px;
-        padding: 7px 12px;
-        font-size: 12px;
-        cursor: pointer;
-      }
-      button.action:hover { border-color: var(--accent); }
-      .groups { display: grid; gap: 12px; }
-      .group {
-        background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: 12px;
-        padding: 14px;
-      }
-      .group .head {
-        display: flex;
-        align-items: baseline;
-        justify-content: space-between;
-        margin-bottom: 10px;
-      }
-      .group .name { font-weight: 700; font-size: 14px; }
-      .group .now { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
-      .nodes { display: grid; gap: 6px; }
-      .node {
-        display: grid;
-        grid-template-columns: 1fr auto auto;
-        align-items: center;
-        gap: 10px;
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        padding: 8px 10px;
-        font-size: 13px;
-      }
-      .node.current { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
-      .node .nodeName { overflow-wrap: anywhere; }
-      .node .delay { font-variant-numeric: tabular-nums; font-size: 12px; min-width: 56px; text-align: right; }
-      .node .delay.ok { color: var(--ok); }
-      .node .delay.bad { color: var(--bad); }
-      .node button {
-        border: 1px solid var(--line);
-        background: transparent;
-        color: var(--ink);
-        border-radius: 6px;
-        padding: 5px 9px;
-        font-size: 12px;
-        cursor: pointer;
-      }
-      .node button.use { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-      .node button:disabled { opacity: .5; cursor: default; }
-      .empty {
-        border: 1px dashed var(--line);
-        border-radius: 10px;
-        color: var(--muted);
-        padding: 24px;
-        text-align: center;
-        font-size: 13px;
-      }
-    </style>
+    <title>sboxkit console</title>
+    <link rel="stylesheet" href="styles.css">
   </head>
   <body>
-    <header>
-      <span class="mark">SB</span>
-      <h1>sboxkit panel</h1>
-      <span class="sub">selector groups for this sing-box instance</span>
-    </header>
-    <main>
-      <div class="stats">
-        <div class="stat"><div class="k">sing-box version</div><div class="v" id="version">loading</div></div>
+    <main class="shell">
+      <div class="topbar">
+        <div class="brand">
+          <div class="brand-mark">SB</div>
+          <div>
+            <h1>sboxkit console</h1>
+            <div class="subtitle" id="apiLine">Connecting to Clash API</div>
+          </div>
+        </div>
+        <div class="commands">
+          <button id="reloadBtn" class="primary" type="button">Refresh</button>
+          <button id="testCurrentBtn" type="button">Test Group</button>
+          <button id="testAllBtn" type="button">Test Visible</button>
+        </div>
       </div>
-      <div class="toolbar">
-        <span class="status" id="status">connecting</span>
-        <button class="action" id="refresh" type="button">Refresh</button>
-      </div>
-      <div class="groups" id="groups">
-        <div class="empty">Loading selector groups...</div>
-      </div>
+
+      <form class="auth" id="authBox">
+        <input id="tokenInput" type="password" autocomplete="off" placeholder="API token">
+        <button type="submit">Apply</button>
+        <button id="clearTokenBtn" type="button">Clear</button>
+      </form>
+
+      <section class="status-grid" aria-label="Status">
+        <div class="metric"><div class="metric-label">Version</div><div class="metric-value" id="versionValue">-</div></div>
+        <div class="metric"><div class="metric-label">Mode</div><div class="metric-value" id="modeValue">-</div></div>
+        <div class="metric"><div class="metric-label">Groups</div><div class="metric-value" id="groupValue">-</div></div>
+        <div class="metric"><div class="metric-label">Nodes</div><div class="metric-value" id="nodeValue">-</div></div>
+      </section>
+
+      <section class="layout">
+        <aside class="panel">
+          <div class="panel-head">
+            <div class="panel-title"><strong>Proxy Groups</strong><span class="fine" id="updatedAt">Never updated</span></div>
+            <input class="search" id="searchInput" type="search" placeholder="Filter groups or nodes">
+            <div class="tabs" role="tablist" aria-label="Group filter">
+              <button class="active" type="button" data-filter="all">All</button>
+              <button type="button" data-filter="selector">Selector</button>
+              <button type="button" data-filter="urltest">URL Test</button>
+            </div>
+          </div>
+          <div class="group-list" id="groupList"><div class="notice">Loading</div></div>
+        </aside>
+
+        <section class="panel detail">
+          <div class="detail-head">
+            <div class="detail-title">
+              <h2 id="detailName">No group selected</h2>
+              <div class="fine" id="detailMeta">-</div>
+            </div>
+            <div class="detail-actions">
+              <button id="showCurrentBtn" type="button">Current</button>
+              <button id="sortDelayBtn" type="button">Sort Delay</button>
+            </div>
+          </div>
+          <div class="nodes" id="nodeList"><div class="notice">Waiting for proxy data</div></div>
+        </section>
+      </section>
     </main>
-    <script>
-      // 本页面与 sing-box 的 clash_api 同源同端口提供（experimental.clash_api.
-      // external_ui 指向本目录），下面直接调用 sing-box 原生 Clash API 端点
-      // （/version、/proxies、/proxies/{group}、/proxies/{name}/delay），
-      // 不经过任何 sboxkit 自带的后端网关。
-      const statusEl = document.getElementById("status");
-      const groupsEl = document.getElementById("groups");
-      const versionEl = document.getElementById("version");
-      const refreshBtn = document.getElementById("refresh");
-
-      async function fetchJSON(path, options) {
-        const response = await fetch(path, options);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        if (response.status === 204) return null;
-        return await response.json();
-      }
-
-      async function loadStatus() {
-        try {
-          const data = await fetchJSON("/version");
-          versionEl.textContent = data.version || "unknown";
-        } catch {
-          versionEl.textContent = "unavailable";
-        }
-      }
-
-      async function loadGroups() {
-        statusEl.textContent = "loading...";
-        try {
-          const data = await fetchJSON("/proxies");
-          const proxies = data.proxies || {};
-          const groups = Object.values(proxies)
-            .filter((p) => Array.isArray(p.all) && p.all.length > 0)
-            .sort((a, b) => a.name.localeCompare(b.name));
-          renderGroups(groups);
-          statusEl.textContent = groups.length ? `${groups.length} selector group(s)` : "no selector groups";
-        } catch {
-          statusEl.textContent = "Clash API unavailable";
-          groupsEl.innerHTML = '<div class="empty">No selector data is available from the running service.</div>';
-        }
-      }
-
-      function renderGroups(groups) {
-        if (!groups.length) {
-          groupsEl.innerHTML = '<div class="empty">No selector groups found.</div>';
-          return;
-        }
-        groupsEl.replaceChildren(...groups.map(renderGroup));
-      }
-
-      function renderGroup(group) {
-        const card = document.createElement("article");
-        card.className = "group";
-
-        const head = document.createElement("div");
-        head.className = "head";
-        const name = document.createElement("div");
-        name.className = "name";
-        name.textContent = group.name;
-        const now = document.createElement("div");
-        now.className = "now";
-        now.textContent = `current: ${group.now || "-"}`;
-        head.append(name, now);
-
-        const nodes = document.createElement("div");
-        nodes.className = "nodes";
-        for (const choice of group.all || []) {
-          nodes.appendChild(renderNode(group.name, choice, choice === group.now));
-        }
-
-        card.append(head, nodes);
-        return card;
-      }
-
-      function renderNode(group, name, isCurrent) {
-        const row = document.createElement("div");
-        row.className = "node" + (isCurrent ? " current" : "");
-
-        const label = document.createElement("div");
-        label.className = "nodeName";
-        label.textContent = name + (isCurrent ? " ★" : "");
-
-        const delay = document.createElement("div");
-        delay.className = "delay";
-        delay.textContent = "";
-
-        const testBtn = document.createElement("button");
-        testBtn.type = "button";
-        testBtn.textContent = "Test";
-        testBtn.onclick = () => testDelay(name, delay, testBtn);
-
-        const useBtn = document.createElement("button");
-        useBtn.type = "button";
-        useBtn.className = "use";
-        useBtn.textContent = isCurrent ? "in use" : "Use";
-        useBtn.disabled = isCurrent;
-        useBtn.onclick = () => switchGroup(group, name);
-
-        row.append(label, delay, testBtn, useBtn);
-        return row;
-      }
-
-      async function testDelay(name, delayEl, button) {
-        button.disabled = true;
-        delayEl.textContent = "...";
-        delayEl.className = "delay";
-        try {
-          const query = new URLSearchParams({ timeout: "5000", url: "https://www.gstatic.com/generate_204" });
-          const data = await fetchJSON(`/proxies/${encodeURIComponent(name)}/delay?${query}`);
-          delayEl.textContent = `${data.delay}ms`;
-          delayEl.className = "delay ok";
-        } catch {
-          delayEl.textContent = "timeout";
-          delayEl.className = "delay bad";
-        } finally {
-          button.disabled = false;
-        }
-      }
-
-      async function switchGroup(group, name) {
-        statusEl.textContent = "switching...";
-        try {
-          await fetchJSON(`/proxies/${encodeURIComponent(group)}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name }),
-          });
-          await loadGroups();
-        } catch (error) {
-          statusEl.textContent = `switch failed: ${error.message}`;
-        }
-      }
-
-      refreshBtn.addEventListener("click", () => { loadStatus(); loadGroups(); });
-      loadStatus();
-      loadGroups();
-      setInterval(loadGroups, 20000);
-    </script>
+    <script src="app.js"></script>
   </body>
 </html>
