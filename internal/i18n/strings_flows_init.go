@@ -30,15 +30,14 @@ func init() {
 		"检测到本地已有 %d 个订阅记录，是否直接使用现有订阅？": "Detected %d existing subscription(s) locally. Use the existing subscription directly?",
 		"已使用现有订阅：%s": "Using existing subscription: %s",
 
-		"使用本地内核与基础规则启动服务（系统包种子或既有资源）。":             "Starting the service with the local core and basic rules (system package seed or existing resources).",
-		"未找到本地内核或基础规则；非 .deb 安装/种子缺失时需要先下载才能启动服务。": "Local core or basic rules not found; for non-.deb installs or missing seeds, you need to download them first to start the service.",
-		"现在下载内核和基础规则以便启动服务？":                       "Download the core and basic rules now to start the service?",
-		"缺少 sing-box 内核或基础规则，无法注册并启动服务":            "Missing sing-box core or basic rules; cannot register and start the service",
+		"使用本地内核与基础规则启动服务（系统包种子或既有资源）。":            "Starting the service with the local core and basic rules (system package seed or existing resources).",
+		"未找到本地内核或基础规则，正在自动下载…":                    "Local core or basic rules not found; downloading automatically…",
+		"下载内核/基础规则失败（可稍后在主菜单『运行时管理 → 内核更新』重试）：%w": "Failed to download core/basic rules (you can retry later via the main menu 'Runtime management → Update core'): %w",
 
-		"服务已启动。现在下载/更新内核和 geo 数据？（内置 Web 面板已随服务部署，浏览器访问 http://host:9090/ui/ 即可查看/切换节点）": "Service started. Download/update the core and geo data now? (The built-in web panel is already deployed with the service; browse http://host:9090/ui/ to view/switch nodes.)",
-		"下载/更新内核 / geo 数据…":             "Downloading/updating core / geo data…",
-		"已更新资源，重新部署运行时并重启服务…":           "Resources updated; redeploying the runtime and restarting the service…",
-		"更新内核/geo 数据失败（服务仍按原资源正常运行）：%v": "Failed to update core/geo data (the service keeps running fine on its existing resources): %v",
+		"正在自动下载/更新内核与 geo 数据…": "Automatically downloading/updating the core and geo data…",
+		"已更新资源，重新部署运行时并重启服务…":  "Resources updated; redeploying the runtime and restarting the service…",
+		"内核/geo 数据下载失败（服务仍按现有资源正常运行），可稍后在主菜单『运行时管理 → 内核更新』里重试：%v": "Core/geo data download failed (the service keeps running fine on its existing resources); you can retry later via the main menu 'Runtime management → Update core': %v",
+		"重新部署运行时失败（可稍后在设置里重试）：%v":                                 "Failed to redeploy the runtime (you can retry later in settings): %v",
 
 		"安装网络切换自愈？":      "Install network self-healing?",
 		"卸载网络自愈":         "Uninstall network self-healing",

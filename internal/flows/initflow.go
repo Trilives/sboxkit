@@ -61,11 +61,9 @@ func Init(p paths.Paths) error {
 		return nil
 	}
 
-	// 4. 服务已经跑起来；是否顺带更新内核/geo 数据属于锦上添花，失败只提示，
-	// 不影响已经成功启动的服务。
-	if err := optionalPostStartUpdate(p); err != nil && !errors.Is(err, errs.ErrCancelled) {
-		execx.Warn(fmt.Sprintf(i18n.T("更新内核/geo 数据失败（服务仍按原资源正常运行）：%v"), err))
-	}
+	// 4. 服务已经跑起来；自动顺带更新内核/geo 数据（锦上添花，无人值守，
+	// 失败只提示、不影响已经成功启动的服务）。
+	optionalPostStartUpdate(p)
 
 	// 5. 可选增强：网络自愈 / 每周更新，各自独立，互不影响、也不影响服务本身。
 	optionalExtras()
@@ -237,33 +235,28 @@ func ensureStartupResources(p paths.Paths) error {
 		execx.Info(i18n.T("使用本地内核与基础规则启动服务（系统包种子或既有资源）。"))
 		return nil
 	}
-	execx.Warn(i18n.T("未找到本地内核或基础规则；非 .deb 安装/种子缺失时需要先下载才能启动服务。"))
-	ok, err := tui.Confirm(i18n.T("现在下载内核和基础规则以便启动服务？"), true)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return fmt.Errorf("%s", i18n.T("缺少 sing-box 内核或基础规则，无法注册并启动服务"))
-	}
-	ensureGithubToken(p)
+	// 内核 + 基础规则是服务能启动的硬前提，缺失时不再询问、直接自动下载
+	//（问了也只能重复"要不要下载"，答否就无法继续）。
+	execx.Info(i18n.T("未找到本地内核或基础规则，正在自动下载…"))
 	if _, err := kernel.DownloadAll(p, kernel.Options{}); err != nil {
-		return err
+		return fmt.Errorf(i18n.T("下载内核/基础规则失败（可稍后在主菜单『运行时管理 → 内核更新』重试）：%w"), err)
 	}
 	return nil
 }
 
-func optionalPostStartUpdate(p paths.Paths) error {
-	ok, err := tui.Confirm(i18n.T("服务已启动。现在下载/更新内核和 geo 数据？（内置 Web 面板已随服务部署，浏览器访问 http://host:9090/ui/ 即可查看/切换节点）"), false)
-	if err != nil || !ok {
-		return err
-	}
-	execx.Info(i18n.T("下载/更新内核 / geo 数据…"))
-	ensureGithubToken(p)
+// optionalPostStartUpdate 服务已经跑起来后，自动顺带把内核与完整 geo 数据更新到
+// 最新（.deb 种子只带 CN 基础规则集）。整步无人值守：失败不阻断，只提示可稍后在
+// 设置里更新——服务仍按现有资源正常运行。
+func optionalPostStartUpdate(p paths.Paths) {
+	execx.Info(i18n.T("正在自动下载/更新内核与 geo 数据…"))
 	if _, err := kernel.DownloadAll(p, kernel.Options{Force: true}); err != nil {
-		return err
+		execx.Warn(fmt.Sprintf(i18n.T("内核/geo 数据下载失败（服务仍按现有资源正常运行），可稍后在主菜单『运行时管理 → 内核更新』里重试：%v"), err))
+		return
 	}
 	execx.Info(i18n.T("已更新资源，重新部署运行时并重启服务…"))
-	return sysd.Install(p, sysd.DefaultName, true)
+	if err := sysd.Install(p, sysd.DefaultName, true); err != nil {
+		execx.Warn(fmt.Sprintf(i18n.T("重新部署运行时失败（可稍后在设置里重试）：%v"), err))
+	}
 }
 
 // optionalExtras 步骤 5：网络自愈 / 每周更新各自独立一个事务，互不影响，

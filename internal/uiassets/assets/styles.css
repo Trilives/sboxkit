@@ -304,14 +304,14 @@ h1 { margin: 0; }
 .toolbar-side { display: flex; gap: 8px; }
 
 /* ---------- group cards ---------- */
+/* Masonry-style columns so short groups (few nodes) pack tightly under tall
+   ones instead of leaving big gaps that a row-aligned grid would create. */
 .group-board {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-  gap: 16px;
-  align-items: start;
+  column-width: 360px;
+  column-gap: 16px;
 }
 .skeleton-note, .empty-note {
-  grid-column: 1 / -1;
+  column-span: all;
   border: 1px dashed var(--line-strong);
   border-radius: var(--radius);
   color: var(--muted);
@@ -319,6 +319,8 @@ h1 { margin: 0; }
   text-align: center;
 }
 .group-card {
+  break-inside: avoid;
+  margin-bottom: 16px;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -460,7 +462,7 @@ h1 { margin: 0; }
   .stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .btn-label { display: none; }
   .ghost-btn { padding: 0 11px; }
-  .group-board { grid-template-columns: 1fr; }
+  .group-board { columns: 1; }
 }
 @media (max-width: 420px) {
   .stat-row { grid-template-columns: 1fr 1fr; }

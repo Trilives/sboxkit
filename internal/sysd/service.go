@@ -11,9 +11,11 @@
 package sysd
 
 import (
+	"bytes"
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,6 +24,7 @@ import (
 	"github.com/Trilives/sboxkit/internal/execx"
 	"github.com/Trilives/sboxkit/internal/i18n"
 	"github.com/Trilives/sboxkit/internal/paths"
+	"github.com/Trilives/sboxkit/internal/uiassets"
 )
 
 //go:embed assets/sing-box.service.tmpl
@@ -118,14 +121,59 @@ func hasUIAssets(p paths.Paths) bool {
 
 // syncUIRuntime 把 state/ui 的最新面板资源同步到运行时目录（sing-box 只会读运行时
 // 副本），Install 和 SyncAndRestart 都要调用，否则自更新/配置变更后面板会停留在
-// 服务首次注册时的旧版本。
+// 服务首次注册时的旧版本。先用当前二进制内置的面板重新物化 state/ui，确保运行时
+// 拿到的面板与本二进制一致——否则 sboxkit 自更新换了新面板后，state/ui 仍是旧订阅
+// 构建时落地的旧副本，光同步只会把旧面板拷过去。
 func syncUIRuntime(p paths.Paths, rt runtimePaths) {
+	if err := uiassets.Write(p.UI); err != nil {
+		execx.Warn(i18n.T("刷新内置 Web 面板资源失败：") + err.Error())
+	}
 	if !hasUIAssets(p) {
 		execx.Warn(i18n.T("未找到内置 Web 面板资源，面板将不可用。"))
 		return
 	}
 	execx.RunRoot([]string{"rm", "-rf", rt.UI}, "", nil)
 	execx.RunRoot([]string{"cp", "-a", p.UI, rt.UI}, "", nil)
+}
+
+// panelUpToDate 比对运行时目录里的面板与当前二进制内置的面板是否一致。运行时目录
+// 内容世界可读（cp -a 保留 0644/0755），因此这一步无需 root 即可判定。
+func panelUpToDate(rt runtimePaths) bool {
+	src := uiassets.FS()
+	for _, name := range []string{"index.html", "app.js", "styles.css"} {
+		want, err := fs.ReadFile(src, name)
+		if err != nil {
+			return true // 内置资源异常，无从比对，别误判为过期
+		}
+		got, err := os.ReadFile(filepath.Join(rt.UI, name))
+		if err != nil || !bytes.Equal(want, got) {
+			return false
+		}
+	}
+	return true
+}
+
+// RefreshPanelIfStale 若服务已安装、且运行时面板与当前二进制内置面板不一致（典型
+// 场景：sboxkit 自更新后二进制带了新面板，但运行时目录仍是旧副本），就把内置面板
+// 重新物化并同步到运行时目录。面板由 sing-box 内置文件服务实时读取，刷新文件即时
+// 生效，无需重启服务。仅在检测到过期时才请求 sudo，日常启动零打扰。
+func RefreshPanelIfStale(p paths.Paths, name string) {
+	if name == "" {
+		name = DefaultName
+	}
+	if !IsInstalled(name) {
+		return
+	}
+	rt := rtPaths(name)
+	if panelUpToDate(rt) {
+		return
+	}
+	execx.Info(i18n.T("检测到内置 Web 面板有更新，正在同步到运行时…"))
+	if err := execx.EnsureSudo(i18n.T("更新内置 Web 面板")); err != nil {
+		return
+	}
+	syncUIRuntime(p, rt)
+	execx.Ok(i18n.T("内置 Web 面板已更新（浏览器刷新 http://host:9090/ui/ 即可看到新版）。"))
 }
 
 func preflight(p paths.Paths) error {

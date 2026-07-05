@@ -160,6 +160,9 @@ func maybeOfferFirstRunInit(p paths.Paths, deps firstRunDeps) {
 }
 
 func interactive(p paths.Paths) int {
+	// 自更新换了新面板后，运行时目录仍是旧副本；这里在进入主菜单前用当前二进制
+	// 的内置面板对齐运行时（仅在检测到过期时才动，日常启动零打扰）。
+	sysd.RefreshPanelIfStale(p, sysd.DefaultName)
 	maybeOfferFirstRunInit(p, defaultFirstRunDeps())
 	idx := 0
 	for {
