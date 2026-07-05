@@ -15,8 +15,11 @@ func init() {
 		"已从 %s 移除代理环境变量。":                          "Proxy environment variables removed from %s.",
 
 		// internal/fetchx
-		"直连可达，跳过代理。":           "Direct connection reachable, skipping proxy.",
-		"  %s 通道失败（%v），改直连重试…": "  %s channel failed (%v), retrying direct…",
+		"直连可达，跳过代理。":                            "Direct connection reachable, skipping proxy.",
+		"  %s 通道失败（%v），改直连重试…":                  "  %s channel failed (%v), retrying direct…",
+		"下载连接停滞超过 %s 未收到新数据: %w":                "Download connection stalled for over %s with no new data: %w",
+		"如持续失败，请检查本机网络连接。":                      "If this keeps failing, please check your local network connection.",
+		"如持续失败，可能是当前代理节点质量不佳或被限速，建议更换节点/机场后重试。": "If this keeps failing, the current proxy node may be low quality or throttled — try switching nodes/providers and retry.",
 
 		// internal/configfile
 		"配置根节点不是映射":   "The config root node is not a mapping",
