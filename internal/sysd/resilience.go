@@ -23,8 +23,6 @@ const (
 	dispatcherDir = "/etc/NetworkManager/dispatcher.d"
 )
 
-func legacyHealthcheckDest() string { return filepath.Join(paths.RuntimeDir, "healthcheck.sh") }
-
 func dispatcherFile(name string) string {
 	return filepath.Join(dispatcherDir, "90-"+name+"-restart")
 }
@@ -157,7 +155,6 @@ func RemoveResilience(name string) error {
 		return err
 	}
 	execx.RunRoot([]string{"rm", "-f", dispatcherFile(name)}, "", nil)
-	execx.RunRoot([]string{"rm", "-f", legacyHealthcheckDest()}, "", nil)
 	quiet := &execx.Opt{Capture: true}
 	for _, unit := range []string{WatchdogName + ".timer", WatchdogName + ".service"} {
 		execx.RunRoot([]string{"systemctl", "stop", unit}, "", quiet)
