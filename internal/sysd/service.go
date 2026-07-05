@@ -116,6 +116,18 @@ func hasUIAssets(p paths.Paths) bool {
 	return err == nil
 }
 
+// syncUIRuntime 把 state/ui 的最新面板资源同步到运行时目录（sing-box 只会读运行时
+// 副本），Install 和 SyncAndRestart 都要调用，否则自更新/配置变更后面板会停留在
+// 服务首次注册时的旧版本。
+func syncUIRuntime(p paths.Paths, rt runtimePaths) {
+	if !hasUIAssets(p) {
+		execx.Warn(i18n.T("未找到内置 Web 面板资源，面板将不可用。"))
+		return
+	}
+	execx.RunRoot([]string{"rm", "-rf", rt.UI}, "", nil)
+	execx.RunRoot([]string{"cp", "-a", p.UI, rt.UI}, "", nil)
+}
+
 func preflight(p paths.Paths) error {
 	if _, err := os.Stat(p.SingBoxBin); err != nil {
 		return fmt.Errorf("%s", i18n.T("未找到 sing-box 内核，请先执行『下载内核/geo 数据』"))
@@ -169,14 +181,7 @@ func Install(p paths.Paths, name string, start bool) error {
 		}
 	}
 	// UI（内置静态面板，见 internal/uiassets；缺失也不影响内核运行）
-	if hasUIAssets(p) {
-		execx.RunRoot([]string{"rm", "-rf", rt.UI}, "", nil)
-		if _, err := execx.RunRoot([]string{"cp", "-a", p.UI, rt.UI}, "", nil); err != nil {
-			return err
-		}
-	} else {
-		execx.Warn(i18n.T("未找到内置 Web 面板资源，面板将不可用。"))
-	}
+	syncUIRuntime(p, rt)
 	// 配置 + 运行时校验
 	if _, err := execx.RunRoot([]string{"install", "-m", "0644", staged, rt.Config}, "", nil); err != nil {
 		return err
@@ -247,6 +252,7 @@ func SyncAndRestart(p paths.Paths, name string) error {
 		return err
 	}
 	defer os.Remove(staged)
+	syncUIRuntime(p, rt)
 	if _, err := execx.RunRoot([]string{"install", "-m", "0644", staged, rt.Config}, "", nil); err != nil {
 		return err
 	}

@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	DelayURL       = "https://www.gstatic.com/generate_204"
+	DelayURL       = "https://www.google.com/generate_204"
 	DelayTimeoutMS = 5000
 )
 

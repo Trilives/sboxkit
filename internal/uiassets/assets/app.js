@@ -243,7 +243,7 @@ async function testDelay(name) {
   try {
     const data = await api(apiPath(["proxies", name, "delay"], {
       timeout: "5000",
-      url: "https://www.gstatic.com/generate_204",
+      url: "https://www.google.com/generate_204",
     }));
     state.delays.set(name, { ok: true, value: Number(data.delay) || 0 });
   } catch {

@@ -20,9 +20,11 @@ jobs:
           go-version: stable
       - name: Prefetch deb assets (sing-box core + geo rule-set seeds)
         run: ./scripts/fetch-deb-deps.sh
+      - name: Use annotated tag message as release notes
+        run: git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > /tmp/release-notes.md
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
-          args: release --clean
+          args: release --clean --release-notes=/tmp/release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

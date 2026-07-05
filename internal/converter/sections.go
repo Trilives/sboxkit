@@ -15,7 +15,7 @@ const (
 	bootstrapDNSTag     = "dns-direct"
 	remoteDNSTag        = "dns-proxy"
 	bootstrapDNSDHCP    = "dhcp"
-	generate204URL      = "https://www.gstatic.com/generate_204"
+	generate204URL      = "https://www.google.com/generate_204"
 	defaultController   = "127.0.0.1:9090"
 	lanController       = "0.0.0.0:9090"
 )
