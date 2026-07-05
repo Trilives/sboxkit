@@ -2,7 +2,7 @@
 
 在 Linux 上交互式部署 / 管理 **sing-box** 的终端应用。单个静态二进制，
 全流程交互完成：**初始化 / 更改配置 / 暂停启动 / 网络测试 / 卸载**。
-
+> 如果想体验mihomo内核，可以参考[clashdock](https://github.com/Trilives/clashdock)
 - **机场订阅三选一**：Clash 订阅（经 `internal/converter` 转换为 sing-box 配置，
   含 AI / 流媒体 / 地区自动测速分组现场生成）、sing-box 原生订阅（可选择直接信任
   或按同一套规则重建）、通用 base64 节点链接（经 subconverter 或本地解析）。
