@@ -68,38 +68,7 @@ sboxkit
 首次运行（或检测到服务尚未注册）会先询问界面语言，再询问是否现在进行初始化；
 主菜单默认英文启动，可在「Language / 语言」里切成中文（部分终端无法正常显示中文字符）。
 
-```
-┌─ sing-box deployment system ────────────┐
-│                                          │
-│  ❯ ① Runtime Management                 │
-│    ② Config Changes                     │
-│    ③ Tools                              │
-│    ④ Pause Service ⏸                    │
-│    ⑤ Language / 语言                    │
-│    ⑥ Uninstall                          │
-│                                          │
-│  ↑/↓ select   ⏎ confirm   esc exit   ^R exit │
-└──────────────────────────────────────────┘
-┌─ Runtime Management ─────────────────────────────────────┐
-│                                                           │
-│  ❯ ① Node switch                                          │
-│    ② Pin node                                             │
-│    ③ Service settings                                     │
-│    ④ Update                                               │
-│    ⑤ Network self-healing settings                       │
-│    ⑥ Weekly update timer                                 │
-│                                                           │
-│  ↑/↓ select   ⏎ confirm   esc save & exit   ^R roll back & exit │
-└───────────────────────────────────────────────────────────┘
-┌─ Update ──────────────────┐
-│                            │
-│  ❯ ① Core                 │
-│    ② Geo data             │
-│    ③ sboxkit itself     │
-│                            │
-│  ↑/↓ select   ⏎ confirm   esc back │
-└────────────────────────────┘
-```
+<img src="docs/Pictures/sboxkit.png" width="400" alt="界面预览">
 
 「配置变更」子菜单包含订阅管理（增/删/改名/切换/刷新，且切换/刷新会自动同步并重启服务）、
 部署设置（TUN / 面板 / 下载）与分流增强（AI / 流媒体 / 地区自动测速组）——两个定制层字段
