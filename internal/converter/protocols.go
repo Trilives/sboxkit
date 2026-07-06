@@ -76,6 +76,7 @@ func convertTrojan(proxy map[string]any, tag string) (map[string]any, error) {
 	if tls := tlsConfig(proxy, true); len(tls) > 0 {
 		out["tls"] = tls
 	}
+	addMultiplex(proxy, out)
 	return out, addSupportedTransport(proxy, out)
 }
 
@@ -147,9 +148,19 @@ func convertVMess(proxy map[string]any, tag string) (map[string]any, error) {
 	out["uuid"] = asString(proxy["uuid"])
 	out["security"] = asString(defaultValue(proxy["cipher"], "auto"))
 	out["alter_id"] = asInt(defaultValue(firstValue(proxy, "alterId", "alter-id"), 0))
+	if enc := firstString(proxy, "packet-encoding", "packet_encoding"); enc != "" {
+		out["packet_encoding"] = enc
+	}
+	if _, ok := proxy["global-padding"]; ok {
+		out["global_padding"] = parseBool(proxy["global-padding"])
+	}
+	if _, ok := proxy["authenticated-length"]; ok {
+		out["authenticated_length"] = parseBool(proxy["authenticated-length"])
+	}
 	if tls := tlsConfig(proxy, false); len(tls) > 0 {
 		out["tls"] = tls
 	}
+	addMultiplex(proxy, out)
 	return out, addSupportedTransport(proxy, out)
 }
 
@@ -161,13 +172,25 @@ func convertVLess(proxy map[string]any, tag string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	// sing-box VLESS is always encryption "none"; a non-empty/non-none encryption
+	// cannot be represented and must not be silently dropped (converter.md §5).
+	if enc := strings.ToLower(strings.TrimSpace(asString(proxy["encryption"]))); enc != "" && enc != "none" {
+		return nil, fmt.Errorf("unsupported vless encryption %s", enc)
+	}
 	out["uuid"] = asString(proxy["uuid"])
-	if flow := asString(proxy["flow"]); flow != "" {
+	if flow := strings.TrimSpace(asString(proxy["flow"])); flow != "" {
+		if flow != "xtls-rprx-vision" {
+			return nil, fmt.Errorf("unsupported vless flow %s", flow)
+		}
 		out["flow"] = flow
+	}
+	if enc := firstString(proxy, "packet-encoding", "packet_encoding"); enc != "" {
+		out["packet_encoding"] = enc
 	}
 	if tls := tlsConfig(proxy, false); len(tls) > 0 {
 		out["tls"] = tls
 	}
+	addMultiplex(proxy, out)
 	return out, addSupportedTransport(proxy, out)
 }
 
@@ -180,6 +203,24 @@ func convertHysteria2(proxy map[string]any, tag string) (map[string]any, error) 
 		return nil, err
 	}
 	out["password"] = asString(proxy["password"])
+	if up := bandwidthMbps(proxy["up"]); up > 0 {
+		out["up_mbps"] = up
+	}
+	if down := bandwidthMbps(proxy["down"]); down > 0 {
+		out["down_mbps"] = down
+	}
+	// Port hopping: keep the ranges, don't collapse to the single server_port
+	// (converter.md §Hysteria2).
+	if ranges := serverPortRanges(firstString(proxy, "ports", "server_ports")); len(ranges) > 0 {
+		out["server_ports"] = ranges
+	}
+	// Salamander obfuscation: silently dropping it produces a config that
+	// handshakes but never passes traffic, so carry it faithfully.
+	if obfsType := strings.TrimSpace(asString(proxy["obfs"])); obfsType != "" {
+		obfs := map[string]any{"type": obfsType}
+		addIf(obfs, "password", firstString(proxy, "obfs-password", "obfs_password"))
+		out["obfs"] = obfs
+	}
 	if tls := tlsConfig(proxy, true); len(tls) > 0 {
 		out["tls"] = tls
 	}
@@ -187,7 +228,16 @@ func convertHysteria2(proxy map[string]any, tag string) (map[string]any, error) 
 }
 
 func convertTUIC(proxy map[string]any, tag string) (map[string]any, error) {
-	if err := requireFields(proxy, "server", "uuid", "password"); err != nil {
+	if err := requireFields(proxy, "server"); err != nil {
+		return nil, err
+	}
+	// TUIC v4 is token-based; only v5 (uuid + password) has a reliable sing-box
+	// mapping, so reject v4 with a clear reason instead of a "missing uuid"
+	// error (converter.md §TUIC).
+	if asString(proxy["token"]) != "" && asString(proxy["uuid"]) == "" {
+		return nil, errors.New("TUIC v4 (token auth) is not supported")
+	}
+	if err := requireFields(proxy, "uuid", "password"); err != nil {
 		return nil, err
 	}
 	out, err := baseOutbound(proxy, tag, "tuic")
@@ -198,6 +248,15 @@ func convertTUIC(proxy map[string]any, tag string) (map[string]any, error) {
 	out["password"] = asString(proxy["password"])
 	if cc := firstString(proxy, "congestion-controller", "congestion_control"); cc != "" {
 		out["congestion_control"] = cc
+	}
+	if mode := firstString(proxy, "udp-relay-mode", "udp_relay_mode"); mode != "" {
+		out["udp_relay_mode"] = mode
+	}
+	if _, ok := proxy["reduce-rtt"]; ok {
+		out["zero_rtt_handshake"] = parseBool(proxy["reduce-rtt"])
+	}
+	if hb := msToDuration(firstValue(proxy, "heartbeat-interval", "heartbeat_interval")); hb != "" {
+		out["heartbeat"] = hb
 	}
 	if tls := tlsConfig(proxy, true); len(tls) > 0 {
 		out["tls"] = tls
@@ -232,89 +291,6 @@ func convertHTTP(proxy map[string]any, tag string) (map[string]any, error) {
 	return out, nil
 }
 
-func tlsConfig(proxy map[string]any, defaultEnabled bool) map[string]any {
-	enabled := parseBool(defaultValue(proxy["tls"], defaultEnabled))
-	serverName := firstString(proxy, "servername", "server_name", "sni")
-	insecure, hasInsecure := proxy["skip-cert-verify"]
-	alpnValue := proxy["alpn"]
-	fingerprint := firstString(proxy, "client-fingerprint", "fingerprint")
-	certificatePath := firstString(proxy, "ca", "certificate_path")
-	certificate := firstString(proxy, "ca-str", "certificate")
-	clientCertificatePath := firstString(proxy, "client-cert", "client_certificate_path")
-	clientCertificate := firstString(proxy, "client-cert-str", "client_certificate")
-	clientKeyPath := firstString(proxy, "client-key", "client_key_path")
-	clientKey := firstString(proxy, "client-key-str", "client_key")
-
-	if !enabled && serverName == "" && !hasInsecure && alpnValue == nil && fingerprint == "" &&
-		certificatePath == "" && certificate == "" && clientCertificatePath == "" &&
-		clientCertificate == "" && clientKeyPath == "" && clientKey == "" {
-		return nil
-	}
-
-	tls := map[string]any{"enabled": enabled || serverName != "" || alpnValue != nil || fingerprint != "" || certificatePath != "" || certificate != "" ||
-		clientCertificatePath != "" || clientCertificate != "" || clientKeyPath != "" || clientKey != ""}
-	if serverName != "" {
-		tls["server_name"] = serverName
-	}
-	if hasInsecure {
-		tls["insecure"] = parseBool(insecure)
-	}
-	if alpn := stringSlice(alpnValue); len(alpn) > 0 {
-		tls["alpn"] = alpn
-	} else if text := asString(alpnValue); text != "" {
-		tls["alpn"] = splitComma(text)
-	}
-	if fingerprint != "" {
-		tls["utls"] = map[string]any{"enabled": true, "fingerprint": fingerprint}
-	}
-	addIf(tls, "certificate_path", certificatePath)
-	addIf(tls, "certificate", certificate)
-	addIf(tls, "client_certificate_path", clientCertificatePath)
-	addIf(tls, "client_certificate", clientCertificate)
-	addIf(tls, "client_key_path", clientKeyPath)
-	addIf(tls, "client_key", clientKey)
-	return tls
-}
-
-func addSupportedTransport(proxy map[string]any, outbound map[string]any) error {
-	network := strings.ToLower(asString(proxy["network"]))
-	if network == "" || network == "tcp" || network == "raw" {
-		return nil
-	}
-	switch network {
-	case "ws", "websocket":
-		opts, _ := normalizeMap(proxy["ws-opts"])
-		transport := map[string]any{"type": "ws"}
-		addIf(transport, "path", asString(opts["path"]))
-		if headers, ok := normalizeMap(opts["headers"]); ok && len(headers) > 0 {
-			clean := map[string]string{}
-			for k, v := range headers {
-				clean[k] = asString(v)
-			}
-			transport["headers"] = clean
-		}
-		outbound["transport"] = transport
-	case "grpc":
-		opts, _ := normalizeMap(proxy["grpc-opts"])
-		transport := map[string]any{"type": "grpc"}
-		addIf(transport, "service_name", firstString(opts, "grpc-service-name", "serviceName", "service_name"))
-		outbound["transport"] = transport
-	case "httpupgrade", "http-upgrade":
-		opts, _ := normalizeMap(proxy["httpupgrade-opts"])
-		transport := map[string]any{"type": "httpupgrade"}
-		addIf(transport, "path", asString(opts["path"]))
-		if hosts := stringSlice(opts["host"]); len(hosts) > 0 {
-			transport["host"] = hosts
-		} else if host := asString(opts["host"]); host != "" {
-			transport["host"] = []string{host}
-		}
-		outbound["transport"] = transport
-	default:
-		return fmt.Errorf("unsupported transport %s", network)
-	}
-	return nil
-}
-
 func baseOutbound(proxy map[string]any, tag string, typ string) (map[string]any, error) {
 	server := asString(proxy["server"])
 	port := normalizePort(firstValue(proxy, "server_port", "port"))
@@ -324,7 +300,21 @@ func baseOutbound(proxy map[string]any, tag string, typ string) (map[string]any,
 	if port == 0 {
 		return nil, errors.New("missing or invalid port")
 	}
-	return map[string]any{"type": typ, "tag": tag, "server": server, "server_port": port}, nil
+	out := map[string]any{"type": typ, "tag": tag, "server": server, "server_port": port}
+	// Universal dial fields (converter.md §2) — carried through rather than
+	// silently dropped. `udp` stays protocol-specific because UDP-only
+	// protocols (hysteria2/tuic) can't be forced to network:tcp.
+	if _, ok := proxy["tfo"]; ok {
+		out["tcp_fast_open"] = parseBool(proxy["tfo"])
+	}
+	if _, ok := proxy["mptcp"]; ok {
+		out["tcp_multi_path"] = parseBool(proxy["mptcp"])
+	}
+	addIf(out, "bind_interface", firstString(proxy, "interface-name", "interface_name"))
+	if mark := asInt(firstValue(proxy, "routing-mark", "routing_mark")); mark > 0 {
+		out["routing_mark"] = mark
+	}
+	return out, nil
 }
 
 func requireFields(proxy map[string]any, fields ...string) error {

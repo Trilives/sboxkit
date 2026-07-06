@@ -174,6 +174,7 @@ internal/flows        流程编排（init / modifyconfig / modifyruntime / tools
 
 ## 11. 模块化约束
 
-新增或修改代码时遵守 [docs/MODULARITY.md](docs/MODULARITY.md)：普通 Go 文件目标
-200-400 行，流程文件目标 150-300 行；超过软上限时优先同包拆分，避免把交互流程、
-系统操作、下载逻辑和数据转换继续堆到单个文件中。
+新增或修改代码时遵守 [docs/MODULARITY.md](docs/MODULARITY.md)，该约束覆盖**整个仓库**
+而不仅是 Go：普通 Go 文件目标 200-400 行、流程文件目标 150-300 行，Web 前端脚本/样式、
+文档、脚本、测试夹具各有对应红线；超过软上限时优先按职责拆分（Go 同包新文件、前端
+`app.<concern>.js`），避免把交互流程、系统操作、下载逻辑、数据转换或前端行为继续堆到单个文件中。

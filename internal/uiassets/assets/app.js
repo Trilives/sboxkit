@@ -293,16 +293,24 @@ function renderGroup(group) {
 
 function renderNode(group, name, selectable) {
   const current = name === group.now;
-  const card = document.createElement("button");
-  card.type = "button";
+  // Card is a div (not a <button>) so it can host its own per-node test <button>
+  // without nesting interactive elements. Selectable cards switch on click/Enter.
+  const card = document.createElement("div");
   card.className = `node-card${current ? " current" : ""}${selectable ? "" : " readonly"}`;
-  if (!selectable) card.disabled = true;
-  else card.onclick = () => switchNode(group.name, name);
+  if (selectable) {
+    card.tabIndex = 0;
+    card.setAttribute("role", "button");
+    card.onclick = () => switchNode(group.name, name);
+    card.onkeydown = (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); switchNode(group.name, name); }
+    };
+  }
 
   const top = document.createElement("div");
   top.className = "node-top";
   top.append(textNode("span", "node-name", name));
   if (current) top.append(textNode("span", "node-check"));
+  top.append(nodeTestButton(name));
   card.append(top);
 
   const bottom = document.createElement("div");
@@ -314,6 +322,22 @@ function renderNode(group, name, selectable) {
   bottom.append(d);
   card.append(bottom);
   return card;
+}
+
+// Per-node speed-test button. Tests just this node's latency without switching to
+// it; a no-op placeholder is returned for built-in outbounds (DIRECT/BLOCK/…).
+function nodeTestButton(name) {
+  if (isBuiltin(name)) return textNode("span", "node-test-spacer");
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "node-test-btn";
+  btn.title = "Speed test this node";
+  btn.setAttribute("aria-label", `Test ${name}`);
+  const entry = state.delays.get(name);
+  btn.disabled = !!(entry && entry.pending);
+  btn.append(textNode("span", "ico ico-bolt"));
+  btn.onclick = (e) => { e.stopPropagation(); testDelay(name); };
+  return btn;
 }
 
 function renderEmpty(message) {

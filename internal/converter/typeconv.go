@@ -143,3 +143,58 @@ func addIf(m map[string]any, key string, value string) {
 		m[key] = value
 	}
 }
+
+// bandwidthMbps parses a Clash bandwidth value ("100", "100 Mbps", "1 Gbps")
+// into an integer megabits/sec for sing-box up_mbps/down_mbps.
+func bandwidthMbps(value any) int {
+	s := strings.ToLower(strings.TrimSpace(asString(value)))
+	if s == "" {
+		return 0
+	}
+	factor := 1.0
+	for _, unit := range []struct {
+		suffix string
+		mult   float64
+	}{
+		{"gbps", 1000}, {"mbps", 1}, {"kbps", 0.001},
+		{"g", 1000}, {"m", 1}, {"k", 0.001},
+	} {
+		if strings.HasSuffix(s, unit.suffix) {
+			s = strings.TrimSpace(strings.TrimSuffix(s, unit.suffix))
+			factor = unit.mult
+			break
+		}
+	}
+	n, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0
+	}
+	return int(n * factor)
+}
+
+// serverPortRanges converts a Clash port-hopping spec ("443,8000-9000") into
+// sing-box server_ports entries ("443:443", "8000:9000").
+func serverPortRanges(spec string) []string {
+	out := []string{}
+	for _, part := range splitComma(spec) {
+		if strings.Contains(part, "-") {
+			out = append(out, strings.Replace(part, "-", ":", 1))
+		} else {
+			out = append(out, part+":"+part)
+		}
+	}
+	return out
+}
+
+// msToDuration renders a millisecond integer as a sing-box duration string
+// ("10000" -> "10s"), keeping millisecond precision when not a whole second.
+func msToDuration(value any) string {
+	ms := asInt(value)
+	if ms <= 0 {
+		return ""
+	}
+	if ms%1000 == 0 {
+		return strconv.Itoa(ms/1000) + "s"
+	}
+	return strconv.Itoa(ms) + "ms"
+}
