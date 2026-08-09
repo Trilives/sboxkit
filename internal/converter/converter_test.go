@@ -179,6 +179,9 @@ dns:
     - "RULE-SET,private"
 hosts:
   router.lan: 192.168.1.1
+  agent.example: bad18bj2-1f25.apt-agent.org
+  dual.example: [192.0.2.1, 2001:db8::1]
+  invalid.example: [192.0.2.2, target.example]
 proxies:
   - {name: ss-01, type: ss, server: 1.2.3.4, port: 443, cipher: aes-128-gcm, password: pw}
 `
@@ -194,10 +197,33 @@ proxies:
 	if skipped, ok := info["fake_ip_filter_skipped"].([]string); !ok || len(skipped) != 1 {
 		t.Fatalf("unsupported filter should be reported: %#v", info)
 	}
+	if info["preserved_hosts"] != 3 {
+		t.Fatalf("IP and domain hosts should be preserved: %#v", info)
+	}
+	if skipped, ok := info["host_entries_skipped"].([]string); !ok || len(skipped) != 1 || skipped[0] != "invalid.example" {
+		t.Fatalf("invalid hosts entry should be reported: %#v", info)
+	}
 	joined, _ := json.Marshal(result.DNS["rules"])
-	for _, want := range []string{"lan", "pool.ntp.org", "exact.example", fakeIPDNSTag} {
+	for _, want := range []string{"lan", "pool.ntp.org", "exact.example", fakeIPDNSTag, "agent.example. IN CNAME bad18bj2-1f25.apt-agent.org."} {
 		if !strings.Contains(string(joined), want) {
 			t.Fatalf("DNS rules missing %q: %s", want, joined)
+		}
+	}
+	rules, _ := result.DNS["rules"].([]map[string]any)
+	if len(rules) == 0 || rules[0]["action"] != "predefined" {
+		t.Fatalf("CNAME hosts rule must run before the generic hosts server: %#v", rules)
+	}
+	servers, _ := result.DNS["servers"].([]map[string]any)
+	for _, server := range servers {
+		if server["type"] != "hosts" {
+			continue
+		}
+		predefined, _ := server["predefined"].(map[string]any)
+		if predefined["agent.example"] != nil || predefined["invalid.example"] != nil {
+			t.Fatalf("non-IP values leaked into hosts.predefined: %#v", predefined)
+		}
+		if _, ok := predefined["dual.example"].([]string); !ok {
+			t.Fatalf("IP array was not preserved: %#v", predefined)
 		}
 	}
 }

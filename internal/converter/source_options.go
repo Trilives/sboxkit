@@ -1,7 +1,9 @@
 package converter
 
 import (
+	"net/netip"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -13,7 +15,14 @@ const (
 type sourceOptions struct {
 	FakeIP               *fakeIPOptions
 	Hosts                map[string]any
+	HostAliases          []hostAlias
+	SkippedHosts         []string
 	SkippedFakeIPFilters []string
+}
+
+type hostAlias struct {
+	Domain string
+	Target string
 }
 
 type fakeIPOptions struct {
@@ -25,7 +34,7 @@ type fakeIPOptions struct {
 func clashSourceOptions(root map[string]any) sourceOptions {
 	var out sourceOptions
 	if hosts, ok := normalizeMap(root["hosts"]); ok {
-		out.Hosts = hosts
+		out.Hosts, out.HostAliases, out.SkippedHosts = normalizeHostEntries(hosts)
 	}
 	dns, ok := normalizeMap(root["dns"])
 	if !ok || !strings.EqualFold(asString(dns["enhanced-mode"]), "fake-ip") {
@@ -63,7 +72,7 @@ func singBoxSourceOptions(doc map[string]any) sourceOptions {
 			}
 		case "hosts":
 			if predefined, ok := normalizeMap(server["predefined"]); ok {
-				out.Hosts = predefined
+				out.Hosts, out.HostAliases, out.SkippedHosts = normalizeHostEntries(predefined)
 			}
 		}
 	}
@@ -71,6 +80,77 @@ func singBoxSourceOptions(doc map[string]any) sourceOptions {
 		out.FakeIP.ExclusionRules = singBoxFakeIPExclusions(dns, fakeTag)
 	}
 	return out
+}
+
+// normalizeHostEntries splits Clash/Mihomo hosts into the two forms sing-box
+// can safely represent. IP values belong to a hosts DNS server's predefined
+// map; domain-to-domain values are emitted later as predefined CNAME answers.
+// Passing a domain string to hosts.predefined is invalid in sing-box 1.12+.
+func normalizeHostEntries(entries map[string]any) (map[string]any, []hostAlias, []string) {
+	addresses := make(map[string]any)
+	aliases := []hostAlias{}
+	skipped := []string{}
+	keys := make([]string, 0, len(entries))
+	for key := range entries {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for _, rawDomain := range keys {
+		domain := normalizeDNSName(rawDomain)
+		values := stringSlice(entries[rawDomain])
+		if domain == "" || len(values) == 0 {
+			skipped = append(skipped, rawDomain)
+			continue
+		}
+
+		ips := make([]string, 0, len(values))
+		allIPs := true
+		for _, value := range values {
+			address, err := netip.ParseAddr(strings.TrimSpace(value))
+			if err != nil {
+				allIPs = false
+				break
+			}
+			ips = append(ips, address.String())
+		}
+		if allIPs {
+			if len(ips) == 1 {
+				addresses[domain] = ips[0]
+			} else {
+				addresses[domain] = ips
+			}
+			continue
+		}
+
+		if len(values) == 1 {
+			target := normalizeDNSName(values[0])
+			if target != "" {
+				aliases = append(aliases, hostAlias{Domain: domain, Target: target})
+				continue
+			}
+		}
+		skipped = append(skipped, rawDomain)
+	}
+	return addresses, aliases, skipped
+}
+
+func normalizeDNSName(value string) string {
+	name := strings.TrimSuffix(strings.TrimSpace(value), ".")
+	if name == "" || len(name) > 253 || strings.ContainsAny(name, "*+ /\\\t\r\n") {
+		return ""
+	}
+	for _, label := range strings.Split(name, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return ""
+		}
+		for _, char := range label {
+			if (char < 'a' || char > 'z') && (char < 'A' || char > 'Z') && (char < '0' || char > '9') && char != '-' && char != '_' {
+				return ""
+			}
+		}
+	}
+	return name
 }
 
 func clashFakeIPFilterRules(filters []string) ([]map[string]any, []string) {

@@ -11,11 +11,15 @@ sing-box JSON；原生 sing-box passthrough 则不受白名单限制。
 | `dns.enhanced-mode: fake-ip` | 启用 sing-box 1.12+ 的 `type: fakeip` DNS server |
 | `dns.fake-ip-range` / `fake-ip-range6` | 映射为 `inet4_range` / `inet6_range` |
 | `dns.fake-ip-filter` | 精确域名、`+.`/`*.` 后缀和普通通配符转换为优先于 fakeip catch-all 的 DNS 规则 |
-| 根级 `hosts` | 转换为 `type: hosts` server 的 `predefined`，并置于普通 DNS 规则之前 |
+| 根级 `hosts`：域名 → IP / IP 数组 | 转换为 `type: hosts` server 的 `predefined`，并置于普通 DNS 规则之前 |
+| 根级 `hosts`：域名 → 域名 | 转换为优先执行的 `action: predefined` CNAME 回答；不会把域名错误写入只接受 IP 的 `hosts.predefined` |
 
 `RULE-SET,` / `GEOSITE,` 形式的 fake-ip-filter 依赖 Mihomo rule-provider 语义，
 不能直接搬到 sing-box，因此当前不转换；后续若支持，必须先解析对应 provider，
 不能静默生成无效引用。
+
+无法构造成合法 IP 或单一 CNAME 的 hosts 条目会按域名明确告警并跳过，保证生成
+结果仍能通过 `sing-box check`；不会因为一个异常 hosts 值使整份订阅无法启用。
 
 ## sing-box 原生来源
 

@@ -49,9 +49,13 @@ func buildInbounds(cfg config.Config) []map[string]any {
 func buildDNS(cfg config.Config, p paths.Paths, source sourceOptions) map[string]any {
 	rules := []map[string]any{{"domain": cfg.LocalBypassDomains, "action": "route", "server": bootstrapDNSTag}}
 	servers := []map[string]any{}
+	hostRules := hostAliasRules(source.HostAliases)
 	if len(source.Hosts) > 0 {
 		servers = append(servers, map[string]any{"type": "hosts", "tag": hostsDNSTag, "predefined": source.Hosts})
-		rules = append([]map[string]any{{"ip_accept_any": true, "action": "route", "server": hostsDNSTag}}, rules...)
+		hostRules = append(hostRules, map[string]any{"ip_accept_any": true, "action": "route", "server": hostsDNSTag})
+	}
+	if len(hostRules) > 0 {
+		rules = append(hostRules, rules...)
 	}
 	if len(cfg.DirectDomainSuffixes) > 0 {
 		rules = append(rules, map[string]any{"domain_suffix": cfg.DirectDomainSuffixes, "action": "route", "server": bootstrapDNSTag})
@@ -93,6 +97,19 @@ func buildDNS(cfg config.Config, p paths.Paths, source sourceOptions) map[string
 		"servers": servers,
 		"rules":   rules, "final": remoteDNSTag, "strategy": "prefer_ipv4", "cache_capacity": 4096,
 	}
+}
+
+func hostAliasRules(aliases []hostAlias) []map[string]any {
+	rules := make([]map[string]any, 0, len(aliases))
+	for _, alias := range aliases {
+		rules = append(rules, map[string]any{
+			"domain":     []string{alias.Domain},
+			"query_type": []string{"A", "AAAA"},
+			"action":     "predefined",
+			"answer":     []string{alias.Domain + ". IN CNAME " + alias.Target + "."},
+		})
+	}
+	return rules
 }
 
 func buildRoute(final string, cfg config.Config, p paths.Paths) Route {

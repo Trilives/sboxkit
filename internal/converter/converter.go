@@ -97,8 +97,11 @@ func ClashToSingBox(yamlText string, cfg config.Config, p paths.Paths) (Config, 
 	info["total"] = len(rawProxies)
 	info["converted"] = len(converted)
 	info["skipped"] = skipped
-	if len(source.Hosts) > 0 {
-		info["preserved_hosts"] = len(source.Hosts)
+	if preserved := len(source.Hosts) + len(source.HostAliases); preserved > 0 {
+		info["preserved_hosts"] = preserved
+	}
+	if len(source.SkippedHosts) > 0 {
+		info["host_entries_skipped"] = source.SkippedHosts
 	}
 	if source.FakeIP != nil {
 		info["preserved_fake_ip"] = true
