@@ -19,7 +19,7 @@ func init() {
 
 		"未检测到已注册的服务，是否现在进行初始化？": "No registered service detected. Run initialization now?",
 
-		"用法: sboxkit [init|modify|nettest|uninstall|update|pause|resume|version]\n不带参数则进入交互式主菜单。": "Usage: sboxkit [init|modify|nettest|uninstall|update|pause|resume|version]\nRun without arguments to enter the interactive main menu.",
+		"用法: sboxkit [init|modify|nettest|uninstall|update|portable-update|pause|resume|version]\n不带参数则进入交互式主菜单。": "Usage: sboxkit [init|modify|nettest|uninstall|update|portable-update|pause|resume|version]\nRun without arguments to enter the interactive main menu.",
 		"未知子命令: %s\n%s\n": "Unknown subcommand: %s\n%s\n",
 	})
 }

@@ -24,6 +24,9 @@ clashdock 管理的 mihomo 原生解析 Clash 配置，因此不做协议转换�
 - **base64 通用节点链接**：先经 `internal/subscription` 的分享链接解析器（或
   云端 subconverter）转成 Clash 风格的 proxy 字典，再喂给 `ClashToSingBox`——
   这一步与后端无关，clashdock 版的解析器逻辑原样保留。
+- **订阅必要配置保留**：转换不会只摘节点；Clash 的 hosts/fake-ip-filter 与
+  sing-box 自定义重建路径中的等价 DNS 语义会合并进生成配置，passthrough 则
+  保留未知字段。具体白名单和优先级见 [SUBSCRIPTION_PRESERVATION.md](SUBSCRIPTION_PRESERVATION.md)。
 
 `internal/subscription/detect.go` 相应地是三态识别（`clash` / `sing-box` /
 `base64`），而不是 mihomo 版的两态（`clash` / `base64`）。

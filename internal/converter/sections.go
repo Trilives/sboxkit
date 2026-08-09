@@ -31,7 +31,7 @@ func buildInbounds(cfg config.Config) []map[string]any {
 	if cfg.LanProxy {
 		listen = "0.0.0.0"
 	}
-	mixed := map[string]any{"type": "mixed", "tag": "mixed-in", "listen": listen, "listen_port": 7890}
+	mixed := map[string]any{"type": "mixed", "tag": "mixed-in", "listen": listen, "listen_port": config.EffectiveMixedPort(cfg)}
 	if !cfg.EnableTun {
 		return []map[string]any{mixed}
 	}
@@ -46,8 +46,13 @@ func buildInbounds(cfg config.Config) []map[string]any {
 	return []map[string]any{tun, mixed}
 }
 
-func buildDNS(cfg config.Config, p paths.Paths) map[string]any {
+func buildDNS(cfg config.Config, p paths.Paths, source sourceOptions) map[string]any {
 	rules := []map[string]any{{"domain": cfg.LocalBypassDomains, "action": "route", "server": bootstrapDNSTag}}
+	servers := []map[string]any{}
+	if len(source.Hosts) > 0 {
+		servers = append(servers, map[string]any{"type": "hosts", "tag": hostsDNSTag, "predefined": source.Hosts})
+		rules = append([]map[string]any{{"ip_accept_any": true, "action": "route", "server": hostsDNSTag}}, rules...)
+	}
 	if len(cfg.DirectDomainSuffixes) > 0 {
 		rules = append(rules, map[string]any{"domain_suffix": cfg.DirectDomainSuffixes, "action": "route", "server": bootstrapDNSTag})
 	}
@@ -61,19 +66,32 @@ func buildDNS(cfg config.Config, p paths.Paths) map[string]any {
 			map[string]any{"rule_set": geoipCNRuleSetTag, "action": "route", "server": bootstrapDNSTag},
 		)
 	}
+	if source.FakeIP != nil {
+		rules = append(rules, source.FakeIP.ExclusionRules...)
+		rules = append(rules, map[string]any{
+			"query_type": []string{"A", "AAAA"}, "action": "route", "server": fakeIPDNSTag,
+		})
+	}
 
 	bootstrap := map[string]any{"type": "udp", "tag": bootstrapDNSTag, "server": cfg.BootstrapDNSServer, "server_port": cfg.BootstrapDNSPort, "detour": "DIRECT"}
 	if strings.EqualFold(cfg.BootstrapDNSServer, bootstrapDNSDHCP) {
 		bootstrap = map[string]any{"type": "dhcp", "tag": bootstrapDNSTag, "detour": "DIRECT"}
 	}
 
+	servers = append(servers,
+		bootstrap,
+		map[string]any{"type": "udp", "tag": "dns-dnspod", "server": "119.29.29.29", "server_port": 53, "detour": "DIRECT"},
+		map[string]any{"type": "https", "tag": remoteDNSTag, "server": "1.1.1.1", "server_port": 443, "path": "/dns-query", "tls": map[string]any{"server_name": "cloudflare-dns.com"}, "detour": "Proxy"},
+	)
+	if source.FakeIP != nil {
+		servers = append(servers, map[string]any{
+			"type": "fakeip", "tag": fakeIPDNSTag,
+			"inet4_range": source.FakeIP.Inet4Range, "inet6_range": source.FakeIP.Inet6Range,
+		})
+	}
 	return map[string]any{
-		"servers": []map[string]any{
-			bootstrap,
-			{"type": "udp", "tag": "dns-dnspod", "server": "119.29.29.29", "server_port": 53, "detour": "DIRECT"},
-			{"type": "https", "tag": remoteDNSTag, "server": "1.1.1.1", "server_port": 443, "path": "/dns-query", "tls": map[string]any{"server_name": "cloudflare-dns.com"}, "detour": "Proxy"},
-		},
-		"rules": rules, "final": remoteDNSTag, "strategy": "prefer_ipv4", "cache_capacity": 4096,
+		"servers": servers,
+		"rules":   rules, "final": remoteDNSTag, "strategy": "prefer_ipv4", "cache_capacity": 4096,
 	}
 }
 
@@ -197,7 +215,7 @@ func buildOutbounds(nodes []map[string]any, cfg config.Config) ([]map[string]any
 	}
 }
 
-func buildExperimental(cfg config.Config, p paths.Paths) Experimental {
+func buildExperimental(cfg config.Config, p paths.Paths, source sourceOptions) Experimental {
 	controller := defaultController
 	if cfg.LanPanel {
 		controller = lanController
@@ -208,7 +226,11 @@ func buildExperimental(cfg config.Config, p paths.Paths) Experimental {
 		DefaultMode:                      "rule",
 		AccessControlAllowPrivateNetwork: cfg.LanPanel,
 	}
-	return Experimental{ClashAPI: api}
+	experimental := Experimental{ClashAPI: api}
+	if source.FakeIP != nil {
+		experimental.CacheFile = map[string]any{"enabled": true, "store_fakeip": true}
+	}
+	return experimental
 }
 
 func ensureClashAPI(doc map[string]any, cfg config.Config, p paths.Paths) {
@@ -217,19 +239,23 @@ func ensureClashAPI(doc map[string]any, cfg config.Config, p paths.Paths) {
 		experimental = map[string]any{}
 		doc["experimental"] = experimental
 	}
-	if _, ok := normalizeMap(experimental["clash_api"]); ok {
-		return
+	clashAPI, ok := normalizeMap(experimental["clash_api"])
+	if !ok {
+		clashAPI = map[string]any{}
+		experimental["clash_api"] = clashAPI
 	}
-	api := buildExperimental(cfg, p).ClashAPI
-	experimental["clash_api"] = map[string]any{
-		"external_controller": api.ExternalController,
-		"default_mode":        api.DefaultMode,
+	api := buildExperimental(cfg, p, sourceOptions{}).ClashAPI
+	if asString(clashAPI["external_controller"]) == "" {
+		clashAPI["external_controller"] = api.ExternalController
 	}
-	if api.ExternalUI != "" {
-		experimental["clash_api"].(map[string]any)["external_ui"] = api.ExternalUI
+	if asString(clashAPI["default_mode"]) == "" {
+		clashAPI["default_mode"] = api.DefaultMode
 	}
-	if api.AccessControlAllowPrivateNetwork {
-		experimental["clash_api"].(map[string]any)["access_control_allow_private_network"] = true
+	if asString(clashAPI["external_ui"]) == "" && api.ExternalUI != "" {
+		clashAPI["external_ui"] = api.ExternalUI
+	}
+	if _, exists := clashAPI["access_control_allow_private_network"]; !exists && api.AccessControlAllowPrivateNetwork {
+		clashAPI["access_control_allow_private_network"] = true
 	}
 }
 

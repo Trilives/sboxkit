@@ -12,6 +12,7 @@ import (
 	"github.com/Trilives/sboxkit/internal/firewall"
 	"github.com/Trilives/sboxkit/internal/i18n"
 	"github.com/Trilives/sboxkit/internal/paths"
+	"github.com/Trilives/sboxkit/internal/proxyenv"
 	"github.com/Trilives/sboxkit/internal/tui"
 )
 
@@ -57,28 +58,37 @@ func EditFieldGroup(p paths.Paths, title string, fields []string) (bool, error) 
 	if ferr := syncLanProxyFirewall(original, cfg); ferr != nil {
 		return true, ferr
 	}
+	if config.EffectiveMixedPort(original) != config.EffectiveMixedPort(cfg) && proxyenv.IsConfigured() {
+		if _, err := proxyenv.Write(config.EffectiveMixedPort(cfg)); err != nil {
+			return true, err
+		}
+	}
 	syncLogging(p, cfg)
 	return true, nil
 }
 
-// syncLanProxyFirewall lan_proxy 开关变化时，按需更新防火墙放行 7890 端口。
+// syncLanProxyFirewall lan_proxy 开关或 mixed 端口变化时同步防火墙规则。
 func syncLanProxyFirewall(original, cfg config.Config) error {
-	if original.LanProxy == cfg.LanProxy {
+	oldPort := config.EffectiveMixedPort(original)
+	newPort := config.EffectiveMixedPort(cfg)
+	if original.LanProxy == cfg.LanProxy && (oldPort == newPort || !cfg.LanProxy) {
 		return nil
 	}
-	after := cfg.LanProxy
-	prompt := i18n.T("已开启局域网代理，更新防火墙放行 7890 端口？")
-	if !after {
-		prompt = i18n.T("已关闭局域网代理，撤销防火墙放行 7890 端口？")
+	prompt := fmt.Sprintf(i18n.T("已开启局域网代理，更新防火墙放行 %d 端口？"), newPort)
+	if original.LanProxy && !cfg.LanProxy {
+		prompt = fmt.Sprintf(i18n.T("已关闭局域网代理，撤销防火墙放行 %d 端口？"), oldPort)
+	} else if original.LanProxy && cfg.LanProxy && oldPort != newPort {
+		prompt = fmt.Sprintf(i18n.T("局域网代理端口从 %d 改为 %d，更新防火墙规则？"), oldPort, newPort)
 	}
 	ok, err := tui.Confirm(prompt, true)
 	if err != nil || !ok {
 		return nil
 	}
-	if after {
-		firewall.Allow(firewall.ProxyPort)
-	} else {
-		firewall.Revoke(firewall.ProxyPort)
+	if original.LanProxy && (!cfg.LanProxy || oldPort != newPort) {
+		firewall.Revoke(oldPort)
+	}
+	if cfg.LanProxy && (!original.LanProxy || oldPort != newPort) {
+		firewall.Allow(newPort)
 	}
 	return nil
 }

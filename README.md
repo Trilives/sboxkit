@@ -35,11 +35,14 @@ sboxkit
 无需联网即可注册并启动服务。第三方资产的许可与归属见
 `/usr/share/doc/sboxkit/copyright`。
 
-### 方式二：tar.gz（仅二进制）
+### 方式二：tar.gz（便携模式）
 
 ```bash
 tar -xzf sboxkit_*_linux_amd64.tar.gz
-./sboxkit    # 内核 / geo 规则集由程序内『下载』步骤在线获取
+export SBOXKIT_HOME="$PWD/.sboxkit"
+./sboxkit
+./scripts/portable-update.sh   # 无 root 更新内核 / geo
+./scripts/portable-test.sh     # 无 root烟雾测试
 ```
 
 ### 方式三：源码构建
@@ -73,8 +76,8 @@ sboxkit
 「配置变更」子菜单包含订阅管理（增/删/改名/切换/刷新，且切换/刷新会自动同步并重启服务）、
 部署设置（TUN / 面板 / 下载）与分流增强（AI / 流媒体 / 地区自动测速组）——两个定制层字段
 分组直接是本菜单下的平级项，不再经过多余的中间层；「运行时管理」里的操作均为即时生效的
-系统操作，各自按需处理重启（无需你事后再单独重启一次）。「工具」聚合网络测试、主要文件
-位置查看与信息（代理端口/局域网可达性/TUN/面板地址一览），未来会继续加。菜单选项按常用
+系统操作，各自按需处理重启（无需你事后再单独重启一次）。「工具」聚合网络测试、内核/TUI
+日志、主要文件位置、连接信息、全部更新入口与使用说明。菜单选项按常用
 程度排列（日常操作在前，卸载这类低频/破坏性操作放最后）。
 
 方向键上下移动、⏎ 确认、esc 保存返回、^R 回退返回；每层菜单重入时光标停在上次选中项；
@@ -92,7 +95,7 @@ sboxkit
 | sboxkit 自更新 | 稳定版 / 预览版双渠道；下载发行版、校验 SHA-256、原子切换版本、试跑校验，失败自动回滚；切到预览版后可一键回退到上一个稳定版 |
 | systemd 集成 | 主服务 + 网络自愈 watchdog + 每周更新定时器，统一暂停/启动；Web 控制台走 sing-box 内置的 `:9090/ui/` 路径，支持分组三列视图、折叠、按组测速与节点热切换 |
 | 网络自愈 | NetworkManager 钩子 + watchdog：断网/漫游后自动恢复，防重启风暴 |
-| 工具 | 网络测试（流媒体/站点/AI 延迟 + OpenAI/Claude 出口 IP 落地）、主要文件位置一览、信息（代理端口/局域网可达性/TUN 模式/面板地址与密钥状态），聚合在同一个子菜单 |
+| 工具 | 网络测试、内核/TUI 日志、主要文件位置、连接信息、内核/geo/sboxkit 更新和双语使用说明 |
 | 日志 | 可选写入 `<state>/sboxkit.log`，超过体量上限自动裁剪保留最新内容 |
 | 中英双语 | 默认英文启动（部分终端无法正常显示中文），检测到服务未注册时会先触发一次语言选择，主菜单「Language / 语言」随时可再切换，持久化到 `customize.json`；`SBOXKIT_LANG=en\|zh` 可覆盖 |
 
@@ -125,7 +128,7 @@ sboxkit/
 └── .goreleaser.yaml        # tar.gz + .deb（amd64/arm64/armv7）发布流水线
 ```
 
-架构与设计细节见 [ARCHITECTURE.md](ARCHITECTURE.md)；后续改动需遵守
+架构与设计细节见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)；后续改动需遵守
 [docs/MODULARITY.md](docs/MODULARITY.md)，避免单个文件持续膨胀。
 
 ## 许可

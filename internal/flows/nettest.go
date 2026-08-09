@@ -1,7 +1,7 @@
 // 网络测试（对应 flows/nettest.py，net/http 取代 curl）：测主流流媒体 / 站点 / AI
 // 服务的延迟（TTFB），并探测 OpenAI / Claude 等的出口 IP（经本地 sing-box 代理）。
 //
-// 优先经本地 mixed 入站 127.0.0.1:7890 走代理（即「走代理后的真实体验」）；
+// 优先经当前生效配置的本地 mixed 入站走代理（即「走代理后的真实体验」）；
 // 代理端口未监听时回退直连并标注。出口 IP 借 Cloudflare 边缘的 /cdn-cgi/trace。
 package flows
 
@@ -19,6 +19,8 @@ import (
 
 	"golang.org/x/term"
 
+	"github.com/Trilives/sboxkit/internal/config"
+	"github.com/Trilives/sboxkit/internal/configfile"
 	"github.com/Trilives/sboxkit/internal/execx"
 	"github.com/Trilives/sboxkit/internal/i18n"
 	"github.com/Trilives/sboxkit/internal/paths"
@@ -28,7 +30,6 @@ import (
 
 const (
 	nettestProxyHost = "127.0.0.1"
-	nettestProxyPort = 7890
 	nettestUA        = "Mozilla/5.0 (X11; Linux x86_64) sboxkit-nettest"
 	nettestTimeout   = 10 * time.Second
 )
@@ -64,8 +65,8 @@ type latResult struct {
 	code string
 }
 
-func proxyUp() bool {
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", nettestProxyHost, nettestProxyPort), time.Second)
+func proxyUp(port int) bool {
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", nettestProxyHost, port), time.Second)
 	if err != nil {
 		return false
 	}
@@ -73,10 +74,10 @@ func proxyUp() bool {
 	return true
 }
 
-func nettestClient(viaProxy bool) *http.Client {
+func nettestClient(viaProxy bool, port int) *http.Client {
 	tr := &http.Transport{Proxy: nil}
 	if viaProxy {
-		u, _ := url.Parse(fmt.Sprintf("http://%s:%d", nettestProxyHost, nettestProxyPort))
+		u, _ := url.Parse(fmt.Sprintf("http://%s:%d", nettestProxyHost, port))
 		tr.Proxy = http.ProxyURL(u)
 	}
 	return &http.Client{Transport: tr, Timeout: nettestTimeout}
@@ -184,6 +185,8 @@ func fileLocations(p paths.Paths) []struct{ label, path string } {
 		{i18n.T("基础规则目录"), p.Ruleset},
 		{i18n.T("Web UI 目录"), p.UI},
 		{i18n.T("下载缓存目录"), p.Downloads},
+		{i18n.T("sboxkit TUI 日志"), execx.LogPath(p.State)},
+		{i18n.T("内核日志命令"), "journalctl -u " + sysd.DefaultName + ".service"},
 		{i18n.T("systemd 单元"), "/etc/systemd/system/" + sysd.DefaultName + ".service"},
 	}
 }
@@ -199,11 +202,14 @@ func FileLocationsTool(p paths.Paths) error {
 	return nil
 }
 
-// ToolsMenu 「工具」菜单：网络测试 / 主要文件位置 / 信息，未来可继续添加其它排障工具。
-func ToolsMenu(p paths.Paths) error {
+// ToolsMenu groups diagnostics, documentation and every update channel.
+func ToolsMenu(p paths.Paths, currentVersion string) error {
 	idx := 0
 	for {
-		options := []string{i18n.T("网络测试"), i18n.T("主要文件位置"), i18n.T("信息")}
+		options := []string{
+			i18n.T("网络测试"), i18n.T("查看日志"), i18n.T("主要文件位置"),
+			i18n.T("信息"), i18n.T("更新"), i18n.T("使用说明"),
+		}
 		i, err := tui.Select(i18n.T("工具"), options, tui.SelectOpts{BackLabel: i18n.T("返回上层"), Initial: idx})
 		if err != nil {
 			return nil
@@ -212,11 +218,17 @@ func ToolsMenu(p paths.Paths) error {
 		var terr error
 		switch i {
 		case 0:
-			terr = Nettest()
+			terr = Nettest(p)
 		case 1:
-			terr = FileLocationsTool(p)
+			terr = LogTool(p)
 		case 2:
+			terr = FileLocationsTool(p)
+		case 3:
 			terr = InfoTool(p)
+		case 4:
+			terr = updateMenuFlow(p, currentVersion)
+		case 5:
+			terr = UsageTool()
 		}
 		if terr != nil {
 			execx.Error(terr.Error())
@@ -225,16 +237,22 @@ func ToolsMenu(p paths.Paths) error {
 }
 
 // Nettest 网络测试全流程：延迟测试 + 出口 IP。
-func Nettest() error {
+func Nettest(p paths.Paths) error {
 	execx.Header(i18n.T("网络测试"))
-	viaProxy := proxyUp()
-	proxyURL := fmt.Sprintf("http://%s:%d", nettestProxyHost, nettestProxyPort)
+	proxyPort := config.EffectiveMixedPort(config.Load(p))
+	if rt, err := configfile.Read(p.ConfigFile); err == nil {
+		if actual, _ := runtimeInboundState(rt); actual > 0 {
+			proxyPort = actual
+		}
+	}
+	viaProxy := proxyUp(proxyPort)
+	proxyURL := fmt.Sprintf("http://%s:%d", nettestProxyHost, proxyPort)
 	if viaProxy {
 		execx.Info(fmt.Sprintf(i18n.T("经本地代理 %s 测试（走 sing-box 出口）。"), proxyURL))
 	} else {
 		execx.Warn(fmt.Sprintf(i18n.T("本地代理 %s 未监听，改用直连测试（结果不代表代理体验）。"), proxyURL))
 	}
-	client := nettestClient(viaProxy)
+	client := nettestClient(viaProxy, proxyPort)
 
 	// 1. 延迟
 	lat := make([]latResult, len(latencyTargets))

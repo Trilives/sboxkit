@@ -18,7 +18,6 @@ import (
 	"github.com/Trilives/sboxkit/internal/errs"
 	"github.com/Trilives/sboxkit/internal/execx"
 	"github.com/Trilives/sboxkit/internal/i18n"
-	"github.com/Trilives/sboxkit/internal/kernel"
 	"github.com/Trilives/sboxkit/internal/paths"
 	"github.com/Trilives/sboxkit/internal/subscription"
 	"github.com/Trilives/sboxkit/internal/sysd"
@@ -30,6 +29,7 @@ var modifyConfigOptions = []string{
 	"订阅管理（增 / 删 / 改名 / 切换 / 刷新）",
 	"部署设置（TUN / 面板 / 下载）",
 	"自定义分流叠加（AI / 流媒体 / 地区组）",
+	"重新初始化",
 }
 
 // 顺序按常用程度排列：切节点/查看服务状态是日常操作，自愈/定时器属一次性
@@ -39,7 +39,6 @@ var modifyRuntimeOptions = []string{
 	"节点切换",
 	"固定节点",
 	"服务设置",
-	"更新",
 	"网络自愈设置",
 	"每周更新定时器",
 }
@@ -55,17 +54,17 @@ func ModifyConfig(p paths.Paths) error {
 		func() error {
 			return editFieldGroupFlow(p, "自定义分流叠加（AI / 流媒体 / 地区组）", config.OverlayFields)
 		},
+		func() error { return reinitializeFlow(p) },
 	})
 }
 
 // ModifyRuntime 运行时管理会话（即时生效）：节点切换 / 内核更新 / sboxkit 自
 // 更新 / 服务设置 / 网络自愈 / 更新定时器，均为即时生效的系统操作。
-func ModifyRuntime(p paths.Paths, currentVersion string) error {
+func ModifyRuntime(p paths.Paths) error {
 	return modifySession(p, "运行时管理", modifyRuntimeOptions, []func() error{
 		func() error { return NodeSwitchLive(p, p.ConfigFile, "") },
 		func() error { return NodeSelect(p, p.ConfigFile, "") },
 		func() error { return serviceSettings(p) },
-		func() error { return updateMenuFlow(p, currentVersion) },
 		func() error { return resilienceMenuFlow() },
 		func() error { return timerMenuFlow() },
 	})
@@ -292,57 +291,6 @@ func editFieldGroupFlow(p paths.Paths, title string, fields []string) error {
 			_, err = subscription.Rebuild(p, active.Name)
 			return err
 		}
-	}
-	return nil
-}
-
-// updateMenuFlow 聚合内核 / geo 数据 / sboxkit 自身三个独立更新入口，各自单独
-// 触发、互不牵连。Web 面板内置在 sboxkit 二进制里（见 internal/uiassets），
-// 随每次订阅生成自动物化，不需要单独的更新入口。
-func updateMenuFlow(p paths.Paths, currentVersion string) error {
-	options := []string{i18n.T("内核"), i18n.T("geo 数据"), i18n.T("sboxkit 自身")}
-	handlers := []func() error{
-		func() error { return updateCoreOnly(p) },
-		func() error { return updateGeoOnly(p) },
-		func() error { return SelfUpdateFlow(p, currentVersion) },
-	}
-	idx := 0
-	for {
-		i, err := tui.Select(i18n.T("更新"), options, tui.SelectOpts{BackLabel: i18n.T("返回上层"), Initial: idx})
-		if err != nil {
-			return nil
-		}
-		idx = i
-		if err := handlers[i](); err != nil {
-			if errors.Is(err, errs.ErrCancelled) {
-				continue
-			}
-			execx.Error(err.Error())
-		}
-	}
-}
-
-func updateCoreOnly(p paths.Paths) error {
-	ensureGithubToken(p)
-	f, s := kernel.NewFetcher(p)
-	if _, err := kernel.UpdateCore(p, f, s, true); err != nil {
-		return err
-	}
-	return syncRestartIfInstalled(p)
-}
-
-func updateGeoOnly(p paths.Paths) error {
-	ensureGithubToken(p)
-	f, s := kernel.NewFetcher(p)
-	if err := kernel.UpdateGeodata(p, f, s, true); err != nil {
-		return err
-	}
-	return syncRestartIfInstalled(p)
-}
-
-func syncRestartIfInstalled(p paths.Paths) error {
-	if fileExists(p.ConfigFile) && sysd.IsInstalled(sysd.DefaultName) {
-		return sysd.SyncAndRestart(p, sysd.DefaultName)
 	}
 	return nil
 }

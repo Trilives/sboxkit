@@ -2,6 +2,8 @@ package i18n
 
 func init() {
 	register(map[string]string{
+		"提交": "Submit",
+		"↑/↓ 切换   Space 勾选   ←/→ 选择   Enter 提交   Esc 取消": "↑/↓ Move   Space Toggle   ←/→ Select   Enter Submit   Esc Cancel",
 		"返回": "Back",
 
 		"↑/↓ 选择   ⏎ 确认   esc %s   ^R %s": "↑/↓ select   ⏎ confirm   esc %s   ^R %s",

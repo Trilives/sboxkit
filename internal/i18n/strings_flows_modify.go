@@ -7,6 +7,8 @@ func init() {
 		"保存并退出":       "Save and exit",
 
 		"订阅管理（增 / 删 / 改名 / 切换 / 刷新）": "Subscription management (add / remove / rename / switch / refresh)",
+		"重新初始化": "Reinitialize",
+		"确认移除现有服务并重新初始化？订阅原文和定制配置会保留。": "Remove the existing service and reinitialize? Subscription originals and customization will be preserved.",
 
 		"节点切换":    "Node switch",
 		"固定节点":    "Pin node",

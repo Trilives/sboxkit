@@ -27,13 +27,19 @@ func init() {
 		"暂停":        "pause",
 		"确认%s全部服务？": "Confirm %s all services?",
 
-		"服务设置":      "Service Settings",
-		"查看状态":      "View status",
-		"重启服务":      "Restart service",
-		"同步当前配置并重启": "Sync current config and restart",
+		"服务设置":            "Service Settings",
+		"查看状态":            "View status",
+		"重启服务":            "Restart service",
+		"同步当前配置并重启":       "Sync current config and restart",
+		"重载服务（重建订阅与服务）":   "Reload service (rebuild subscription and service)",
+		"没有生效订阅，无法重载服务":   "No active subscription; cannot reload the service",
+		"正在从订阅原文重新生成配置…":  "Regenerating configuration from the subscription original…",
+		"重新生成订阅失败：%w":     "Failed to regenerate subscription: %w",
+		"正在校验运行时并重新安装服务…": "Validating runtime and reinstalling the service…",
+		"重新安装服务失败：%w":     "Failed to reinstall service: %w",
 
 		"Web UI（sing-box 内置路径）: http://%s:9090/ui/":                   "Web UI (sing-box built-in path): http://%s:9090/ui/",
 		"远程查看建议用 SSH 端口转发： ssh -N -L 9090:127.0.0.1:9090 user@server": "For remote viewing, use SSH port forwarding: ssh -N -L 9090:127.0.0.1:9090 user@server",
-		"局域网代理已开启：其他主机可设置 http/socks 代理为 本机IP:7890":                   "LAN proxy is enabled: other hosts can set their http/socks proxy to this machine's IP:7890",
+		"局域网代理已开启：其他主机可设置 http/socks 代理为 本机IP:%d":                     "LAN proxy is enabled: other hosts can set their http/socks proxy to this machine's IP:%d",
 	})
 }

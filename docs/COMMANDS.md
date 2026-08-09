@@ -10,13 +10,14 @@ sboxkit 的**推荐用法是直接运行 `sboxkit` 进入交互式终端**（TUI
 
 | 命令 | 说明 |
 |---|---|
-| `sboxkit` | **交互式主菜单（推荐）**：运行时管理 / 配置变更 / 工具 / 暂停启动 / 语言 / 卸载。服务尚未注册时会先触发语言选择，再询问是否现在进行初始化 |
-| `sboxkit init` | 初始化（首次部署）：先选语言，再走 TUN→局域网→添加首个订阅（clash / sing-box 原生 / base64 / 本地文件四选一；订阅拉取可按次选择是否走下载代理）→注册服务→可选更新内核/geo 数据→网络自愈→更新定时器。各步骤各自独立可 ^R 回退，互不连带——例如服务已注册启动后，后续可选步骤失败不会把服务卸载回退。交互式主菜单检测到服务未注册时会询问是否触发，此子命令主要供脚本/无人值守场景显式调用 |
+| `sboxkit` | **交互式主菜单（推荐）**：运行时管理 / 配置变更 / 工具 / 暂停启动 / 语言 / 卸载。工具包含网络测试、日志、文件位置、信息、全部更新入口和使用说明 |
+| `sboxkit init` | 初始化（首次部署）：单页表单收集下载代理、mixed 端口、TUN/局域网、直连 UID/进程和首个订阅，再按部署设置→订阅→服务→可选增强的独立事务执行 |
 | `sboxkit modify` | 配置变更会话（对应主菜单「配置变更」）：订阅管理（添加订阅四种来源 + 本地文件覆盖）/ 部署设置 / 分流增强（esc 保存，^R 回退）。节点切换/内核更新/自更新/服务设置等即时生效操作仅在交互式主菜单「运行时管理」里，无对应子命令 |
 | `sboxkit nettest` | 网络测试：流媒体 / 站点 / AI 延迟（TTFB）+ OpenAI / Claude 出口 IP 落地（主菜单「工具」聚合了这个 + 主要文件位置一览） |
 | `sboxkit pause` | 暂停主服务及全部伴生单元（watchdog / 定时器一并停止，保持开机自启） |
 | `sboxkit resume` | 启动主服务及全部伴生单元 |
 | `sboxkit update` | 非交互全量更新：内核 + geo 数据强制更新 → 服务同步重启（每周定时器的执行目标） |
+| `sboxkit portable-update` | 便携包无 root 更新：只更新用户状态目录中的 sing-box 内核与 geo 数据，绝不操作 systemd |
 | `sboxkit uninstall` | 勾选式卸载：服务 / 自愈 / 定时器 / 产物 / 全部状态 |
 | `sboxkit version` | 显示版本 |
 
@@ -44,6 +45,20 @@ printf '3\ny\n' | sboxkit        # 例：进入主菜单第 3 项并确认
 | `GITHUB_TOKEN` / `GH_TOKEN` | GitHub API Token（提升 release 查询限额） |
 | `SBOXKIT_NO_PROXY=1` | 强制下载全部走直连，禁用代理兜底 |
 | `NO_COLOR` | 关闭彩色输出与 TUI 盒子（自动回退纯文本） |
+
+## 便携包
+
+解压 tar.gz 后可把状态完全放在解压目录中：
+
+```bash
+export SBOXKIT_HOME="$PWD/.sboxkit"
+./sboxkit
+./scripts/portable-update.sh   # 更新内核与 geo
+./scripts/portable-test.sh     # 无 root 烟雾测试/配置校验
+```
+
+sboxkit 自身更新位于「工具 → 更新」，当二进制所在目录可写时会直接使用原子
+符号链接切换，不请求 sudo；系统包安装在 `/usr/bin` 时才回退到 sudo 接管。
 
 ## systemd 单元一览
 

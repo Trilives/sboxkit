@@ -41,6 +41,32 @@ func TestLoadMergesKnownFieldsWithDefaults(t *testing.T) {
 	if cfg.LogMaxMB != 12 {
 		t.Fatalf("unexpected log max MB %d", cfg.LogMaxMB)
 	}
+	if cfg.MixedPort != DefaultMixedPort {
+		t.Fatalf("missing mixed_port should default to %d, got %d", DefaultMixedPort, cfg.MixedPort)
+	}
+}
+
+func TestMixedPortValidationAndInvalidFileFallback(t *testing.T) {
+	cfg := Defaults()
+	if err := SetField(&cfg, "mixed_port", "17890"); err != nil {
+		t.Fatalf("set mixed port: %v", err)
+	}
+	if cfg.MixedPort != 17890 {
+		t.Fatalf("mixed port = %d, want 17890", cfg.MixedPort)
+	}
+	for _, value := range []string{"0", "65536", "not-a-port"} {
+		if err := SetField(&cfg, "mixed_port", value); err == nil {
+			t.Fatalf("expected %q to be rejected", value)
+		}
+	}
+
+	p := testPaths(t)
+	if err := os.WriteFile(p.CustomizeFile, []byte(`{"mixed_port":-1}`), 0o600); err != nil {
+		t.Fatalf("write invalid config: %v", err)
+	}
+	if got := Load(p).MixedPort; got != DefaultMixedPort {
+		t.Fatalf("invalid stored port should default to %d, got %d", DefaultMixedPort, got)
+	}
 }
 
 func TestSaveWritesJSON(t *testing.T) {

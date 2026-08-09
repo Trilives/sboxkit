@@ -1,8 +1,10 @@
 package subscription
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Trilives/sboxkit/internal/paths"
@@ -60,5 +62,47 @@ func TestMetaRoundtripPythonCompatible(t *testing.T) {
 	subs := ListAll(p)
 	if len(subs) != 1 || subs[0].Name != "Hua" {
 		t.Errorf("ListAll = %+v", subs)
+	}
+}
+
+func TestRebuildKeepsFakeIPFromStoredOriginal(t *testing.T) {
+	t.Setenv("SBOXKIT_HOME", t.TempDir())
+	p := paths.Detect()
+	if err := p.EnsureStateDirs(); err != nil {
+		t.Fatal(err)
+	}
+	sub := &Subscription{
+		Name: "fake", URL: "/unused", SourceType: "local", ApplyOverlay: true,
+		CreatedAt: now(), UpdatedAt: now(),
+	}
+	dir := p.SubscriptionDir(sub.Name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	meta, _ := json.Marshal(sub)
+	if err := os.WriteFile(metaFile(p, sub.Name), meta, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	raw := `
+dns:
+  enhanced-mode: fake-ip
+  fake-ip-filter: ["*.lan"]
+proxies:
+  - {name: ss, type: ss, server: 1.2.3.4, port: 443, cipher: aes-128-gcm, password: pw}
+`
+	if err := os.WriteFile(rawFile(p, sub), []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := Rebuild(p, sub.Name); err != nil {
+			t.Fatalf("rebuild %d: %v", i+1, err)
+		}
+		data, err := os.ReadFile(configFile(p, sub.Name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(data), `"type": "fakeip"`) || !strings.Contains(string(data), `"lan"`) {
+			t.Fatalf("rebuild %d lost fake-ip semantics:\n%s", i+1, data)
+		}
 	}
 }

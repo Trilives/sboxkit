@@ -13,8 +13,9 @@ func init() {
 		"定制层已保存。":       "Customization layer saved.",
 		"已放弃本次修改（未写盘）。": "Changes discarded (not written to disk).",
 
-		"已开启局域网代理，更新防火墙放行 7890 端口？": "LAN proxy enabled. Update firewall to allow port 7890?",
-		"已关闭局域网代理，撤销防火墙放行 7890 端口？": "LAN proxy disabled. Revoke firewall rule for port 7890?",
+		"已开启局域网代理，更新防火墙放行 %d 端口？":    "LAN proxy enabled. Update firewall to allow port %d?",
+		"已关闭局域网代理，撤销防火墙放行 %d 端口？":    "LAN proxy disabled. Revoke firewall rule for port %d?",
+		"局域网代理端口从 %d 改为 %d，更新防火墙规则？": "LAN proxy port changed from %d to %d. Update firewall rules?",
 
 		"%s：当前 %d 条%s": "%s: currently %d entries%s",
 		"编辑 · ":        "Edit · ",

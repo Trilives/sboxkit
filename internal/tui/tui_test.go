@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/Trilives/sboxkit/internal/i18n"
 )
 
@@ -124,5 +126,52 @@ func TestWrapText(t *testing.T) {
 		if dispWidth(l) > 10 {
 			t.Errorf("中文换行超出宽度: %q", l)
 		}
+	}
+}
+
+func TestFormModelEditsBooleanChoiceAndText(t *testing.T) {
+	fields := []FormField{
+		{Key: "text", Label: "文本", Kind: FormText, Placeholder: "示例"},
+		{Key: "flag", Label: "开关", Kind: FormBool},
+		{Key: "choice", Label: "类型", Kind: FormChoice, Value: "A", Options: []string{"A", "B"}},
+	}
+	m := &formModel{fields: cloneFormFields(fields), width: 80}
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	got := formValues(m.fields)
+	if got["text"] != "x" || !got.Bool("flag") || got["choice"] != "B" {
+		t.Fatalf("unexpected form values: %#v", got)
+	}
+}
+
+func TestFormPlaceholderIsDisplayOnly(t *testing.T) {
+	field := FormField{Key: "proxy", Label: "下载代理", Kind: FormText, Placeholder: "127.0.0.1:7890"}
+	if got := formValues([]FormField{field})["proxy"]; got != "" {
+		t.Fatalf("placeholder leaked into value: %q", got)
+	}
+	if !strings.Contains(formDisplayValue(field), "127.0.0.1:7890") {
+		t.Fatal("placeholder should remain visible")
+	}
+}
+
+func TestBuildFormRowsAligned(t *testing.T) {
+	fields := []FormField{
+		{Key: "proxy", Label: "下载代理", Kind: FormText, Placeholder: "127.0.0.1:7890"},
+		{Key: "tun", Label: "启用 TUN", Kind: FormBool, Value: "true"},
+		{Key: "type", Label: "订阅类型", Kind: FormChoice, Value: "Clash", Options: []string{"Clash", "sing-box"}},
+	}
+	rows := buildForm("初始化", fields, 1, FormOpts{SubmitLabel: "开始初始化", Hint: "详细配置请启动后在配置里面设置"}, "", 80)
+	w := dispWidth(stripAnsi(rows[0]))
+	for i, row := range rows {
+		if got := dispWidth(stripAnsi(row)); got != w {
+			t.Fatalf("row %d width %d, want %d: %q", i, got, w, row)
+		}
+	}
+	joined := stripAnsi(strings.Join(rows, "\n"))
+	if !strings.Contains(joined, "< Clash >") || strings.Contains(joined, "sing-box") {
+		t.Fatalf("choice should display only its selected value:\n%s", joined)
 	}
 }

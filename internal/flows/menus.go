@@ -7,9 +7,11 @@ import (
 	"path/filepath"
 
 	"github.com/Trilives/sboxkit/internal/config"
+	"github.com/Trilives/sboxkit/internal/errs"
 	"github.com/Trilives/sboxkit/internal/execx"
 	"github.com/Trilives/sboxkit/internal/i18n"
 	"github.com/Trilives/sboxkit/internal/paths"
+	"github.com/Trilives/sboxkit/internal/subscription"
 	"github.com/Trilives/sboxkit/internal/sysd"
 	"github.com/Trilives/sboxkit/internal/tui"
 )
@@ -97,7 +99,9 @@ func ServiceToggleFlow(p paths.Paths) error {
 }
 
 func serviceSettings(p paths.Paths) error {
-	act, err := tui.Select(i18n.T("服务设置"), []string{i18n.T("查看状态"), i18n.T("重启服务"), i18n.T("同步当前配置并重启")}, tui.SelectOpts{})
+	act, err := tui.Select(i18n.T("服务设置"), []string{
+		i18n.T("查看状态"), i18n.T("重启服务"), i18n.T("重载服务（重建订阅与服务）"),
+	}, tui.SelectOpts{})
 	if err != nil {
 		return nil
 	}
@@ -107,9 +111,45 @@ func serviceSettings(p paths.Paths) error {
 	case 1:
 		execx.RunRoot([]string{"systemctl", "restart", sysd.DefaultName + ".service"}, i18n.T("重启服务"), nil)
 	default:
-		return sysd.SyncAndRestart(p, sysd.DefaultName)
+		return reloadService(p)
 	}
 	return nil
+}
+
+// reloadService first regenerates the active config while the old service is
+// still intact, then Install validates the staged runtime before replacing the
+// unit. A conversion/check failure therefore does not leave a half-installed
+// service behind.
+func reloadService(p paths.Paths) error {
+	active := subscription.GetActive(p)
+	if active == nil {
+		return fmt.Errorf("%s", i18n.T("没有生效订阅，无法重载服务"))
+	}
+	execx.Info(i18n.T("正在从订阅原文重新生成配置…"))
+	if _, err := subscription.Rebuild(p, active.Name); err != nil {
+		return fmt.Errorf(i18n.T("重新生成订阅失败：%w"), err)
+	}
+	execx.Info(i18n.T("正在校验运行时并重新安装服务…"))
+	if err := sysd.Install(p, sysd.DefaultName, true); err != nil {
+		return fmt.Errorf(i18n.T("重新安装服务失败：%w"), err)
+	}
+	return nil
+}
+
+func reinitializeFlow(p paths.Paths) error {
+	ok, err := tui.Confirm(i18n.T("确认移除现有服务并重新初始化？订阅原文和定制配置会保留。"), false)
+	if err != nil || !ok {
+		return err
+	}
+	if sysd.IsInstalled(sysd.DefaultName) {
+		if err := sysd.Remove(p, sysd.DefaultName, true); err != nil {
+			return err
+		}
+	}
+	if err := Init(p); err != nil {
+		return err
+	}
+	return errs.ErrSaveExit
 }
 
 // printAccessHint 初始化完成后的访问方式提示。
@@ -127,6 +167,6 @@ func printAccessHint(p paths.Paths) {
 		execx.Info(i18n.T("远程查看建议用 SSH 端口转发： ssh -N -L 9090:127.0.0.1:9090 user@server"))
 	}
 	if config.Bool(cfg, "lan_proxy") {
-		execx.Info(i18n.T("局域网代理已开启：其他主机可设置 http/socks 代理为 本机IP:7890"))
+		execx.Info(fmt.Sprintf(i18n.T("局域网代理已开启：其他主机可设置 http/socks 代理为 本机IP:%d"), config.EffectiveMixedPort(cfg)))
 	}
 }

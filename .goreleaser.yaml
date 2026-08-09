@@ -31,6 +31,10 @@ archives:
     files:
       - LICENSE
       - README.md
+      - src: scripts/portable-update.sh
+        dst: scripts/portable-update.sh
+      - src: scripts/portable-test.sh
+        dst: scripts/portable-test.sh
 
 nfpms:
   - id: deb

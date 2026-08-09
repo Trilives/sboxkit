@@ -39,6 +39,8 @@ func init() {
 		"启用日志（写入文件，超限自动裁剪旧内容）":        "Enable logging (write to file, auto-trims oldest content past the size cap)",
 
 		// ScalarFields
+		"本地代理 mixed 端口":                "Local mixed proxy port",
+		"端口必须是 1-65535 之间的整数":          "Port must be an integer between 1 and 65535",
 		"TUN 协议栈（gvisor/system/mixed）": "TUN stack (gvisor/system/mixed)",
 		"面板密钥 secret":                  "Panel secret",
 		"引导 DNS 服务器":                   "Bootstrap DNS server",

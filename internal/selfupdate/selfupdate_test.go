@@ -229,3 +229,18 @@ func TestRollbackToStableWithoutRecordFails(t *testing.T) {
 		t.Error("expected error when no stable version has been recorded")
 	}
 }
+
+func TestReplaceExecutableLinkWithoutRoot(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "sboxkit")
+	target := filepath.Join(dir, "managed", "sboxkit")
+	fakeExecutable(t, exe)
+	fakeExecutable(t, target)
+	if err := replaceExecutableLink(exe, target); err != nil {
+		t.Fatalf("replace executable link: %v", err)
+	}
+	got, err := os.Readlink(exe)
+	if err != nil || got != target {
+		t.Fatalf("executable link = %q, %v; want %q", got, err, target)
+	}
+}

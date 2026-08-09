@@ -10,14 +10,11 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Trilives/sboxkit/internal/config"
 	"github.com/Trilives/sboxkit/internal/errs"
 	"github.com/Trilives/sboxkit/internal/execx"
-	"github.com/Trilives/sboxkit/internal/firewall"
 	"github.com/Trilives/sboxkit/internal/i18n"
 	"github.com/Trilives/sboxkit/internal/kernel"
 	"github.com/Trilives/sboxkit/internal/paths"
-	"github.com/Trilives/sboxkit/internal/proxyenv"
 	"github.com/Trilives/sboxkit/internal/subscription"
 	"github.com/Trilives/sboxkit/internal/sysd"
 	"github.com/Trilives/sboxkit/internal/tui"
@@ -32,15 +29,19 @@ func Init(p paths.Paths) error {
 	if _, err := kernel.SeedFromSystem(p); err != nil {
 		execx.Warn(i18n.T("种子接管失败（不影响后续下载）：") + err.Error())
 	}
+	plan, err := collectInitPlan(p)
+	if err != nil {
+		return err
+	}
 
 	// 1. 部署设置：TUN / 局域网代理，独立一个事务。
-	if err := initDeploymentSettings(p); err != nil {
+	if err := applyInitDeployment(p, plan); err != nil {
 		return err
 	}
 
 	// 2. 添加首个订阅（Clash / base64 / 本地 YAML 文件三选一），独立一个事务：
 	// 这里取消/出错只回退订阅本身，不影响步骤 1 已保存的部署设置。
-	ready, err := addInitialSubscription(p)
+	ready, err := addInitialSubscription(p, plan.Subscription)
 	if err != nil {
 		return err
 	}
@@ -84,67 +85,12 @@ func Init(p paths.Paths) error {
 	return nil
 }
 
-// initDeploymentSettings 步骤 1：TUN / 局域网代理，独立事务。
-func initDeploymentSettings(p paths.Paths) error {
-	return txn.Run(i18n.T("部署设置"), func(t *txn.Transaction) error {
-		cfg := config.Load(p)
-		// TUN 模式：全局透明代理；关则纯代理，需各 App 自设代理
-		enableTun, err := tui.Confirm(i18n.T("启用 TUN 模式？（整机流量自动走代理；否=纯代理，需各 App 手动设代理）"),
-			cfg.EnableTun)
-		if err != nil {
-			return err
-		}
-		cfg.EnableTun = enableTun
-		lanProxy, err := tui.Confirm(i18n.T("开启局域网代理？（让局域网其他主机可用本机作为代理，监听 0.0.0.0:7890）"),
-			cfg.LanProxy)
-		if err != nil {
-			return err
-		}
-		cfg.LanProxy = lanProxy
-		if err := t.BackupFile(p.CustomizeFile); err != nil {
-			return err
-		}
-		if err := config.Save(p, cfg); err != nil {
-			return err
-		}
-
-		// TUN 关闭=纯代理：可选把代理变量写入 bashrc
-		if !enableTun {
-			ok, err := tui.Confirm(i18n.T("把代理环境变量写入 ~/.bashrc？（新开终端自动走 127.0.0.1:7890）"), true)
-			if err != nil {
-				return err
-			}
-			if ok {
-				if err := t.BackupFile(proxyenv.TargetBashrc()); err != nil {
-					return err
-				}
-				if _, err := proxyenv.Write(); err != nil {
-					return err
-				}
-			}
-		}
-
-		// 局域网代理需放行防火墙端口
-		if lanProxy {
-			ok, err := tui.Confirm(i18n.T("更新防火墙放行 7890 端口？"), true)
-			if err != nil {
-				return err
-			}
-			if ok {
-				t.AddUndo(i18n.T("撤销防火墙放行 7890"), func() error { firewall.Revoke(firewall.ProxyPort); return nil })
-				firewall.Allow(firewall.ProxyPort)
-			}
-		}
-		return nil
-	})
-}
-
 // addInitialSubscription 步骤 2：独立事务；ready=false 表示用户主动跳过
 // （非取消/出错），Init 据此结束流程而不注册服务。
-func addInitialSubscription(p paths.Paths) (bool, error) {
+func addInitialSubscription(p paths.Paths, info *newSub) (bool, error) {
 	ready := false
 	err := txn.Run(i18n.T("添加订阅"), func(t *txn.Transaction) error {
-		r, err := initialConfigSource(p, t)
+		r, err := initialConfigSource(p, t, info)
 		ready = r
 		return err
 	})
@@ -175,7 +121,7 @@ func registerService(p paths.Paths) (bool, error) {
 // 添加订阅」共用同一个三选一来源选择器（Clash / base64 / 本地 YAML 文件），
 // 本地文件此时也是作为一个真正的订阅条目创建，而不是走单独的「本地文件覆盖」
 // 直接改写路径。
-func initialConfigSource(p paths.Paths, t *txn.Transaction) (bool, error) {
+func initialConfigSource(p paths.Paths, t *txn.Transaction, info *newSub) (bool, error) {
 	if err := t.BackupFile(p.ConfigFile); err != nil {
 		return false, err
 	}
@@ -183,7 +129,7 @@ func initialConfigSource(p paths.Paths, t *txn.Transaction) (bool, error) {
 		return false, err
 	}
 
-	if existing := subscription.ListAll(p); len(existing) > 0 {
+	if existing := subscription.ListAll(p); info == nil && len(existing) > 0 {
 		useLocal, err := tui.Confirm(
 			fmt.Sprintf(i18n.T("检测到本地已有 %d 个订阅记录，是否直接使用现有订阅？"), len(existing)), true)
 		if err != nil {
@@ -202,10 +148,6 @@ func initialConfigSource(p paths.Paths, t *txn.Transaction) (bool, error) {
 		}
 	}
 
-	info, err := askNewSubscription()
-	if err != nil {
-		return false, err
-	}
 	if info == nil {
 		return false, nil
 	}

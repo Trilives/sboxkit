@@ -12,18 +12,20 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Trilives/sboxkit/internal/config"
 	"github.com/Trilives/sboxkit/internal/execx"
 	"github.com/Trilives/sboxkit/internal/paths"
 )
 
 const (
 	defaultProbeURL      = "http://connectivitycheck.gstatic.com/generate_204"
-	defaultProxyAddr     = "127.0.0.1:7890"
 	defaultProbeAttempts = 3
 	defaultProbeTimeout  = 8 * time.Second
 	defaultProbeGap      = 4 * time.Second
 	defaultMinUptime     = 90 * time.Second
 )
+
+var defaultProxyAddr = "127.0.0.1:" + strconv.Itoa(config.DefaultMixedPort)
 
 // RunHealthcheck is the watchdog probe used by sing-box-watchdog.service.
 // It restarts sing-box only when the host has a real uplink but the local

@@ -287,6 +287,9 @@ func convertAndWrite(p paths.Paths, sub *Subscription, raw []byte, cfg config.Co
 	if err != nil {
 		return err
 	}
+	if skipped, ok := info["fake_ip_filter_skipped"].([]string); ok && len(skipped) > 0 {
+		execx.Warn(fmt.Sprintf(i18n.T("以下 fake-ip-filter 依赖外部规则集，尚未转换：%s"), strings.Join(skipped, ", ")))
+	}
 
 	if n, ok := info["converted"].(int); ok {
 		sub.LastNodeCount = n

@@ -3,6 +3,7 @@ package converter
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -40,6 +41,24 @@ func TestClashToSingBoxConvertsBasicFixture(t *testing.T) {
 			t.Fatalf("missing outbound tag %q in %#v", want, tags)
 		}
 	}
+}
+
+func TestClashToSingBoxUsesConfiguredMixedPort(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.MixedPort = 17890
+	result, _, err := ClashToSingBox(testkit.ReadFixture(t, "testdata/converter/clash-basic.yaml"), cfg, paths.FromRoot(t.TempDir()))
+	if err != nil {
+		t.Fatalf("convert clash: %v", err)
+	}
+	for _, inbound := range result.Inbounds {
+		if inbound["type"] == "mixed" {
+			if got := inbound["listen_port"]; got != 17890 {
+				t.Fatalf("mixed listen_port = %v, want 17890", got)
+			}
+			return
+		}
+	}
+	t.Fatal("mixed inbound not found")
 }
 
 func TestClashToSingBoxAlwaysSetsExternalUI(t *testing.T) {
@@ -146,6 +165,127 @@ func TestSingBoxDirectAddsClashAPIWhenPassthrough(t *testing.T) {
 	if result.Experimental.ClashAPI.ExternalController != "127.0.0.1:9090" {
 		t.Fatalf("unexpected controller %q", result.Experimental.ClashAPI.ExternalController)
 	}
+}
+
+func TestClashToSingBoxPreservesFakeIPFilterAndHosts(t *testing.T) {
+	raw := `
+dns:
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.19.0.0/16
+  fake-ip-filter:
+    - "*.lan"
+    - "+.pool.ntp.org"
+    - "exact.example"
+    - "RULE-SET,private"
+hosts:
+  router.lan: 192.168.1.1
+proxies:
+  - {name: ss-01, type: ss, server: 1.2.3.4, port: 443, cipher: aes-128-gcm, password: pw}
+`
+	result, info, err := ClashToSingBox(raw, config.Defaults(), paths.FromRoot(t.TempDir()))
+	if err != nil {
+		t.Fatalf("convert clash fake-ip: %v", err)
+	}
+	assertDNSServerType(t, result.DNS, "fakeip")
+	assertDNSServerType(t, result.DNS, "hosts")
+	if result.Experimental.CacheFile["store_fakeip"] != true {
+		t.Fatalf("fake-ip cache not enabled: %#v", result.Experimental.CacheFile)
+	}
+	if skipped, ok := info["fake_ip_filter_skipped"].([]string); !ok || len(skipped) != 1 {
+		t.Fatalf("unsupported filter should be reported: %#v", info)
+	}
+	joined, _ := json.Marshal(result.DNS["rules"])
+	for _, want := range []string{"lan", "pool.ntp.org", "exact.example", fakeIPDNSTag} {
+		if !strings.Contains(string(joined), want) {
+			t.Fatalf("DNS rules missing %q: %s", want, joined)
+		}
+	}
+}
+
+func TestSingBoxCustomizedPreservesFakeIPSemantics(t *testing.T) {
+	raw := `{
+  "dns": {
+    "servers": [
+      {"type":"udp","tag":"real","server":"1.1.1.1"},
+      {"type":"fakeip","tag":"source-fake","inet4_range":"198.20.0.0/16"}
+    ],
+    "rules": [
+      {"domain_suffix":["lan"],"action":"route","server":"real"},
+      {"query_type":["A","AAAA"],"action":"route","server":"source-fake"}
+    ]
+  },
+  "outbounds": [{"type":"shadowsocks","tag":"node","server":"1.2.3.4","server_port":443,"method":"aes-128-gcm","password":"pw"}]
+}`
+	result, _, err := SingBoxDirect(raw, config.Defaults(), paths.FromRoot(t.TempDir()), true)
+	if err != nil {
+		t.Fatalf("customize sing-box: %v", err)
+	}
+	assertDNSServerType(t, result.DNS, "fakeip")
+	joined, _ := json.Marshal(result.DNS["rules"])
+	if !strings.Contains(string(joined), "lan") {
+		t.Fatalf("source fake-ip exclusion missing: %s", joined)
+	}
+}
+
+func TestSingBoxPassthroughRetainsUnknownSections(t *testing.T) {
+	raw := `{
+  "ntp":{"enabled":true,"server":"time.example"},
+  "services":[{"type":"resolved"}],
+  "inbounds":[{"type":"mixed","tag":"mixed-in","listen_port":7890}],
+  "outbounds":[{"type":"direct","tag":"DIRECT"}],
+  "route":{"final":"DIRECT","rules":[{"action":"sniff"}]},
+  "dns":{"servers":[]},
+  "experimental":{"clash_api":{"external_controller":"127.0.0.1:9999","secret":"keep-me"}}
+}`
+	result, _, err := SingBoxDirect(raw, config.Defaults(), paths.FromRoot(t.TempDir()), false)
+	if err != nil {
+		t.Fatalf("passthrough: %v", err)
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal passthrough: %v", err)
+	}
+	for _, want := range []string{`"ntp"`, `"services"`, `"time.example"`, `"action":"sniff"`, `"secret":"keep-me"`, `"external_ui"`} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("passthrough lost %s: %s", want, data)
+		}
+	}
+}
+
+func TestGeneratedFakeIPConfigPassesBundledSingBoxCheck(t *testing.T) {
+	bin := os.Getenv("SING_BOX_BIN")
+	if bin == "" {
+		t.Skip("SING_BOX_BIN is not set")
+	}
+	raw := `dns: {enhanced-mode: fake-ip, fake-ip-filter: ["*.lan"]}
+proxies:
+  - {name: ss-01, type: ss, server: 1.2.3.4, port: 443, cipher: aes-128-gcm, password: pw}`
+	result, _, err := ClashToSingBox(raw, config.Defaults(), paths.FromRoot(t.TempDir()))
+	if err != nil {
+		t.Fatalf("convert: %v", err)
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(file, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if output, err := exec.Command(bin, "check", "-c", file).CombinedOutput(); err != nil {
+		t.Fatalf("sing-box check: %v\n%s", err, output)
+	}
+}
+
+func assertDNSServerType(t *testing.T, dns map[string]any, want string) {
+	t.Helper()
+	servers, _ := dns["servers"].([]map[string]any)
+	for _, server := range servers {
+		if server["type"] == want {
+			return
+		}
+	}
+	t.Fatalf("DNS server type %q not found: %#v", want, servers)
 }
 
 func outboundTags(outbounds []map[string]any) map[string]bool {

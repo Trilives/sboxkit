@@ -1,6 +1,6 @@
 // Package proxyenv 把代理环境变量写入用户 ~/.bashrc（对应 proxyenv.py）。
 //
-// TUN 关闭后是纯代理模式：内核只在 127.0.0.1:7890 提供 mixed 入站，
+// TUN 关闭后是纯代理模式：内核只在本机提供 mixed 入站，
 // 各程序需自行走代理。以带标记的代码块写入 bashrc，幂等更新、卸载时整块移除。
 package proxyenv
 
@@ -18,15 +18,14 @@ import (
 
 const (
 	ProxyHost = "127.0.0.1"
-	ProxyPort = 7890
 
 	beginMark = "# >>> sboxkit proxy env >>>"
 	endMark   = "# <<< sboxkit proxy env <<<"
 )
 
-func block() string {
-	httpURL := fmt.Sprintf("http://%s:%d", ProxyHost, ProxyPort)
-	socksURL := fmt.Sprintf("socks5://%s:%d", ProxyHost, ProxyPort)
+func block(port int) string {
+	httpURL := fmt.Sprintf("http://%s:%d", ProxyHost, port)
+	socksURL := fmt.Sprintf("socks5://%s:%d", ProxyHost, port)
 	return strings.Join([]string{
 		beginMark,
 		fmt.Sprintf(`export http_proxy="%s"`, httpURL),
@@ -55,6 +54,12 @@ func TargetBashrc() string {
 	return filepath.Join(home, ".bashrc")
 }
 
+// IsConfigured reports whether sboxkit's managed proxy block already exists.
+func IsConfigured() bool {
+	raw, err := os.ReadFile(TargetBashrc())
+	return err == nil && strings.Contains(string(raw), beginMark)
+}
+
 func stripBlock(text string) string {
 	var out []string
 	skip := false
@@ -75,7 +80,7 @@ func stripBlock(text string) string {
 }
 
 // Write 幂等写入代理块到 bashrc；返回写入的文件路径。
-func Write() (string, error) {
+func Write(port int) (string, error) {
 	path := TargetBashrc()
 	old := ""
 	existed := false
@@ -84,7 +89,7 @@ func Write() (string, error) {
 		existed = true
 	}
 	body := strings.TrimRight(stripBlock(old), "\n")
-	content := block() + "\n"
+	content := block(port) + "\n"
 	if body != "" {
 		content = body + "\n\n" + content
 	}

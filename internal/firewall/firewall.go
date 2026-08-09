@@ -10,8 +10,6 @@ import (
 	"github.com/Trilives/sboxkit/internal/i18n"
 )
 
-const ProxyPort = 7890
-
 var protocols = []string{"tcp", "udp"}
 
 // Detect 返回当前可用的防火墙后端名；都没有则空串。

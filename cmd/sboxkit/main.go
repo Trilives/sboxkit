@@ -21,7 +21,7 @@ import (
 var version = "dev"
 
 func usageText() string {
-	return i18n.T("用法: sboxkit [init|modify|nettest|uninstall|update|pause|resume|version]\n不带参数则进入交互式主菜单。")
+	return i18n.T("用法: sboxkit [init|modify|nettest|uninstall|update|portable-update|pause|resume|version]\n不带参数则进入交互式主菜单。")
 }
 
 func main() {
@@ -34,7 +34,7 @@ func main() {
 		os.Exit(interactive(p))
 	}
 	switch args[0] {
-	case "init", "modify", "uninstall", "update", "pause", "resume":
+	case "init", "modify", "uninstall", "update", "portable-update", "pause", "resume":
 		exitIfErr(flows.EnsureStateRoot(p))
 	}
 	switch args[0] {
@@ -50,11 +50,13 @@ func main() {
 	case "modify":
 		exitFlow(flows.ModifyConfig(p))
 	case "nettest":
-		exitFlow(flows.Nettest())
+		exitFlow(flows.Nettest(p))
 	case "uninstall":
 		exitFlow(flows.Uninstall(p))
 	case "update":
 		os.Exit(runUpdate(p))
+	case "portable-update":
+		os.Exit(runPortableUpdate(p))
 	case "pause":
 		exitFlow(sysd.Pause(sysd.DefaultName))
 	case "resume":
@@ -85,10 +87,11 @@ func setupLanguage(p paths.Paths) {
 // setupLogging customize.json 的 enable_log=true 时，把 execx 的输出额外写入
 // 日志文件（超限自动裁剪旧内容，见 internal/execx/log.go）。
 func setupLogging(p paths.Paths) {
-	if !config.Bool(config.Load(p), "enable_log") {
+	cfg := config.Load(p)
+	if !cfg.EnableFileLog {
 		return
 	}
-	if err := execx.EnableLog(execx.LogPath(p.State), 0); err != nil {
+	if err := execx.EnableLog(execx.LogPath(p.State), int64(cfg.LogMaxMB)*1024*1024); err != nil {
 		execx.Warn(i18n.T("日志启用失败：") + err.Error())
 	}
 }
@@ -185,11 +188,11 @@ func interactive(p paths.Paths) int {
 		var aerr error
 		switch i {
 		case 0:
-			aerr = flows.ModifyRuntime(p, version)
+			aerr = flows.ModifyRuntime(p)
 		case 1:
 			aerr = flows.ModifyConfig(p)
 		case 2:
-			aerr = flows.ToolsMenu(p)
+			aerr = flows.ToolsMenu(p, version)
 		case 3:
 			aerr = flows.ServiceToggleFlow(p)
 		case 4:
@@ -215,6 +218,17 @@ func runUpdate(p paths.Paths) int {
 			execx.Error(err.Error())
 			return 1
 		}
+	}
+	return 0
+}
+
+// runPortableUpdate updates managed assets but deliberately never touches
+// systemd. It is safe for an extracted archive using a user-owned
+// SBOXKIT_HOME; sboxkit itself remains available through Tools > Update.
+func runPortableUpdate(p paths.Paths) int {
+	if _, err := kernel.DownloadAll(p, kernel.Options{Force: true}); err != nil {
+		execx.Error(err.Error())
+		return 1
 	}
 	return 0
 }

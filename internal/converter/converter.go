@@ -33,6 +33,7 @@ type Config struct {
 	Outbounds    []map[string]any `json:"outbounds"`
 	Route        Route            `json:"route"`
 	Experimental Experimental     `json:"experimental"`
+	Raw          map[string]any   `json:"-"`
 }
 
 type Route struct {
@@ -44,7 +45,8 @@ type Route struct {
 }
 
 type Experimental struct {
-	ClashAPI ClashAPI `json:"clash_api"`
+	ClashAPI  ClashAPI       `json:"clash_api"`
+	CacheFile map[string]any `json:"cache_file,omitempty"`
 }
 
 type ClashAPI struct {
@@ -87,13 +89,23 @@ func ClashToSingBox(yamlText string, cfg config.Config, p paths.Paths) (Config, 
 		return Config{}, nil, errors.New("no nodes converted successfully")
 	}
 
-	result, info, err := BuildSingBoxConfig(converted, cfg, p)
+	source := clashSourceOptions(root)
+	result, info, err := buildSingBoxConfig(converted, cfg, p, source)
 	if err != nil {
 		return Config{}, nil, err
 	}
 	info["total"] = len(rawProxies)
 	info["converted"] = len(converted)
 	info["skipped"] = skipped
+	if len(source.Hosts) > 0 {
+		info["preserved_hosts"] = len(source.Hosts)
+	}
+	if source.FakeIP != nil {
+		info["preserved_fake_ip"] = true
+	}
+	if len(source.SkippedFakeIPFilters) > 0 {
+		info["fake_ip_filter_skipped"] = source.SkippedFakeIPFilters
+	}
 	return result, info, nil
 }
 
@@ -109,6 +121,7 @@ func SingBoxDirect(raw string, cfg config.Config, p paths.Paths, customize bool)
 		if err := json.Unmarshal(data, &result); err != nil {
 			return Config{}, nil, fmt.Errorf("decode sing-box passthrough: %w", err)
 		}
+		result.Raw = doc
 		return result, Info{"mode": "passthrough"}, nil
 	}
 
@@ -129,7 +142,7 @@ func SingBoxDirect(raw string, cfg config.Config, p paths.Paths, customize bool)
 	if len(nodes) == 0 {
 		return Config{}, nil, errors.New("sing-box config has no reusable node outbounds")
 	}
-	result, info, err := BuildSingBoxConfig(nodes, cfg, p)
+	result, info, err := buildSingBoxConfig(nodes, cfg, p, singBoxSourceOptions(doc))
 	if err != nil {
 		return Config{}, nil, err
 	}
@@ -138,6 +151,10 @@ func SingBoxDirect(raw string, cfg config.Config, p paths.Paths, customize bool)
 }
 
 func BuildSingBoxConfig(nodes []map[string]any, cfg config.Config, p paths.Paths) (Config, Info, error) {
+	return buildSingBoxConfig(nodes, cfg, p, sourceOptions{})
+}
+
+func buildSingBoxConfig(nodes []map[string]any, cfg config.Config, p paths.Paths, source sourceOptions) (Config, Info, error) {
 	outbounds, info := buildOutbounds(nodes, cfg)
 	final := cfg.DefaultOutbound
 	if (final == "SG-Auto" || final == "SG-Fallback") && !boolInfo(info, "has_sg_auto") {
@@ -148,11 +165,11 @@ func BuildSingBoxConfig(nodes []map[string]any, cfg config.Config, p paths.Paths
 	}
 	result := Config{
 		Log:          map[string]any{"level": "warning"},
-		DNS:          buildDNS(cfg, p),
+		DNS:          buildDNS(cfg, p, source),
 		Inbounds:     buildInbounds(cfg),
 		Outbounds:    outbounds,
 		Route:        buildRoute(final, cfg, p),
-		Experimental: buildExperimental(cfg, p),
+		Experimental: buildExperimental(cfg, p, source),
 	}
 	if err := Validate(result); err != nil {
 		return Config{}, nil, err

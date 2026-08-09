@@ -32,6 +32,7 @@ type Config struct {
 	EnableTun               bool     `json:"enable_tun"`
 	LanPanel                bool     `json:"lan_panel"`
 	LanProxy                bool     `json:"lan_proxy"`
+	MixedPort               int      `json:"mixed_port"`
 	BootstrapDNSServer      string   `json:"bootstrap_dns_server"`
 	BootstrapDNSPort        int      `json:"bootstrap_dns_port"`
 	GenerateSGGroups        bool     `json:"generate_sg_groups"`
@@ -82,6 +83,7 @@ func Defaults() Config {
 		EnableTun:           true,
 		LanPanel:            false,
 		LanProxy:            false,
+		MixedPort:           DefaultMixedPort,
 		BootstrapDNSServer:  "223.5.5.5",
 		BootstrapDNSPort:    53,
 		GenerateSGGroups:    false,
@@ -127,6 +129,7 @@ var BoolFields = map[string]string{
 }
 
 var ScalarFields = map[string]string{
+	"mixed_port":           "本地代理 mixed 端口",
 	"bootstrap_dns_server": "引导 DNS 服务器",
 	"bootstrap_dns_port":   "引导 DNS 端口",
 	"default_outbound":     "默认出站（节点切换的目标分组）",
@@ -141,6 +144,7 @@ var ScalarFields = map[string]string{
 var DeploymentFields = []string{
 	"enable_tun",
 	"lan_proxy",
+	"mixed_port",
 	"lan_panel",
 	"default_outbound",
 	"download_proxy",
@@ -265,6 +269,8 @@ func Bool(cfg Config, key string) bool {
 
 func Str(cfg Config, key string) string {
 	switch key {
+	case "mixed_port":
+		return strconv.Itoa(EffectiveMixedPort(cfg))
 	case "bootstrap_dns_server":
 		return cfg.BootstrapDNSServer
 	case "bootstrap_dns_port":
@@ -376,6 +382,12 @@ func SetField(cfg *Config, key string, value string) error {
 		cfg.Base64LocalFallback = parseBool(value)
 	case "enable_file_log":
 		cfg.EnableFileLog = parseBool(value)
+	case "mixed_port":
+		port, err := ParsePort(value)
+		if err != nil {
+			return err
+		}
+		cfg.MixedPort = port
 	case "bootstrap_dns_server":
 		cfg.BootstrapDNSServer = value
 	case "bootstrap_dns_port":
@@ -459,6 +471,7 @@ func Load(p paths.Paths) Config {
 		execx.Warn(i18n.T("customize.json 解析失败，使用默认值：") + err.Error())
 		return Defaults()
 	}
+	cfg.MixedPort = EffectiveMixedPort(cfg)
 	return cfg
 }
 
@@ -467,6 +480,7 @@ func Save(p paths.Paths, cfg Config) error {
 	if err := p.EnsureStateDirs(); err != nil {
 		return err
 	}
+	cfg.MixedPort = EffectiveMixedPort(cfg)
 	var buf []byte
 	buf, err := marshalNoEscape(cfg)
 	if err != nil {

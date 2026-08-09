@@ -23,16 +23,20 @@ func InfoTool(p paths.Paths) error {
 		return nil
 	}
 	cfg := config.Load(p)
+	mixedPort, tun := runtimeInboundState(rt)
+	if mixedPort == 0 {
+		mixedPort = config.EffectiveMixedPort(cfg)
+	}
 
 	fmt.Printf("  %-28s %v  (%s)\n",
-		i18n.T("代理端口（HTTP + SOCKS5 共用）")+":", rt["mixed-port"],
+		i18n.T("代理端口（HTTP + SOCKS5 共用）")+":", mixedPort,
 		i18n.T("mixed-port，同一端口两种协议都能用"))
 	fmt.Printf("  %-28s %s\n", i18n.T("局域网代理")+":", boolLabel(config.Bool(cfg, "lan_proxy")))
-	fmt.Printf("  %-28s %s\n", i18n.T("TUN 模式")+":", boolLabel(tunEnabled(rt)))
+	fmt.Printf("  %-28s %s\n", i18n.T("TUN 模式")+":", boolLabel(tun))
 
-	secret := fmt.Sprint(rt["secret"])
+	secret := runtimeClashAPISecret(rt)
 	secretLabel := i18n.T("未设置")
-	if secret != "" && secret != "<nil>" {
+	if secret != "" {
 		secretLabel = config.MaskSecret(secret)
 	}
 	fmt.Printf("  %-28s %s\n", i18n.T("面板密钥 secret")+":", secretLabel)
@@ -42,15 +46,6 @@ func InfoTool(p paths.Paths) error {
 	fmt.Println()
 	tui.Pause(i18n.T("回车返回主菜单… "))
 	return nil
-}
-
-func tunEnabled(rt map[string]any) bool {
-	tun, ok := rt["tun"].(map[string]any)
-	if !ok {
-		return false
-	}
-	on, _ := tun["enable"].(bool)
-	return on
 }
 
 func boolLabel(b bool) string {

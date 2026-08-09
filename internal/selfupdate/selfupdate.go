@@ -291,8 +291,27 @@ func ensureManagedByCurrentLink(p paths.Paths, currentVersion string) error {
 		return err
 	}
 	execx.Info(fmt.Sprintf(i18n.T("已把当前运行的可执行文件迁移为托管版本 %s。"), baseline))
-	reason := i18n.T("首次自更新需要把 ") + exe + i18n.T(" 接管为指向托管版本的符号链接")
-	if _, err := execx.RunRoot([]string{"ln", "-sfn", currentLink(p), exe}, reason, nil); err != nil {
+	// Portable archives normally live in a user-writable directory, so replace
+	// the executable atomically without sudo there. Package installs under
+	// /usr/bin naturally fail this direct attempt and retain the existing sudo
+	// fallback.
+	if err := replaceExecutableLink(exe, currentLink(p)); err != nil {
+		reason := i18n.T("首次自更新需要把 ") + exe + i18n.T(" 接管为指向托管版本的符号链接")
+		if _, rootErr := execx.RunRoot([]string{"ln", "-sfn", currentLink(p), exe}, reason, nil); rootErr != nil {
+			return rootErr
+		}
+	}
+	return nil
+}
+
+func replaceExecutableLink(exe, target string) error {
+	tmp := filepath.Join(filepath.Dir(exe), "."+filepath.Base(exe)+".sboxkit-link.new")
+	os.Remove(tmp)
+	if err := os.Symlink(target, tmp); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, exe); err != nil {
+		os.Remove(tmp)
 		return err
 	}
 	return nil
