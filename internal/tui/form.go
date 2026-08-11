@@ -191,13 +191,19 @@ func (m *formModel) updateText(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	field := &m.fields[m.idx]
 	switch msg.String() {
 	case "enter":
-		if field.Validate != nil {
-			if err := field.Validate(field.Value); err != nil {
-				m.note = fmt.Sprintf("%s: %v", field.Label, err)
-				return m, nil
-			}
+		if !m.finishTextEdit() {
+			return m, nil
 		}
-		m.editing = false
+	case "up":
+		if !m.finishTextEdit() {
+			return m, nil
+		}
+		m.idx = (m.idx - 1 + len(m.fields) + 1) % (len(m.fields) + 1)
+	case "down":
+		if !m.finishTextEdit() {
+			return m, nil
+		}
+		m.idx = (m.idx + 1) % (len(m.fields) + 1)
 	case "esc":
 		field.Value = m.editOriginal
 		m.editing = false
@@ -222,6 +228,18 @@ func (m *formModel) updateText(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.note = ""
 	}
 	return m, nil
+}
+
+func (m *formModel) finishTextEdit() bool {
+	field := &m.fields[m.idx]
+	if field.Validate != nil {
+		if err := field.Validate(field.Value); err != nil {
+			m.note = fmt.Sprintf("%s: %v", field.Label, err)
+			return false
+		}
+	}
+	m.editing = false
+	return true
 }
 
 func (m *formModel) View() string {
@@ -249,7 +267,7 @@ func buildForm(title string, fields []FormField, idx int, editing bool, opts For
 	texts := make([]string, len(fields))
 	widths := []int{dispWidth(label)}
 	for i, field := range fields {
-		value := formDisplayValue(field)
+		value := formDisplayValueMode(field, editing && i == idx)
 		prefix := "  "
 		if i == idx {
 			prefix = "❯ "
@@ -299,6 +317,10 @@ func buildForm(title string, fields []FormField, idx int, editing bool, opts For
 }
 
 func formDisplayValue(field FormField) string {
+	return formDisplayValueMode(field, false)
+}
+
+func formDisplayValueMode(field FormField, editing bool) string {
 	switch field.Kind {
 	case FormBool:
 		if field.Value == "true" {
@@ -308,11 +330,31 @@ func formDisplayValue(field FormField) string {
 	case FormChoice:
 		return "< " + choiceLabel(field, field.Value) + " >"
 	default:
-		if field.Value == "" && field.Placeholder != "" {
+		if field.Value == "" && field.Placeholder != "" && !editing {
 			return "[ <" + field.Placeholder + "> ]"
 		}
-		return "[ " + field.Value + " ]"
+		value := field.Value
+		if !editing {
+			value = maskLongFormValue(value)
+		}
+		return "[ " + value + " ]"
 	}
+}
+
+const (
+	formValueMaskThreshold = 32
+	formValuePrefixRunes   = 12
+	formValueSuffixRunes   = 8
+)
+
+// maskLongFormValue keeps a long value recognizable without leaving tokens,
+// subscription URLs, or paths fully visible after the user leaves the field.
+func maskLongFormValue(value string) string {
+	runes := []rune(value)
+	if len(runes) <= formValueMaskThreshold {
+		return value
+	}
+	return string(runes[:formValuePrefixRunes]) + "******" + string(runes[len(runes)-formValueSuffixRunes:])
 }
 
 func choiceLabel(field FormField, value string) string {

@@ -20,6 +20,12 @@ jobs:
           go-version: stable
       - name: Prefetch deb assets (sing-box core + geo rule-set seeds)
         run: ./scripts/fetch-deb-deps.sh
+      - name: Test and check generated configs with the refreshed sing-box
+        env:
+          SING_BOX_BIN: ${{ github.workspace }}/packaging/deps/amd64/sing-box
+        run: |
+          go test ./...
+          go vet ./...
       - name: Use annotated tag message as release notes
         run: git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > /tmp/release-notes.md
       - uses: goreleaser/goreleaser-action@v6

@@ -123,7 +123,7 @@ sboxkit/
 │   ├── selfupdate/         # sboxkit 自更新：版本化目录 + 原子符号链接切换
 │   ├── sysd/               # systemd 三组单元（服务/自愈/定时器，模板内嵌）
 │   ├── config/  txn/  …    # 定制层存取、事务回滚、路径、防火墙、代理环境变量
-├── scripts/fetch-deb-deps.sh  # 打包前预下载 sing-box 内核与 geo 规则集种子
+├── scripts/fetch-deb-deps.sh  # 打包前强制刷新并校验 sing-box 内核与 geo 规则集种子
 ├── packaging/copyright     # .deb 第三方资产许可与归属
 └── .goreleaser.yaml        # tar.gz + .deb（amd64/arm64/armv7）发布流水线
 ```

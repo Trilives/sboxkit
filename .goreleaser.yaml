@@ -55,6 +55,8 @@ nfpms:
         dst: /usr/libexec/sboxkit/sing-box
         file_info:
           mode: 0755
+      - src: packaging/deps/sing-box.version
+        dst: /usr/libexec/sboxkit/sing-box.version
       # 基础 geo 规则集种子：先能离线启动，之后可在线更新到最新版本
       - src: packaging/deps/rules/geosite-cn.srs
         dst: /usr/share/sboxkit/ruleset/geosite-cn.srs

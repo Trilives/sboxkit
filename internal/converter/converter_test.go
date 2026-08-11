@@ -376,30 +376,45 @@ func TestSingBoxPassthroughRetainsUnknownSections(t *testing.T) {
 	}
 }
 
-func TestGeneratedFakeIPConfigPassesBundledSingBoxCheck(t *testing.T) {
+func TestGeneratedConfigsPassReleaseSingBoxCheck(t *testing.T) {
 	bin := os.Getenv("SING_BOX_BIN")
 	if bin == "" {
 		t.Skip("SING_BOX_BIN is not set")
 	}
-	raw := `dns: {enhanced-mode: fake-ip, fake-ip-filter: ["*.lan"]}
+	cases := []struct {
+		name string
+		raw  string
+		cfg  config.Config
+	}{
+		{name: "default TUN", raw: testkit.ReadFixture(t, "testdata/converter/clash-basic.yaml"), cfg: config.Defaults()},
+		{name: "FakeIP", raw: `dns: {enhanced-mode: fake-ip, fake-ip-filter: ["*.lan"]}
 proxies:
-  - {name: ss-01, type: ss, server: edge.provider.example, port: 443, cipher: aes-128-gcm, password: pw}`
-	cfg := config.Defaults()
-	cfg.FakeIPFilter = []string{"+.user.example"}
-	result, _, err := ClashToSingBox(raw, cfg, paths.FromRoot(t.TempDir()))
-	if err != nil {
-		t.Fatalf("convert: %v", err)
+  - {name: ss-01, type: ss, server: edge.provider.example, port: 443, cipher: aes-128-gcm, password: pw}`,
+			cfg: func() config.Config {
+				cfg := config.Defaults()
+				cfg.FakeIPFilter = []string{"+.user.example"}
+				return cfg
+			}(),
+		},
 	}
-	data, err := json.Marshal(result)
-	if err != nil {
-		t.Fatal(err)
-	}
-	file := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(file, data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if output, err := exec.Command(bin, "check", "-c", file).CombinedOutput(); err != nil {
-		t.Fatalf("sing-box check: %v\n%s", err, output)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, _, err := ClashToSingBox(tc.raw, tc.cfg, paths.FromRoot(t.TempDir()))
+			if err != nil {
+				t.Fatalf("convert: %v", err)
+			}
+			data, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			file := filepath.Join(t.TempDir(), "config.json")
+			if err := os.WriteFile(file, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if output, err := exec.Command(bin, "check", "-c", file).CombinedOutput(); err != nil {
+				t.Fatalf("sing-box check: %v\n%s", err, output)
+			}
+		})
 	}
 }
 

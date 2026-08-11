@@ -320,7 +320,15 @@ func SeedFromSystem(p paths.Paths) ([]string, error) {
 			if err := copyFile(seedBin, p.SingBoxBin, 0o755); err != nil {
 				return seeded, err
 			}
-			os.WriteFile(p.SingBoxVersion, []byte("bundled\n"), 0o644)
+			version := "bundled"
+			if data, err := os.ReadFile(filepath.Join(SeedBinDir, "sing-box.version")); err == nil {
+				if value := strings.TrimSpace(string(data)); value != "" {
+					version = value
+				}
+			}
+			if err := os.WriteFile(p.SingBoxVersion, []byte(version+"\n"), 0o644); err != nil {
+				return seeded, err
+			}
 			seeded = append(seeded, p.SingBoxBin)
 		}
 	}

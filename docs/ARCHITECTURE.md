@@ -112,6 +112,10 @@ config.json / active / customize.json / subscriptions/，esc 提交、^R 整体�
 的三件套（geoip.metadb/geosite.dat/country.mmdb）不同，sing-box 用 sing-geosite
 / sing-geoip 项目发布的 `.srs` 规则集，一国家一份文件，无 MaxMind EULA 之类的
 新鲜度义务，可以放心冻结进安装包；仍支持在线『更新 geo 数据』获取最新版本。
+发布流水线每次都强制重新下载 sing-box 最新稳定版，并执行二进制版本一致性校验；
+内核版本文件随 deb 打包，首次接管时会准确写入 state，而非仅标记为 `bundled`。
+随后使用该内核对默认 TUN 与 FakeIP 代表配置执行 `sing-box check`，同时运行全部
+Go 测试和静态检查；任何配置破坏性变更都会在创建 GitHub Release 前阻断流水线。
 
 ## 7. 自愈与守护
 

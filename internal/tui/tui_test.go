@@ -176,6 +176,37 @@ func TestFormTextEscapeDiscardsCurrentEdit(t *testing.T) {
 	}
 }
 
+func TestFormTextArrowFinishesEditAndMoves(t *testing.T) {
+	m := &formModel{fields: cloneFormFields([]FormField{
+		{Key: "first", Label: "第一项", Kind: FormText, Placeholder: "示例"},
+		{Key: "second", Label: "第二项", Kind: FormText},
+	}), width: 80}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("value")})
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if m.editing || m.idx != 1 || m.fields[0].Value != "value" {
+		t.Fatalf("Down should finish the edit and select the next row: %#v", m)
+	}
+
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	if m.editing || m.idx != 0 {
+		t.Fatalf("Up should finish the edit and select the previous row: %#v", m)
+	}
+}
+
+func TestFormTextArrowKeepsInvalidEditOpen(t *testing.T) {
+	m := &formModel{fields: cloneFormFields([]FormField{{
+		Key: "text", Label: "文本", Kind: FormText,
+		Validate: func(string) error { return fmt.Errorf("invalid") },
+	}}), width: 80}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if !m.editing || m.idx != 0 || !strings.Contains(m.note, "invalid") {
+		t.Fatalf("invalid value should keep the current editor open: %#v", m)
+	}
+}
+
 func TestFormSubmitValidatesOnlyOnSubmitRow(t *testing.T) {
 	m := &formModel{fields: cloneFormFields([]FormField{{
 		Key: "text", Label: "文本", Kind: FormText,
@@ -196,6 +227,21 @@ func TestFormPlaceholderIsDisplayOnly(t *testing.T) {
 	}
 	if !strings.Contains(formDisplayValue(field), "127.0.0.1:7890") {
 		t.Fatal("placeholder should remain visible")
+	}
+	if strings.Contains(formDisplayValueMode(field, true), "127.0.0.1:7890") {
+		t.Fatal("placeholder should clear visually when editing starts")
+	}
+}
+
+func TestFormLongValueMaskedOutsideEditing(t *testing.T) {
+	value := "https://example.com/subscription/0123456789abcdef"
+	masked := formDisplayValueMode(FormField{Kind: FormText, Value: value}, false)
+	if !strings.Contains(masked, "https://exam******89abcdef") || strings.Contains(masked, value) {
+		t.Fatalf("unexpected masked value: %q", masked)
+	}
+	editing := formDisplayValueMode(FormField{Kind: FormText, Value: value}, true)
+	if !strings.Contains(editing, value) || strings.Contains(editing, "******") {
+		t.Fatalf("editing should expose the complete value: %q", editing)
 	}
 }
 
