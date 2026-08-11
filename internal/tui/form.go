@@ -24,14 +24,15 @@ type FormResult map[string]string
 func (r FormResult) Bool(key string) bool { return r[key] == "true" }
 
 type FormField struct {
-	Key         string
-	Label       string
-	Kind        FormKind
-	Value       string
-	Placeholder string
-	Options     []string
-	Enabled     func(FormResult) bool
-	Validate    func(string) error
+	Key          string
+	Label        string
+	Kind         FormKind
+	Value        string
+	Placeholder  string
+	Options      []string
+	OptionLabels map[string]string
+	Enabled      func(FormResult) bool
+	Validate     func(string) error
 }
 
 type FormOpts struct {
@@ -39,8 +40,9 @@ type FormOpts struct {
 	Hint        string
 }
 
-// Form renders a compact single-page editor. Text fields are edited directly;
-// booleans use Space and choices use Left/Right. Enter validates and submits.
+// Form renders a compact single-page editor. Enter opens text fields for
+// editing; booleans use Space and choices use Left/Right. The final row is the
+// only row that submits the form.
 func Form(title string, fields []FormField, opts FormOpts) (FormResult, error) {
 	if opts.SubmitLabel == "" {
 		opts.SubmitLabel = i18n.T("提交")
@@ -65,6 +67,12 @@ func cloneFormFields(fields []FormField) []FormField {
 	copy(out, fields)
 	for i := range out {
 		out[i].Options = append([]string(nil), fields[i].Options...)
+		if fields[i].OptionLabels != nil {
+			out[i].OptionLabels = make(map[string]string, len(fields[i].OptionLabels))
+			for value, label := range fields[i].OptionLabels {
+				out[i].OptionLabels[value] = label
+			}
+		}
 		if out[i].Kind == FormBool && out[i].Value == "" {
 			out[i].Value = "false"
 		}
@@ -100,13 +108,15 @@ func validateForm(fields []FormField) error {
 }
 
 type formModel struct {
-	title  string
-	fields []FormField
-	opts   FormOpts
-	idx    int
-	width  int
-	err    error
-	note   string
+	title        string
+	fields       []FormField
+	opts         FormOpts
+	idx          int
+	width        int
+	err          error
+	note         string
+	editing      bool
+	editOriginal string
 }
 
 func (m *formModel) Init() tea.Cmd { return nil }
@@ -116,54 +126,60 @@ func (m *formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 	case tea.KeyMsg:
-		if len(m.fields) == 0 {
-			m.err = errs.ErrCancelled
-			return m, tea.Quit
+		if m.editing {
+			return m.updateText(msg)
 		}
-		field := &m.fields[m.idx]
-		enabled := fieldEnabled(*field, formValues(m.fields))
+		itemCount := len(m.fields) + 1
 		switch msg.String() {
 		case "up":
-			m.idx = (m.idx - 1 + len(m.fields)) % len(m.fields)
+			m.idx = (m.idx - 1 + itemCount) % itemCount
 		case "down", "tab":
-			m.idx = (m.idx + 1) % len(m.fields)
+			m.idx = (m.idx + 1) % itemCount
 		case "shift+tab":
-			m.idx = (m.idx - 1 + len(m.fields)) % len(m.fields)
+			m.idx = (m.idx - 1 + itemCount) % itemCount
 		case "esc", "ctrl+c":
 			m.err = errs.ErrCancelled
 			return m, tea.Quit
 		case "enter":
+			if m.idx < len(m.fields) {
+				field := &m.fields[m.idx]
+				if fieldEnabled(*field, formValues(m.fields)) && field.Kind == FormText {
+					m.editing = true
+					m.editOriginal = field.Value
+				}
+				break
+			}
 			if err := validateForm(m.fields); err != nil {
 				m.note = err.Error()
 				return m, nil
 			}
 			return m, tea.Quit
 		case " ":
+			if m.idx >= len(m.fields) {
+				break
+			}
+			field := &m.fields[m.idx]
+			enabled := fieldEnabled(*field, formValues(m.fields))
 			if enabled && field.Kind == FormBool {
 				field.Value = fmt.Sprint(field.Value != "true")
-			} else if enabled && field.Kind == FormText {
-				field.Value += " "
 			}
 		case "left":
+			if m.idx >= len(m.fields) {
+				break
+			}
+			field := &m.fields[m.idx]
+			enabled := fieldEnabled(*field, formValues(m.fields))
 			if enabled && field.Kind == FormChoice {
 				rotateChoice(field, -1)
 			}
 		case "right":
+			if m.idx >= len(m.fields) {
+				break
+			}
+			field := &m.fields[m.idx]
+			enabled := fieldEnabled(*field, formValues(m.fields))
 			if enabled && field.Kind == FormChoice {
 				rotateChoice(field, 1)
-			}
-		case "backspace", "ctrl+h":
-			if enabled && field.Kind == FormText && field.Value != "" {
-				_, size := utf8.DecodeLastRuneInString(field.Value)
-				field.Value = field.Value[:len(field.Value)-size]
-			}
-		case "ctrl+u":
-			if enabled && field.Kind == FormText {
-				field.Value = ""
-			}
-		default:
-			if enabled && field.Kind == FormText && msg.Type == tea.KeyRunes {
-				field.Value += string(msg.Runes)
 			}
 		}
 		m.note = ""
@@ -171,8 +187,45 @@ func (m *formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *formModel) updateText(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	field := &m.fields[m.idx]
+	switch msg.String() {
+	case "enter":
+		if field.Validate != nil {
+			if err := field.Validate(field.Value); err != nil {
+				m.note = fmt.Sprintf("%s: %v", field.Label, err)
+				return m, nil
+			}
+		}
+		m.editing = false
+	case "esc":
+		field.Value = m.editOriginal
+		m.editing = false
+	case "ctrl+c":
+		m.err = errs.ErrCancelled
+		return m, tea.Quit
+	case "backspace", "ctrl+h":
+		if field.Value != "" {
+			_, size := utf8.DecodeLastRuneInString(field.Value)
+			field.Value = field.Value[:len(field.Value)-size]
+		}
+	case "ctrl+u":
+		field.Value = ""
+	case " ":
+		field.Value += " "
+	default:
+		if msg.Type == tea.KeyRunes {
+			field.Value += string(msg.Runes)
+		}
+	}
+	if !m.editing || msg.String() != "enter" {
+		m.note = ""
+	}
+	return m, nil
+}
+
 func (m *formModel) View() string {
-	return strings.Join(buildForm(m.title, m.fields, m.idx, m.opts, m.note, m.width), "\n") + "\n"
+	return strings.Join(buildForm(m.title, m.fields, m.idx, m.editing, m.opts, m.note, m.width), "\n") + "\n"
 }
 
 func rotateChoice(field *FormField, delta int) {
@@ -189,7 +242,7 @@ func rotateChoice(field *FormField, delta int) {
 	field.Value = field.Options[(idx+delta+len(field.Options))%len(field.Options)]
 }
 
-func buildForm(title string, fields []FormField, idx int, opts FormOpts, note string, termCols int) []string {
+func buildForm(title string, fields []FormField, idx int, editing bool, opts FormOpts, note string, termCols int) []string {
 	maxW := maxBoxWidth(termCols)
 	label := truncate(fmt.Sprintf("─ %s ", title), maxW)
 	values := formValues(fields)
@@ -208,8 +261,14 @@ func buildForm(title string, fields []FormField, idx int, opts FormOpts, note st
 		texts[i] = truncate(text, maxW)
 		widths = append(widths, dispWidth(texts[i]))
 	}
-	button := "  [" + opts.SubmitLabel + "]"
-	footer := "  " + i18n.T("↑/↓ 切换   Space 勾选   ←/→ 选择   Enter 提交   Esc 取消")
+	button := "    [" + opts.SubmitLabel + "]"
+	if idx == len(fields) {
+		button = "  ❯ [" + opts.SubmitLabel + "]"
+	}
+	footer := "  " + i18n.T("↑/↓ 切换   Space 勾选   ←/→ 选择   Enter 编辑/执行   Esc 取消")
+	if editing {
+		footer = "  " + i18n.T("输入文字   Backspace 删除   Enter 完成   Esc 放弃修改")
+	}
 	widths = append(widths, dispWidth(button), dispWidth(footer), dispWidth(opts.Hint), dispWidth(note))
 	w := min(maxOf(widths)+2, maxW)
 	rows := []string{"┌" + label + strings.Repeat("─", max(0, w-dispWidth(label))) + "┐"}
@@ -223,7 +282,12 @@ func buildForm(title string, fields []FormField, idx int, opts FormOpts, note st
 		}
 		rows = append(rows, "│"+row+"│")
 	}
-	rows = append(rows, "│"+rowPad("", w)+"│", "│"+rowPad(button, w)+"│")
+	rows = append(rows, "│"+rowPad("", w)+"│")
+	if idx == len(fields) && useColor {
+		rows = append(rows, "│"+ansiCyan+ansiBold+rowPad(button, w)+ansiReset+"│")
+	} else {
+		rows = append(rows, "│"+rowPad(button, w)+"│")
+	}
 	if opts.Hint != "" {
 		rows = append(rows, "│"+dim(rowPad(truncate("  "+opts.Hint, w), w))+"│")
 	}
@@ -242,13 +306,20 @@ func formDisplayValue(field FormField) string {
 		}
 		return "[ ]"
 	case FormChoice:
-		return "< " + field.Value + " >"
+		return "< " + choiceLabel(field, field.Value) + " >"
 	default:
 		if field.Value == "" && field.Placeholder != "" {
 			return "[ <" + field.Placeholder + "> ]"
 		}
 		return "[ " + field.Value + " ]"
 	}
+}
+
+func choiceLabel(field FormField, value string) string {
+	if label := field.OptionLabels[value]; label != "" {
+		return label
+	}
+	return value
 }
 
 func containsString(items []string, value string) bool {

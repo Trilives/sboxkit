@@ -18,7 +18,11 @@ func formPlain(fields []FormField) (FormResult, error) {
 				field.Value = boolString(value)
 			case FormChoice:
 				var idx int
-				idx, err = Select(field.Label, field.Options, SelectOpts{Initial: stringIndex(field.Options, field.Value)})
+				labels := make([]string, len(field.Options))
+				for i, option := range field.Options {
+					labels[i] = choiceLabel(*field, option)
+				}
+				idx, err = Select(field.Label, labels, SelectOpts{Initial: stringIndex(field.Options, field.Value)})
 				if err == nil {
 					field.Value = field.Options[idx]
 				}

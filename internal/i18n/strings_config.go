@@ -24,6 +24,7 @@ func init() {
 		"AI 域名后缀（叠加）":             "AI domain suffixes (overlay)",
 		"流媒体域名后缀（叠加）":             "Streaming domain suffixes (overlay)",
 		"直连域名后缀（叠加）":              "Direct domain suffixes (overlay)",
+		"FakeIP 排除规则（追加）":         "Additional FakeIP exclusions",
 		"强制直连端口（叠加，默认 22/SSH）":    "Ports forced direct (overlay, default 22/SSH)",
 		"新加坡关键词（叠加）":              "Singapore keywords (overlay)",
 		"香港关键词（叠加）":               "Hong Kong keywords (overlay)",

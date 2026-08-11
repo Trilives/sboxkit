@@ -25,6 +25,7 @@ type Config struct {
 	AIDomainSuffixes        []string `json:"ai_domain_suffixes"`
 	StreamingDomainSuffixes []string `json:"streaming_domain_suffixes"`
 	DirectDomainSuffixes    []string `json:"direct_domain_suffixes"`
+	FakeIPFilter            []string `json:"fake_ip_filter"`
 	LocalBypassDomains      []string `json:"local_bypass_domains"`
 	RouteExcludeIPCidrs     []string `json:"route_exclude_ip_cidrs"`
 	BypassProcessNames      []string `json:"bypass_process_names"`
@@ -68,6 +69,7 @@ func Defaults() Config {
 			"spotify.com", "scdn.co",
 		},
 		DirectDomainSuffixes: []string{},
+		FakeIPFilter:         []string{},
 		LocalBypassDomains:   []string{"localhost"},
 		RouteExcludeIPCidrs: []string{
 			// 不含 172.16.0.0/12：与 TUN 自身子网（172.19.0.0/30）同段，
@@ -110,6 +112,7 @@ var ListFields = map[string]string{
 	"ai_domain_suffixes":        "AI 域名后缀",
 	"streaming_domain_suffixes": "流媒体域名后缀",
 	"direct_domain_suffixes":    "直连域名后缀",
+	"fake_ip_filter":            "FakeIP 排除规则（追加）",
 	"local_bypass_domains":      "本地域名绕过",
 	"route_exclude_ip_cidrs":    "TUN 排除网段",
 	"bypass_process_names":      "绕过进程名",
@@ -173,6 +176,7 @@ var OverlayFields = []string{
 	"ai_domain_suffixes",
 	"streaming_domain_suffixes",
 	"direct_domain_suffixes",
+	"fake_ip_filter",
 }
 
 // FieldOrder 全部字段顺序（两个编辑分组拼接而成）。
@@ -212,7 +216,7 @@ func FieldSummary(cfg Config, key string) string {
 			return i18n.T("开")
 		}
 		return i18n.T("关")
-	case "ai_domain_suffixes", "streaming_domain_suffixes", "direct_domain_suffixes", "local_bypass_domains", "route_exclude_ip_cidrs", "bypass_process_names", "prefer_keywords", "hk_prefer_keywords":
+	case "ai_domain_suffixes", "streaming_domain_suffixes", "direct_domain_suffixes", "fake_ip_filter", "local_bypass_domains", "route_exclude_ip_cidrs", "bypass_process_names", "prefer_keywords", "hk_prefer_keywords":
 		return listSummary(StrList(cfg, key))
 	case "tun_exclude_uids":
 		return listSummary(intListToStr(cfg.TunExcludeUIDs))
@@ -302,6 +306,8 @@ func StrList(cfg Config, key string) []string {
 		return append([]string(nil), cfg.StreamingDomainSuffixes...)
 	case "direct_domain_suffixes":
 		return append([]string(nil), cfg.DirectDomainSuffixes...)
+	case "fake_ip_filter":
+		return append([]string(nil), cfg.FakeIPFilter...)
 	case "local_bypass_domains":
 		return append([]string(nil), cfg.LocalBypassDomains...)
 	case "route_exclude_ip_cidrs":
@@ -345,6 +351,8 @@ func SetStrList(cfg *Config, key string, items []string) {
 		cfg.StreamingDomainSuffixes = items
 	case "direct_domain_suffixes":
 		cfg.DirectDomainSuffixes = items
+	case "fake_ip_filter":
+		cfg.FakeIPFilter = items
 	case "local_bypass_domains":
 		cfg.LocalBypassDomains = items
 	case "route_exclude_ip_cidrs":

@@ -159,6 +159,10 @@ func BuildSingBoxConfig(nodes []map[string]any, cfg config.Config, p paths.Paths
 
 func buildSingBoxConfig(nodes []map[string]any, cfg config.Config, p paths.Paths, source sourceOptions) (Config, Info, error) {
 	outbounds, info := buildOutbounds(nodes, cfg)
+	source, customSkipped := mergeCustomFakeIPFilters(source, cfg.FakeIPFilter)
+	if len(customSkipped) > 0 {
+		info["custom_fake_ip_filter_skipped"] = customSkipped
+	}
 	final := cfg.DefaultOutbound
 	if (final == "SG-Auto" || final == "SG-Fallback") && !boolInfo(info, "has_sg_auto") {
 		final = "Proxy"

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -129,7 +130,7 @@ func TestWrapText(t *testing.T) {
 	}
 }
 
-func TestFormModelEditsBooleanChoiceAndText(t *testing.T) {
+func TestFormModelRequiresTextEditModeAndSubmitRow(t *testing.T) {
 	fields := []FormField{
 		{Key: "text", Label: "文本", Kind: FormText, Placeholder: "示例"},
 		{Key: "flag", Label: "开关", Kind: FormBool},
@@ -137,6 +138,17 @@ func TestFormModelEditsBooleanChoiceAndText(t *testing.T) {
 	}
 	m := &formModel{fields: cloneFormFields(fields), width: 80}
 	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	if m.fields[0].Value != "" {
+		t.Fatal("text changed before Enter opened edit mode")
+	}
+	if _, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter}); cmd != nil || !m.editing {
+		t.Fatal("Enter on text field should open editing without submitting")
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.editing {
+		t.Fatal("Enter should finish text editing")
+	}
 	m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	m.Update(tea.KeyMsg{Type: tea.KeySpace})
 	m.Update(tea.KeyMsg{Type: tea.KeyDown})
@@ -144,6 +156,36 @@ func TestFormModelEditsBooleanChoiceAndText(t *testing.T) {
 	got := formValues(m.fields)
 	if got["text"] != "x" || !got.Bool("flag") || got["choice"] != "B" {
 		t.Fatalf("unexpected form values: %#v", got)
+	}
+	if _, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter}); cmd != nil {
+		t.Fatal("Enter on choice field should not submit")
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if _, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter}); cmd == nil {
+		t.Fatal("Enter on submit row should quit")
+	}
+}
+
+func TestFormTextEscapeDiscardsCurrentEdit(t *testing.T) {
+	m := &formModel{fields: cloneFormFields([]FormField{{Key: "text", Kind: FormText, Value: "old"}}), width: 80}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("new")})
+	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.editing || m.fields[0].Value != "old" || m.err != nil {
+		t.Fatalf("Esc should discard only current text edit: %#v", m)
+	}
+}
+
+func TestFormSubmitValidatesOnlyOnSubmitRow(t *testing.T) {
+	m := &formModel{fields: cloneFormFields([]FormField{{
+		Key: "text", Label: "文本", Kind: FormText,
+		Validate: func(string) error { return fmt.Errorf("invalid") },
+	}}), idx: 1, width: 80}
+	if _, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter}); cmd != nil {
+		t.Fatal("invalid form should remain open")
+	}
+	if !strings.Contains(m.note, "invalid") {
+		t.Fatalf("validation note = %q", m.note)
 	}
 }
 
@@ -163,7 +205,7 @@ func TestBuildFormRowsAligned(t *testing.T) {
 		{Key: "tun", Label: "启用 TUN", Kind: FormBool, Value: "true"},
 		{Key: "type", Label: "订阅类型", Kind: FormChoice, Value: "Clash", Options: []string{"Clash", "sing-box"}},
 	}
-	rows := buildForm("初始化", fields, 1, FormOpts{SubmitLabel: "开始初始化", Hint: "详细配置请启动后在配置里面设置"}, "", 80)
+	rows := buildForm("初始化", fields, len(fields), false, FormOpts{SubmitLabel: "开始初始化", Hint: "详细配置请启动后在配置里面设置"}, "", 80)
 	w := dispWidth(stripAnsi(rows[0]))
 	for i, row := range rows {
 		if got := dispWidth(stripAnsi(row)); got != w {
@@ -173,5 +215,21 @@ func TestBuildFormRowsAligned(t *testing.T) {
 	joined := stripAnsi(strings.Join(rows, "\n"))
 	if !strings.Contains(joined, "< Clash >") || strings.Contains(joined, "sing-box") {
 		t.Fatalf("choice should display only its selected value:\n%s", joined)
+	}
+	if !strings.Contains(joined, "❯ [开始初始化]") {
+		t.Fatalf("submit row should be selectable:\n%s", joined)
+	}
+}
+
+func TestFormChoiceUsesStableValueAndDisplayLabel(t *testing.T) {
+	field := FormField{
+		Key: "source", Kind: FormChoice, Value: "local", Options: []string{"clash", "local"},
+		OptionLabels: map[string]string{"clash": "Clash", "local": "本地文件"},
+	}
+	if got := formDisplayValue(field); got != "< 本地文件 >" {
+		t.Fatalf("display value = %q", got)
+	}
+	if got := formValues([]FormField{field})["source"]; got != "local" {
+		t.Fatalf("stored value = %q", got)
 	}
 }

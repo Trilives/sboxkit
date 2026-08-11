@@ -6,6 +6,7 @@ func init() {
 		"sing-box 原生订阅（机场直接提供 sing-box JSON）":              "Native sing-box subscription (provider directly serves sing-box JSON)",
 		"通用 base64 订阅（经 subconverter 云端解析为 Clash）":         "Generic base64 subscription (parsed to Clash via cloud subconverter)",
 		"本地文件（直接导入为订阅，不联网拉取）":                              "Local file (import directly as a subscription, no network fetch)",
+		"本地文件": "Local file",
 
 		"订阅名称，留空=时间戳":                                "Subscription name, empty = timestamp",
 		"选择订阅来源类型":                                   "Select subscription source type",

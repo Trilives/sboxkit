@@ -123,6 +123,22 @@ func TestSetFieldUpdatesLoggingFields(t *testing.T) {
 	}
 }
 
+func TestFakeIPFilterRoundTripAndEditorMetadata(t *testing.T) {
+	p := testPaths(t)
+	cfg := Defaults()
+	SetStrList(&cfg, "fake_ip_filter", []string{"node.example", "*.lan"})
+	if err := Save(p, cfg); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	got := StrList(Load(p), "fake_ip_filter")
+	if len(got) != 2 || got[0] != "node.example" || got[1] != "*.lan" {
+		t.Fatalf("fake_ip_filter = %#v", got)
+	}
+	if label := FieldLabel(cfg, "fake_ip_filter"); label == "" {
+		t.Fatal("fake_ip_filter editor label is empty")
+	}
+}
+
 func TestEnsureExistsWritesDefaultsOnce(t *testing.T) {
 	p := testPaths(t)
 	if _, err := os.Stat(p.CustomizeFile); err == nil {

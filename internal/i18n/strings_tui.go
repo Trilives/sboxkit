@@ -3,7 +3,8 @@ package i18n
 func init() {
 	register(map[string]string{
 		"提交": "Submit",
-		"↑/↓ 切换   Space 勾选   ←/→ 选择   Enter 提交   Esc 取消": "↑/↓ Move   Space Toggle   ←/→ Select   Enter Submit   Esc Cancel",
+		"↑/↓ 切换   Space 勾选   ←/→ 选择   Enter 编辑/执行   Esc 取消": "↑/↓ Move   Space Toggle   ←/→ Select   Enter Edit/Run   Esc Cancel",
+		"输入文字   Backspace 删除   Enter 完成   Esc 放弃修改":         "Type   Backspace Delete   Enter Done   Esc Discard",
 		"返回": "Back",
 
 		"↑/↓ 选择   ⏎ 确认   esc %s   ^R %s": "↑/↓ select   ⏎ confirm   esc %s   ^R %s",

@@ -2,9 +2,10 @@ package i18n
 
 func init() {
 	register(map[string]string{
-		"以下 fake-ip-filter 依赖外部规则集，尚未转换：%s": "These fake-ip-filter entries depend on external rule sets and were not converted: %s",
-		"以下 hosts 条目无法安全转换，已跳过：%s":          "These hosts entries could not be converted safely and were skipped: %s",
-		"内容看起来更像「%s」而非你选择的「%s」。":            "The content looks more like \"%s\" than the \"%s\" you selected.",
+		"以下 fake-ip-filter 依赖外部规则集，尚未转换：%s":      "These fake-ip-filter entries depend on external rule sets and were not converted: %s",
+		"以下用户追加的 fake-ip-filter 依赖外部规则集，尚未转换：%s": "These additional fake-ip-filter entries depend on external rule sets and were not converted: %s",
+		"以下 hosts 条目无法安全转换，已跳过：%s":               "These hosts entries could not be converted safely and were skipped: %s",
+		"内容看起来更像「%s」而非你选择的「%s」。":                 "The content looks more like \"%s\" than the \"%s\" you selected.",
 
 		"拉取订阅失败: %w":            "Failed to fetch subscription: %w",
 		"拉取失败（%v），第 %d/%d 次重试…": "Fetch failed (%v), retrying (%d/%d)…",

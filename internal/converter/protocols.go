@@ -300,7 +300,10 @@ func baseOutbound(proxy map[string]any, tag string, typ string) (map[string]any,
 	if port == 0 {
 		return nil, errors.New("missing or invalid port")
 	}
-	out := map[string]any{"type": typ, "tag": tag, "server": server, "server_port": port}
+	out := map[string]any{
+		"type": typ, "tag": tag, "server": server, "server_port": port,
+		"domain_resolver": bootstrapResolver(),
+	}
 	// Universal dial fields (converter.md §2) — carried through rather than
 	// silently dropped. `udp` stays protocol-specific because UDP-only
 	// protocols (hysteria2/tuic) can't be forced to network:tcp.

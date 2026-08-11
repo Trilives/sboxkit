@@ -25,7 +25,7 @@ type initFormPlan struct {
 
 func collectInitPlan(p paths.Paths) (initFormPlan, error) {
 	cfg := config.Load(p)
-	sources := translatedSourceOptions()
+	sourceValues, sourceLabels := initSourceOptions()
 	fields := []tui.FormField{
 		{Key: "download_proxy", Label: i18n.T("下载代理"), Kind: tui.FormText, Value: cfg.DownloadProxy, Placeholder: "http://127.0.0.1:7890"},
 		{Key: "mixed_port", Label: i18n.T("本地代理 mixed 端口"), Kind: tui.FormText, Value: strconv.Itoa(config.EffectiveMixedPort(cfg)), Validate: validateMixedPort},
@@ -36,10 +36,10 @@ func collectInitPlan(p paths.Paths) (initFormPlan, error) {
 		{Key: "tun_uids", Label: i18n.T("TUN 直连 UID"), Kind: tui.FormText, Value: joinInts(cfg.TunExcludeUIDs), Placeholder: "1000, 1001", Enabled: enabledWhen("enable_tun", true), Validate: validateUIDs},
 		{Key: "process_names", Label: i18n.T("TUN 直连进程名"), Kind: tui.FormText, Value: strings.Join(cfg.BypassProcessNames, ", "), Placeholder: "tailscale, tailscaled", Enabled: enabledWhen("enable_tun", true)},
 		{Key: "sub_name", Label: i18n.T("订阅名称"), Kind: tui.FormText, Value: time.Now().Format("sub-20060102-150405")},
-		{Key: "source", Label: i18n.T("订阅类型"), Kind: tui.FormChoice, Value: sources[0], Options: sources},
+		{Key: "source", Label: i18n.T("订阅类型"), Kind: tui.FormChoice, Value: sourceValues[0], Options: sourceValues, OptionLabels: sourceLabels},
 		{Key: "sub_url", Label: i18n.T("订阅地址 / 本地路径"), Kind: tui.FormText, Placeholder: "https://example.com/sub"},
-		{Key: "fetch_proxy", Label: i18n.T("使用代理拉取"), Kind: tui.FormBool, Value: "false", Enabled: func(v tui.FormResult) bool { return sourceTypeForLabel(sources, v["source"]) != "local" }},
-		{Key: "customize", Label: i18n.T("按 sboxkit 规则重建"), Kind: tui.FormBool, Value: "true", Enabled: func(v tui.FormResult) bool { return sourceTypeForLabel(sources, v["source"]) == "sing-box" }},
+		{Key: "fetch_proxy", Label: i18n.T("使用代理拉取"), Kind: tui.FormBool, Value: "false", Enabled: func(v tui.FormResult) bool { return v["source"] != "local" }},
+		{Key: "customize", Label: i18n.T("按 sboxkit 规则重建"), Kind: tui.FormBool, Value: "true", Enabled: func(v tui.FormResult) bool { return v["source"] == "sing-box" }},
 	}
 	values, err := tui.Form(i18n.T("sboxkit 初始化"), fields, tui.FormOpts{
 		SubmitLabel: i18n.T("开始初始化"),
@@ -61,7 +61,7 @@ func collectInitPlan(p paths.Paths) (initFormPlan, error) {
 		updated.BypassProcessNames = config.SplitList(values["process_names"])
 	}
 
-	info, err := initSubscriptionFromForm(values, sources)
+	info, err := initSubscriptionFromForm(values)
 	if err != nil {
 		return initFormPlan{}, err
 	}
@@ -71,7 +71,7 @@ func collectInitPlan(p paths.Paths) (initFormPlan, error) {
 	}, nil
 }
 
-func initSubscriptionFromForm(values tui.FormResult, sources []string) (*newSub, error) {
+func initSubscriptionFromForm(values tui.FormResult) (*newSub, error) {
 	rawURL := strings.TrimSpace(values["sub_url"])
 	if rawURL == "" {
 		return nil, nil
@@ -80,7 +80,10 @@ func initSubscriptionFromForm(values tui.FormResult, sources []string) (*newSub,
 	if name == "" {
 		return nil, fmt.Errorf("%s", i18n.T("订阅名称不能为空"))
 	}
-	sourceType := sourceTypeForLabel(sources, values["source"])
+	sourceType := values["source"]
+	if !knownSourceType(sourceType) {
+		sourceType = subscriptionSources[0].Type
+	}
 	if sourceType == "local" {
 		resolved, err := resolveLocalPath(rawURL)
 		if err != nil {
@@ -126,21 +129,23 @@ func applyInitDeployment(p paths.Paths, plan initFormPlan) error {
 	})
 }
 
-func translatedSourceOptions() []string {
-	out := make([]string, len(sourceOptions))
-	for i, option := range sourceOptions {
-		out[i] = i18n.T(option)
+func initSourceOptions() ([]string, map[string]string) {
+	values := make([]string, len(subscriptionSources))
+	labels := make(map[string]string, len(subscriptionSources))
+	for i, source := range subscriptionSources {
+		values[i] = source.Type
+		labels[source.Type] = i18n.T(source.ShortLabel)
 	}
-	return out
+	return values, labels
 }
 
-func sourceTypeForLabel(labels []string, selected string) string {
-	for i, label := range labels {
-		if label == selected {
-			return sourceTypes[i]
+func knownSourceType(value string) bool {
+	for _, source := range subscriptionSources {
+		if source.Type == value {
+			return true
 		}
 	}
-	return sourceTypes[0]
+	return false
 }
 
 func enabledWhen(key string, want bool) func(tui.FormResult) bool {

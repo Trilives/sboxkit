@@ -228,6 +228,64 @@ proxies:
 	}
 }
 
+func TestCustomFakeIPFiltersMergeWithSourceAndUseDirectNodeDNS(t *testing.T) {
+	raw := `
+dns:
+  enhanced-mode: fake-ip
+  fake-ip-filter: ["*.lan", "source.example"]
+proxies:
+  - {name: ss-domain, type: ss, server: edge.provider.example, port: 443, cipher: aes-128-gcm, password: pw}
+`
+	cfg := config.Defaults()
+	cfg.FakeIPFilter = []string{"*.lan", "+.user.example", "exact.user", "RULE-SET,user-private"}
+	result, info, err := ClashToSingBox(raw, cfg, paths.FromRoot(t.TempDir()))
+	if err != nil {
+		t.Fatalf("convert clash fake-ip with additions: %v", err)
+	}
+	skipped, _ := info["custom_fake_ip_filter_skipped"].([]string)
+	if len(skipped) != 1 || skipped[0] != "RULE-SET,user-private" {
+		t.Fatalf("custom skipped entries = %#v", skipped)
+	}
+	rulesJSON, _ := json.Marshal(result.DNS["rules"])
+	for _, want := range []string{"lan", "source.example", "user.example", "exact.user"} {
+		if !strings.Contains(string(rulesJSON), want) {
+			t.Fatalf("merged DNS rules missing %q: %s", want, rulesJSON)
+		}
+	}
+	if strings.Count(string(rulesJSON), `"lan"`) != 1 {
+		t.Fatalf("duplicate source/custom exclusion was not removed: %s", rulesJSON)
+	}
+
+	var node map[string]any
+	for _, outbound := range result.Outbounds {
+		if outbound["tag"] == "ss-domain" {
+			node = outbound
+			break
+		}
+	}
+	resolver, _ := node["domain_resolver"].(map[string]any)
+	if resolver["server"] != bootstrapDNSTag {
+		t.Fatalf("node server domain should use direct bootstrap DNS: %#v", node)
+	}
+}
+
+func TestCustomFakeIPFiltersDoNotEnableFakeIP(t *testing.T) {
+	raw := `proxies:
+  - {name: ss, type: ss, server: edge.example, port: 443, cipher: aes-128-gcm, password: pw}`
+	cfg := config.Defaults()
+	cfg.FakeIPFilter = []string{"user.example"}
+	result, _, err := ClashToSingBox(raw, cfg, paths.FromRoot(t.TempDir()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	servers, _ := result.DNS["servers"].([]map[string]any)
+	for _, server := range servers {
+		if server["type"] == "fakeip" {
+			t.Fatal("custom exclusions alone must not enable FakeIP")
+		}
+	}
+}
+
 func TestSingBoxCustomizedPreservesFakeIPSemantics(t *testing.T) {
 	raw := `{
   "dns": {
@@ -285,8 +343,10 @@ func TestGeneratedFakeIPConfigPassesBundledSingBoxCheck(t *testing.T) {
 	}
 	raw := `dns: {enhanced-mode: fake-ip, fake-ip-filter: ["*.lan"]}
 proxies:
-  - {name: ss-01, type: ss, server: 1.2.3.4, port: 443, cipher: aes-128-gcm, password: pw}`
-	result, _, err := ClashToSingBox(raw, config.Defaults(), paths.FromRoot(t.TempDir()))
+  - {name: ss-01, type: ss, server: edge.provider.example, port: 443, cipher: aes-128-gcm, password: pw}`
+	cfg := config.Defaults()
+	cfg.FakeIPFilter = []string{"+.user.example"}
+	result, _, err := ClashToSingBox(raw, cfg, paths.FromRoot(t.TempDir()))
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}

@@ -19,15 +19,20 @@ import (
 	"github.com/Trilives/sboxkit/internal/tui"
 )
 
-// 菜单顺序即推荐优先级：Clash 订阅最常见；sing-box 原生订阅次之；本地文件排最后。
-var sourceOptions = []string{
-	"Clash 订阅（★推荐：机场通用格式，经 converter 转换为 sing-box 配置）",
-	"sing-box 原生订阅（机场直接提供 sing-box JSON）",
-	"通用 base64 订阅（经 subconverter 云端解析为 Clash）",
-	"本地文件（直接导入为订阅，不联网拉取）",
+type subscriptionSource struct {
+	Type       string
+	LongLabel  string
+	ShortLabel string
 }
 
-var sourceTypes = []string{"clash", "sing-box", "base64", "local"}
+// 顺序即推荐优先级：Clash 最常见；sing-box 原生次之；本地文件排最后。
+// Type 是持久化值，界面文案变化或切换语言不得影响其含义。
+var subscriptionSources = []subscriptionSource{
+	{Type: "clash", LongLabel: "Clash 订阅（★推荐：机场通用格式，经 converter 转换为 sing-box 配置）", ShortLabel: "Clash"},
+	{Type: "sing-box", LongLabel: "sing-box 原生订阅（机场直接提供 sing-box JSON）", ShortLabel: "sing-box"},
+	{Type: "base64", LongLabel: "通用 base64 订阅（经 subconverter 云端解析为 Clash）", ShortLabel: "base64"},
+	{Type: "local", LongLabel: "本地文件（直接导入为订阅，不联网拉取）", ShortLabel: "本地文件"},
+}
 
 type newSub struct {
 	Name          string
@@ -44,15 +49,15 @@ func askNewSubscription() (*newSub, error) {
 	if err != nil {
 		return nil, err
 	}
-	translatedSources := make([]string, len(sourceOptions))
-	for i, o := range sourceOptions {
-		translatedSources[i] = i18n.T(o)
+	translatedSources := make([]string, len(subscriptionSources))
+	for i, source := range subscriptionSources {
+		translatedSources[i] = i18n.T(source.LongLabel)
 	}
 	idx, err := tui.Select(i18n.T("选择订阅来源类型"), translatedSources, tui.SelectOpts{})
 	if err != nil {
 		return nil, err
 	}
-	sourceType := sourceTypes[idx]
+	sourceType := subscriptionSources[idx].Type
 	prompt := i18n.T("订阅链接，留空=暂不配置")
 	if sourceType == "local" {
 		prompt = i18n.T("本地文件路径（Clash YAML 或 sing-box JSON），留空=暂不配置")

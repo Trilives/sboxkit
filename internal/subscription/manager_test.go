@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Trilives/sboxkit/internal/config"
 	"github.com/Trilives/sboxkit/internal/paths"
 )
 
@@ -93,6 +94,11 @@ proxies:
 	if err := os.WriteFile(rawFile(p, sub), []byte(raw), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	cfg := config.Load(p)
+	cfg.FakeIPFilter = []string{"*.lan", "+.user.example", "node.provider.example"}
+	if err := config.Save(p, cfg); err != nil {
+		t.Fatal(err)
+	}
 	for i := 0; i < 2; i++ {
 		if _, err := Rebuild(p, sub.Name); err != nil {
 			t.Fatalf("rebuild %d: %v", i+1, err)
@@ -101,8 +107,13 @@ proxies:
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(string(data), `"type": "fakeip"`) || !strings.Contains(string(data), `"lan"`) {
+		text := string(data)
+		if !strings.Contains(text, `"type": "fakeip"`) || !strings.Contains(text, `"lan"`) ||
+			!strings.Contains(text, `"user.example"`) || !strings.Contains(text, `"node.provider.example"`) {
 			t.Fatalf("rebuild %d lost fake-ip semantics:\n%s", i+1, data)
+		}
+		if strings.Count(text, `"lan"`) != 1 {
+			t.Fatalf("rebuild %d duplicated merged fake-ip exclusions:\n%s", i+1, data)
 		}
 	}
 }

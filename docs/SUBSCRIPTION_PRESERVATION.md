@@ -18,6 +18,10 @@ sing-box JSON；原生 sing-box passthrough 则不受白名单限制。
 不能直接搬到 sing-box，因此当前不转换；后续若支持，必须先解析对应 provider，
 不能静默生成无效引用。
 
+代理节点的 `server` 使用域名时，生成的 outbound 会显式通过直连引导 DNS 解析，
+避免节点尚未建立时反过来依赖代理 DNS。源订阅中的 fake-ip-filter 仍会保留，
+用于需要返回真实地址而不能进入 FakeIP 映射的域名。
+
 无法构造成合法 IP 或单一 CNAME 的 hosts 条目会按域名明确告警并跳过，保证生成
 结果仍能通过 `sing-box check`；不会因为一个异常 hosts 值使整份订阅无法启用。
 
@@ -39,11 +43,22 @@ sing-box JSON；原生 sing-box passthrough 则不受白名单限制。
 源 DNS server 标签不会直接复用，因为统一重建会创建自己的 DNS server；排除规则
 会改写为指向 sboxkit 的真实 DNS server，避免留下悬空标签。
 
+## 用户追加 FakeIP 排除规则
+
+`customize.json` 的 `fake_ip_filter` 是用户追加列表，可在“配置变更 → 分流增强”中
+编辑。它接受与 Clash `dns.fake-ip-filter` 相同的精确域名、`+.` / `*.` 后缀和普通
+通配符写法。该列表只有在源订阅启用 FakeIP 时生效，不会自行开启 FakeIP，也不会
+改写 sing-box 原生 passthrough 配置。
+
+生成时先读取源订阅，再把用户列表追加到源排除规则；相同类型、相同值按首次出现
+去重。刷新和重建始终重新读取 `raw.*` 与当前 `customize.json`，因此不会把上一次
+生成结果再次叠加进去。
+
 ## 合并优先级
 
 1. sboxkit 部署必需字段：mixed/TUN 入站、运行时路径、Clash API 面板。
-2. 源订阅的必要语义：hosts、fake IP 范围与排除规则。
-3. 用户 `customize.json` 中的 DNS/分流设置。
+2. 源订阅的必要语义：hosts、FakeIP 范围与排除规则。
+3. 用户 `customize.json` 中的 DNS/分流设置；`fake_ip_filter` 与源排除规则取并集并去重。
 4. sboxkit 默认值。
 
 生成配置必须通过随包 sing-box 的 `check`。当前使用 sing-box 1.12 引入的现代
