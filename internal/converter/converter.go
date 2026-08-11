@@ -68,6 +68,7 @@ func ClashToSingBox(yamlText string, cfg config.Config, p paths.Paths) (Config, 
 	if !ok || len(rawProxies) == 0 {
 		return Config{}, nil, errors.New("subscription is missing non-empty proxies list")
 	}
+	source := clashSourceOptions(root)
 
 	used := cloneReservedTags()
 	converted := make([]map[string]any, 0, len(rawProxies))
@@ -89,7 +90,7 @@ func ClashToSingBox(yamlText string, cfg config.Config, p paths.Paths) (Config, 
 		return Config{}, nil, errors.New("no nodes converted successfully")
 	}
 
-	source := clashSourceOptions(root)
+	appliedNodeHostAliases := applyNodeHostAliases(converted, source.HostAliases)
 	result, info, err := buildSingBoxConfig(converted, cfg, p, source)
 	if err != nil {
 		return Config{}, nil, err
@@ -99,6 +100,9 @@ func ClashToSingBox(yamlText string, cfg config.Config, p paths.Paths) (Config, 
 	info["skipped"] = skipped
 	if preserved := len(source.Hosts) + len(source.HostAliases); preserved > 0 {
 		info["preserved_hosts"] = preserved
+	}
+	if appliedNodeHostAliases > 0 {
+		info["applied_node_host_aliases"] = appliedNodeHostAliases
 	}
 	if len(source.SkippedHosts) > 0 {
 		info["host_entries_skipped"] = source.SkippedHosts

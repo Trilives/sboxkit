@@ -6,7 +6,7 @@ func init() {
 		"回退并退出":       "Roll back and exit",
 		"保存并退出":       "Save and exit",
 
-		"订阅管理（增 / 删 / 改名 / 切换 / 刷新）": "Subscription management (add / remove / rename / switch / refresh)",
+		"订阅管理（增 / 删 / 改名 / 切换 / 刷新 / 重建）": "Subscription management (add / remove / rename / switch / refresh / rebuild)",
 		"重新初始化": "Reinitialize",
 		"确认移除现有服务并重新初始化？订阅原文和定制配置会保留。": "Remove the existing service and reinitialize? Subscription originals and customization will be preserved.",
 
@@ -31,6 +31,7 @@ func init() {
 		"本地文件覆盖":          "Overwrite from local file",
 		"切换生效订阅":          "Switch active subscription",
 		"刷新订阅":            "Refresh subscription",
+		"重新生成配置":          "Regenerate configuration",
 		"重命名":             "Rename",
 		"删除订阅":            "Delete subscription",
 		"返回上层":            "Back",
@@ -41,6 +42,7 @@ func init() {
 		"暂无订阅。":                "No subscriptions yet.",
 		"切换到哪个订阅":              "Which subscription to switch to",
 		"刷新哪个订阅":               "Which subscription to refresh",
+		"重新生成哪个订阅":             "Which subscription to regenerate",
 		"重命名哪个订阅":              "Which subscription to rename",
 		"新名称":                  "New name",
 		"删除哪个订阅":               "Which subscription to delete",

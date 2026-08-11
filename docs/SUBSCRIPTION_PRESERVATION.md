@@ -22,6 +22,11 @@ sing-box JSON；原生 sing-box passthrough 则不受白名单限制。
 避免节点尚未建立时反过来依赖代理 DNS。源订阅中的 fake-ip-filter 仍会保留，
 用于需要返回真实地址而不能进入 FakeIP 映射的域名。
 
+如果代理节点的 `server` 命中源 `hosts` 中的域名别名，转换器会先将节点拨号地址
+改写为别名目标，再交给直连引导 DNS；因为 sing-box 对显式 `domain_resolver` 的
+内部解析不会经过 DNS rules，仅生成 `predefined` CNAME 不足以影响节点自身拨号。
+对于启用 TLS 且未显式填写 SNI 的节点，改写时会把原始域名保留为 `server_name`。
+
 无法构造成合法 IP 或单一 CNAME 的 hosts 条目会按域名明确告警并跳过，保证生成
 结果仍能通过 `sing-box check`；不会因为一个异常 hosts 值使整份订阅无法启用。
 

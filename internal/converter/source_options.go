@@ -31,6 +31,58 @@ type fakeIPOptions struct {
 	ExclusionRules []map[string]any
 }
 
+// applyNodeHostAliases applies Clash hosts domain aliases to proxy server
+// addresses before the generated outbound uses an explicit domain_resolver.
+// A targeted domain_resolver bypasses DNS rule matching in sing-box, so the
+// predefined CNAME rules alone cannot affect an outbound's own server lookup.
+func applyNodeHostAliases(nodes []map[string]any, aliases []hostAlias) int {
+	if len(nodes) == 0 || len(aliases) == 0 {
+		return 0
+	}
+	targets := make(map[string]string, len(aliases))
+	for _, alias := range aliases {
+		targets[strings.ToLower(alias.Domain)] = alias.Target
+	}
+
+	applied := 0
+	for _, node := range nodes {
+		original := normalizeDNSName(asString(node["server"]))
+		if original == "" {
+			continue
+		}
+		current := original
+		visited := map[string]bool{}
+		for {
+			key := strings.ToLower(current)
+			if visited[key] {
+				current = original
+				break
+			}
+			visited[key] = true
+			target, ok := targets[key]
+			if !ok {
+				break
+			}
+			current = target
+		}
+		if strings.EqualFold(current, original) {
+			continue
+		}
+		node["server"] = current
+		preserveTLSServerName(node, original)
+		applied++
+	}
+	return applied
+}
+
+func preserveTLSServerName(node map[string]any, original string) {
+	tls, ok := normalizeMap(node["tls"])
+	if !ok || !parseBool(tls["enabled"]) || asString(tls["server_name"]) != "" {
+		return
+	}
+	tls["server_name"] = original
+}
+
 func clashSourceOptions(root map[string]any) sourceOptions {
 	var out sourceOptions
 	if hosts, ok := normalizeMap(root["hosts"]); ok {

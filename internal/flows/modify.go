@@ -26,7 +26,7 @@ import (
 )
 
 var modifyConfigOptions = []string{
-	"订阅管理（增 / 删 / 改名 / 切换 / 刷新）",
+	"订阅管理（增 / 删 / 改名 / 切换 / 刷新 / 重建）",
 	"部署设置（TUN / 面板 / 下载）",
 	"自定义分流叠加（AI / 流媒体 / 地区组）",
 	"重新初始化",
@@ -146,9 +146,9 @@ func subscriptionsMenu(p paths.Paths) error {
 			}
 			fmt.Println("  • " + line)
 		}
-		// 顺序按常用程度排列：切换/刷新已有订阅最常用，新增/导入次之，改名/删除最少见。
+		// 顺序按常用程度排列：切换/刷新/重建已有订阅最常用，新增/导入次之，改名/删除最少见。
 		a, err := tui.Select(i18n.T("订阅操作"),
-			[]string{i18n.T("切换生效订阅"), i18n.T("刷新订阅"), i18n.T("添加订阅"), i18n.T("本地文件覆盖"), i18n.T("重命名"), i18n.T("删除订阅")},
+			[]string{i18n.T("切换生效订阅"), i18n.T("刷新订阅"), i18n.T("重新生成配置"), i18n.T("添加订阅"), i18n.T("本地文件覆盖"), i18n.T("重命名"), i18n.T("删除订阅")},
 			tui.SelectOpts{BackLabel: i18n.T("返回上层"), Initial: act})
 		if err != nil {
 			return nil // 返回上层菜单（改动仍在会话缓冲中）
@@ -157,6 +157,7 @@ func subscriptionsMenu(p paths.Paths) error {
 		ops := []func() error{
 			func() error { return subSwitch(p) },
 			func() error { return subRefresh(p) },
+			func() error { return subRebuild(p) },
 			func() error { return subAdd(p) },
 			func() error { return importConfigFlow(p) },
 			func() error { return subRename(p) },
@@ -240,6 +241,21 @@ func subRefresh(p paths.Paths) error {
 	}
 	active := subscription.GetActive(p)
 	if _, err := subscription.Refresh(p, name); err != nil {
+		return err
+	}
+	if active != nil && active.Name == name {
+		return maybeNodeSelect(p)
+	}
+	return nil
+}
+
+func subRebuild(p paths.Paths) error {
+	name, err := pickSub(p, i18n.T("重新生成哪个订阅"))
+	if err != nil || name == "" {
+		return err
+	}
+	active := subscription.GetActive(p)
+	if _, err := subscription.Rebuild(p, name); err != nil {
 		return err
 	}
 	if active != nil && active.Name == name {

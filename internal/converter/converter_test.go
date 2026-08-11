@@ -183,7 +183,7 @@ hosts:
   dual.example: [192.0.2.1, 2001:db8::1]
   invalid.example: [192.0.2.2, target.example]
 proxies:
-  - {name: ss-01, type: ss, server: 1.2.3.4, port: 443, cipher: aes-128-gcm, password: pw}
+  - {name: ss-01, type: ss, server: agent.example, port: 443, cipher: aes-128-gcm, password: pw}
 `
 	result, info, err := ClashToSingBox(raw, config.Defaults(), paths.FromRoot(t.TempDir()))
 	if err != nil {
@@ -225,6 +225,46 @@ proxies:
 		if _, ok := predefined["dual.example"].([]string); !ok {
 			t.Fatalf("IP array was not preserved: %#v", predefined)
 		}
+	}
+	var aliasedNode map[string]any
+	for _, outbound := range result.Outbounds {
+		if outbound["tag"] == "ss-01" {
+			aliasedNode = outbound
+			break
+		}
+	}
+	if aliasedNode["server"] != "bad18bj2-1f25.apt-agent.org" {
+		t.Fatalf("node hosts alias was not applied before direct DNS lookup: %#v", aliasedNode)
+	}
+	if info["applied_node_host_aliases"] != 1 {
+		t.Fatalf("applied node host aliases = %#v", info["applied_node_host_aliases"])
+	}
+}
+
+func TestClashNodeHostAliasPreservesImplicitTLSServerName(t *testing.T) {
+	raw := `
+hosts:
+  edge.example: origin.example
+proxies:
+  - {name: vmess-tls, type: vmess, server: edge.example, port: 443, uuid: 00000000-0000-0000-0000-000000000001, alterId: 0, cipher: auto, tls: true}
+`
+	result, _, err := ClashToSingBox(raw, config.Defaults(), paths.FromRoot(t.TempDir()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var node map[string]any
+	for _, outbound := range result.Outbounds {
+		if outbound["tag"] == "vmess-tls" {
+			node = outbound
+			break
+		}
+	}
+	if node["server"] != "origin.example" {
+		t.Fatalf("node server = %#v", node["server"])
+	}
+	tls, _ := node["tls"].(map[string]any)
+	if tls["server_name"] != "edge.example" {
+		t.Fatalf("implicit TLS server name was not preserved: %#v", tls)
 	}
 }
 
