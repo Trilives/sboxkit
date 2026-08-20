@@ -20,7 +20,7 @@ func testPaths(t *testing.T) paths.Paths {
 
 func TestLoadMergesKnownFieldsWithDefaults(t *testing.T) {
 	p := testPaths(t)
-	data := []byte(`{"enable_tun":false,"unknown":"ignored","download_proxy":"http://127.0.0.1:7890","enable_file_log":true,"log_max_mb":12}`)
+	data := []byte(`{"enable_tun":false,"unknown":"ignored","download_proxy":"http://127.0.0.1:7890","enable_file_log":true,"log_max_mb":12,"bootstrap_dns_type":"https","bootstrap_dns_path":"/custom-dns-query","bootstrap_dns_tls_server_name":"dns.example"}`)
 	if err := os.WriteFile(p.CustomizeFile, data, 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -41,8 +41,43 @@ func TestLoadMergesKnownFieldsWithDefaults(t *testing.T) {
 	if cfg.LogMaxMB != 12 {
 		t.Fatalf("unexpected log max MB %d", cfg.LogMaxMB)
 	}
+	if cfg.BootstrapDNSType != "https" {
+		t.Fatalf("unexpected bootstrap DNS type %q", cfg.BootstrapDNSType)
+	}
+	if cfg.BootstrapDNSPath != "/custom-dns-query" {
+		t.Fatalf("unexpected bootstrap DNS path %q", cfg.BootstrapDNSPath)
+	}
+	if cfg.BootstrapDNSTLSServerName != "dns.example" {
+		t.Fatalf("unexpected bootstrap DNS TLS server name %q", cfg.BootstrapDNSTLSServerName)
+	}
 	if cfg.MixedPort != DefaultMixedPort {
 		t.Fatalf("missing mixed_port should default to %d, got %d", DefaultMixedPort, cfg.MixedPort)
+	}
+}
+
+func TestOldCustomizeDefaultsToSafeBootstrapAndEnabledResilience(t *testing.T) {
+	p := testPaths(t)
+	if err := os.WriteFile(p.CustomizeFile, []byte(`{"bootstrap_dns_server":"223.5.5.5","bootstrap_dns_port":53}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Load(p)
+	if cfg.BootstrapDNSType != "tcp" {
+		t.Fatalf("old customize bootstrap type = %q, want safe tcp default", cfg.BootstrapDNSType)
+	}
+	if !cfg.EnableResilience {
+		t.Fatal("old customize should opt into resilience repair by default")
+	}
+}
+
+func TestResiliencePreferenceRoundTrips(t *testing.T) {
+	p := testPaths(t)
+	cfg := Defaults()
+	cfg.EnableResilience = false
+	if err := Save(p, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if Load(p).EnableResilience {
+		t.Fatal("explicitly disabled resilience preference was not preserved")
 	}
 }
 
@@ -73,6 +108,9 @@ func TestSaveWritesJSON(t *testing.T) {
 	p := testPaths(t)
 	cfg := Defaults()
 	cfg.GitHubToken = "secret"
+	cfg.BootstrapDNSType = "https"
+	cfg.BootstrapDNSPath = "/dns-query"
+	cfg.BootstrapDNSTLSServerName = "cloudflare-dns.com"
 
 	if err := Save(p, cfg); err != nil {
 		t.Fatalf("save config: %v", err)
@@ -84,6 +122,9 @@ func TestSaveWritesJSON(t *testing.T) {
 	loaded := Load(p)
 	if loaded.GitHubToken != "secret" {
 		t.Fatal("expected saved GitHub token to round-trip")
+	}
+	if loaded.BootstrapDNSType != "https" || loaded.BootstrapDNSPath != "/dns-query" || loaded.BootstrapDNSTLSServerName != "cloudflare-dns.com" {
+		t.Fatalf("bootstrap DNS fields did not round-trip: %#v", loaded)
 	}
 }
 
@@ -120,6 +161,18 @@ func TestSetFieldUpdatesLoggingFields(t *testing.T) {
 	}
 	if cfg.LogMaxMB != 20 {
 		t.Fatalf("log_max_mb = %d, want 20", cfg.LogMaxMB)
+	}
+}
+
+func TestBootstrapDNSTypeValidation(t *testing.T) {
+	cfg := Defaults()
+	for _, value := range []string{"udp", "tcp", "https", "dhcp"} {
+		if err := SetField(&cfg, "bootstrap_dns_type", value); err != nil {
+			t.Fatalf("set bootstrap_dns_type=%q: %v", value, err)
+		}
+	}
+	if err := SetField(&cfg, "bootstrap_dns_type", "bogus"); err == nil {
+		t.Fatal("expected invalid bootstrap_dns_type to be rejected")
 	}
 }
 

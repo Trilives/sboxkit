@@ -61,6 +61,62 @@ func TestClashToSingBoxUsesConfiguredMixedPort(t *testing.T) {
 	t.Fatal("mixed inbound not found")
 }
 
+func TestClashToSingBoxBuildsDirectBootstrapDNSWithoutUnusedFallbackServer(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.BootstrapDNSType = "tcp"
+	result, _, err := ClashToSingBox(testkit.ReadFixture(t, "testdata/converter/clash-basic.yaml"), cfg, paths.FromRoot(t.TempDir()))
+	if err != nil {
+		t.Fatalf("convert clash: %v", err)
+	}
+	servers, _ := result.DNS["servers"].([]map[string]any)
+	foundBootstrap := false
+	for _, server := range servers {
+		if server["tag"] == bootstrapDNSTag {
+			foundBootstrap = true
+			if server["type"] != "tcp" {
+				t.Fatalf("bootstrap DNS type = %v, want tcp", server["type"])
+			}
+		}
+		if server["tag"] == "dns-dnspod" {
+			t.Fatalf("unused dnspod fallback server should be removed: %#v", servers)
+		}
+	}
+	if !foundBootstrap {
+		t.Fatalf("bootstrap DNS server missing: %#v", servers)
+	}
+}
+
+func TestClashToSingBoxBuildsDirectBootstrapDoHWithoutResolverLoop(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.BootstrapDNSType = "https"
+	cfg.BootstrapDNSServer = "1.1.1.1"
+	cfg.BootstrapDNSPort = 443
+	cfg.BootstrapDNSPath = "/dns-query"
+	cfg.BootstrapDNSTLSServerName = "cloudflare-dns.com"
+	result, _, err := ClashToSingBox(testkit.ReadFixture(t, "testdata/converter/clash-basic.yaml"), cfg, paths.FromRoot(t.TempDir()))
+	if err != nil {
+		t.Fatalf("convert clash: %v", err)
+	}
+	servers, _ := result.DNS["servers"].([]map[string]any)
+	for _, server := range servers {
+		if server["tag"] != bootstrapDNSTag {
+			continue
+		}
+		if server["type"] != "https" || server["detour"] != "DIRECT" {
+			t.Fatalf("unexpected bootstrap DoH server: %#v", server)
+		}
+		if _, ok := server["domain_resolver"]; ok {
+			t.Fatalf("bootstrap DoH must not depend on another resolver: %#v", server)
+		}
+		tls, _ := server["tls"].(map[string]any)
+		if tls["server_name"] != "cloudflare-dns.com" {
+			t.Fatalf("bootstrap DoH TLS server_name missing: %#v", server)
+		}
+		return
+	}
+	t.Fatal("bootstrap DoH server not found")
+}
+
 func TestClashToSingBoxAlwaysSetsExternalUI(t *testing.T) {
 	// 面板走 sing-box 内置的 :9090/ui/ 路径（与 mihomo 版一致），因此 external_ui
 	// 始终指向内置面板目录，不随 lan_panel 开关变化——lan_panel 只决定
