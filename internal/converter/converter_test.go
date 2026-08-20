@@ -117,6 +117,35 @@ func TestClashToSingBoxBuildsDirectBootstrapDoHWithoutResolverLoop(t *testing.T)
 	t.Fatal("bootstrap DoH server not found")
 }
 
+func TestClashToSingBoxBuildsUDPAndDHCPBootstrapDNS(t *testing.T) {
+	for _, dnsType := range []string{"udp", "dhcp"} {
+		t.Run(dnsType, func(t *testing.T) {
+			cfg := config.Defaults()
+			cfg.BootstrapDNSType = dnsType
+			result, _, err := ClashToSingBox(testkit.ReadFixture(t, "testdata/converter/clash-basic.yaml"), cfg, paths.FromRoot(t.TempDir()))
+			if err != nil {
+				t.Fatalf("convert clash: %v", err)
+			}
+			servers, _ := result.DNS["servers"].([]map[string]any)
+			for _, server := range servers {
+				if server["tag"] != bootstrapDNSTag {
+					continue
+				}
+				if server["type"] != dnsType {
+					t.Fatalf("bootstrap DNS type = %v, want %s", server["type"], dnsType)
+				}
+				if dnsType == "dhcp" {
+					if _, ok := server["server"]; ok {
+						t.Fatalf("DHCP bootstrap should not include a server: %#v", server)
+					}
+				}
+				return
+			}
+			t.Fatalf("bootstrap DNS server missing: %#v", servers)
+		})
+	}
+}
+
 func TestClashToSingBoxAlwaysSetsExternalUI(t *testing.T) {
 	// 面板走 sing-box 内置的 :9090/ui/ 路径（与 mihomo 版一致），因此 external_ui
 	// 始终指向内置面板目录，不随 lan_panel 开关变化——lan_panel 只决定
@@ -443,6 +472,17 @@ func TestGeneratedConfigsPassReleaseSingBoxCheck(t *testing.T) {
 		cfg  config.Config
 	}{
 		{name: "default TUN", raw: testkit.ReadFixture(t, "testdata/converter/clash-basic.yaml"), cfg: config.Defaults()},
+		{name: "bootstrap DoH", raw: testkit.ReadFixture(t, "testdata/converter/clash-basic.yaml"), cfg: func() config.Config {
+			cfg := config.Defaults()
+			cfg.BootstrapDNSType = "https"
+			cfg.BootstrapDNSPort = 443
+			return cfg
+		}()},
+		{name: "bootstrap DHCP", raw: testkit.ReadFixture(t, "testdata/converter/clash-basic.yaml"), cfg: func() config.Config {
+			cfg := config.Defaults()
+			cfg.BootstrapDNSType = "dhcp"
+			return cfg
+		}()},
 		{name: "FakeIP", raw: `dns: {enhanced-mode: fake-ip, fake-ip-filter: ["*.lan"]}
 proxies:
   - {name: ss-01, type: ss, server: edge.provider.example, port: 443, cipher: aes-128-gcm, password: pw}`,

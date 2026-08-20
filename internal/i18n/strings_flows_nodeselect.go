@@ -13,6 +13,9 @@ func init() {
 		"\r\033[K  测速中… %d/%d": "\r\033[K  Testing latency… %d/%d",
 		"测速完成：%d/%d 可用":        "Latency test done: %d/%d available",
 		"超时":                   "Timeout",
+		"当前":                   "Current",
+		"分组 %s 当前节点：%s":        "Current node for group %s: %s",
+		"分组 %s 当前节点：未知":        "Current node for group %s: unknown",
 
 		// 地区菜单标签（对应 regions 数据里的 label 字段；kws 匹配关键词保持中文原样，不翻译）
 		"🇭🇰 香港":  "🇭🇰 Hong Kong",

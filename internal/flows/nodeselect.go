@@ -288,10 +288,18 @@ func pickNode(p paths.Paths, configPath, group string) (*pickResult, error) {
 	// 节点切换走 Clash API 热切换，直接连 API 实时测速/切换
 	api := clashapi.FromConfig(cfg)
 	apiOK := api != nil && api.Reachable()
+	var runtimeCurrent func(string) (string, error)
 	if apiOK {
 		execx.Info(i18n.T("已连上 Clash API，列表将实时测速。"))
+		runtimeCurrent = api.Current
 	} else {
 		execx.Info(i18n.T("Clash API 不可达，跳过测速。"))
+	}
+	current := currentNode(target, cfg, runtimeCurrent)
+	if current != "" {
+		execx.Info(fmt.Sprintf(i18n.T("分组 %s 当前节点：%s"), groupName, current))
+	} else {
+		execx.Info(fmt.Sprintf(i18n.T("分组 %s 当前节点：未知"), groupName))
 	}
 
 	type menuEntry struct {
@@ -330,14 +338,7 @@ func pickNode(p paths.Paths, configPath, group string) (*pickResult, error) {
 		if apiOK {
 			delays = measure(api, entry.items)
 		}
-		nodeLabels := make([]string, len(entry.items))
-		for j, name := range entry.items {
-			if apiOK {
-				nodeLabels[j] = fmt.Sprintf("%s   %s", name, fmtDelay(delays, name))
-			} else {
-				nodeLabels[j] = name
-			}
-		}
+		nodeLabels := nodeMenuLabels(entry.items, delays, current, apiOK)
 		nidx, err := tui.Select(entry.label, nodeLabels, tui.SelectOpts{SaveLabel: i18n.T("返回地区/分组"), BackLabel: i18n.T("放弃并退出")})
 		if err != nil {
 			if errors.Is(err, errs.ErrSaveExit) {

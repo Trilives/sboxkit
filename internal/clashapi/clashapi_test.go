@@ -8,8 +8,8 @@ import (
 
 func TestCurrentReturnsSelectedNode(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/proxies/Proxy%20Group" {
-			t.Fatalf("path = %q", r.URL.Path)
+		if r.URL.EscapedPath() != "/proxies/Proxy%20Group" {
+			t.Fatalf("path = %q", r.URL.EscapedPath())
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"now":"sg-02"}`))

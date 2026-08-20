@@ -266,6 +266,7 @@ func Install(p paths.Paths, name string, start bool) error {
 	} else {
 		execx.Ok(i18n.T("服务已设为开机自启（未启动）: ") + name + ".service")
 	}
+	reconcileResilienceBestEffort(p, name)
 	return nil
 }
 
@@ -311,7 +312,14 @@ func SyncAndRestart(p paths.Paths, name string) error {
 		return err
 	}
 	execx.Ok(i18n.T("已同步配置并重启: ") + name + ".service")
+	reconcileResilienceBestEffort(p, name)
 	return nil
+}
+
+func reconcileResilienceBestEffort(p paths.Paths, name string) {
+	if err := ReconcileResilience(p, name); err != nil {
+		execx.Warn(fmt.Sprintf(i18n.T("修复网络自愈失败（主服务不受影响）：%v"), err))
+	}
 }
 
 // Remove 停止/禁用/删除服务，并清理运行时文件。

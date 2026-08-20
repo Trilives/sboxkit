@@ -17,27 +17,42 @@ import (
 )
 
 func resilienceMenuFlow() error {
-	installed := sysd.ResilienceInstalled()
+	p := paths.Detect()
+	cfg := config.Load(p)
+	resilienceStatus, statusErr := sysd.InspectResilience(sysd.DefaultName, !cfg.EnableResilience)
+	complete := statusErr == nil && resilienceStatus.Complete()
+	present := statusErr == nil && resilienceStatus.AnyInstalled()
 	status := i18n.T("未安装")
 	opts := []string{i18n.T("安装网络自愈")}
-	if installed {
+	if complete {
 		status = i18n.T("已安装")
 		opts = []string{i18n.T("调整探测间隔"), i18n.T("卸载网络自愈")}
+	} else if present {
+		status = i18n.T("安装不完整或已禁用")
+		opts = []string{i18n.T("修复并启用网络自愈"), i18n.T("卸载网络自愈")}
 	}
 	idx, err := tui.Select(fmt.Sprintf(i18n.T("网络自愈设置（当前：%s）"), status), opts, tui.SelectOpts{})
 	if err != nil {
 		return nil
 	}
 	switch {
-	case !installed:
+	case !complete && (!present || idx == 0):
+		cfg.EnableResilience = true
+		if err := config.Save(p, cfg); err != nil {
+			return err
+		}
 		return sysd.InstallResilience(sysd.ResilienceOptions{})
-	case idx == 0:
+	case complete && idx == 0:
 		interval, err := tui.Ask(i18n.T("探测间隔（如 2min / 90s）"), tui.AskOpts{Default: "2min"})
 		if err != nil {
 			return nil
 		}
 		return sysd.InstallResilience(sysd.ResilienceOptions{Interval: interval})
 	default:
+		cfg.EnableResilience = false
+		if err := config.Save(p, cfg); err != nil {
+			return err
+		}
 		return sysd.RemoveResilience(sysd.DefaultName)
 	}
 }

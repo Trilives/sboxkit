@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/Trilives/sboxkit/internal/config"
 	"github.com/Trilives/sboxkit/internal/execx"
 	"github.com/Trilives/sboxkit/internal/i18n"
 	"github.com/Trilives/sboxkit/internal/paths"
@@ -126,7 +127,7 @@ func InstallResilience(opts ResilienceOptions) error {
 		execx.Warn(dispatcherDir + i18n.T(" 不存在，跳过 NM 钩子（watchdog 仍兜底）。"))
 	}
 
-	exe, err := os.Executable()
+	exe, err := StableExecutablePath()
 	if err != nil {
 		return fmt.Errorf(i18n.T("定位 sboxkit 可执行文件: %w"), err)
 	}
@@ -169,4 +170,44 @@ func RemoveResilience(name string) error {
 func ResilienceInstalled() bool {
 	_, err := os.Stat(wdTimer())
 	return err == nil
+}
+
+// InspectResilience returns the complete three-component installation state.
+// userDisabled comes from customize.json and suppresses NeedsRepair while still
+// exposing any files left behind from an older installation.
+func InspectResilience(name string, userDisabled bool) (ResilienceStatus, error) {
+	opts := ResilienceOptions{Name: name}
+	opts.defaults()
+	exe, err := StableExecutablePath()
+	if err != nil {
+		return ResilienceStatus{}, fmt.Errorf(i18n.T("定位 sboxkit 可执行文件: %w"), err)
+	}
+	enabled := systemdUnitState(WatchdogName+".timer", "enabled")
+	active := systemdUnitState(WatchdogName+".timer", "active")
+	return inspectResilienceStatus(
+		defaultResilienceLayout, opts.Name, opts.Interval, opts.TunDev, exe,
+		enabled, userDisabled, active,
+	), nil
+}
+
+// ReconcileResilience repairs missing, partial, stale, disabled, or inactive
+// watchdog installations. It is intentionally a no-op for an explicitly
+// disabled preference and when the primary service has not been installed.
+func ReconcileResilience(p paths.Paths, name string) error {
+	if name == "" {
+		name = DefaultName
+	}
+	cfg := config.Load(p)
+	if !cfg.EnableResilience || !IsInstalled(name) {
+		return nil
+	}
+	status, err := InspectResilience(name, false)
+	if err != nil {
+		return err
+	}
+	if !status.NeedsRepair {
+		return nil
+	}
+	execx.Info(i18n.T("检测到网络自愈组件缺失或过期，正在修复…"))
+	return InstallResilience(ResilienceOptions{Name: name})
 }

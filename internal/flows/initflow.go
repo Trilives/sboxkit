@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/Trilives/sboxkit/internal/config"
 	"github.com/Trilives/sboxkit/internal/errs"
 	"github.com/Trilives/sboxkit/internal/execx"
 	"github.com/Trilives/sboxkit/internal/i18n"
@@ -67,7 +68,7 @@ func Init(p paths.Paths) error {
 	optionalPostStartUpdate(p)
 
 	// 5. 可选增强：网络自愈 / 每周更新，各自独立，互不影响、也不影响服务本身。
-	optionalExtras()
+	optionalExtras(p)
 
 	// 6. 提示是否临时切换节点
 	ok, err := tui.Confirm(i18n.T("配置已就绪，是否现在切换节点？"), false)
@@ -203,8 +204,8 @@ func optionalPostStartUpdate(p paths.Paths) {
 
 // optionalExtras 步骤 5：网络自愈 / 每周更新各自独立一个事务，互不影响，
 // 也不影响此前已经成功注册启动的服务；任一项失败只警告、不中断另一项。
-func optionalExtras() {
-	if err := installResilienceIfWanted(); err != nil && !errors.Is(err, errs.ErrCancelled) {
+func optionalExtras(p paths.Paths) {
+	if err := installResilienceIfWanted(p); err != nil && !errors.Is(err, errs.ErrCancelled) {
 		execx.Warn(fmt.Sprintf(i18n.T("安装网络自愈失败：%v"), err))
 	}
 	if err := installTimerIfWanted(); err != nil && !errors.Is(err, errs.ErrCancelled) {
@@ -212,14 +213,31 @@ func optionalExtras() {
 	}
 }
 
-func installResilienceIfWanted() error {
+func installResilienceIfWanted(p paths.Paths) error {
 	return txn.Run(i18n.T("网络自愈"), func(t *txn.Transaction) error {
 		ok, err := tui.Confirm(i18n.T("安装网络切换自愈？"), true)
 		if err != nil {
 			return err
 		}
 		if !ok {
+			cfg := config.Load(p)
+			cfg.EnableResilience = false
+			if err := config.Save(p, cfg); err != nil {
+				return err
+			}
+			status, inspectErr := sysd.InspectResilience(sysd.DefaultName, true)
+			if inspectErr == nil && status.AnyInstalled() {
+				return sysd.RemoveResilience(sysd.DefaultName)
+			}
 			return nil
+		}
+		if err := t.BackupFile(p.CustomizeFile); err != nil {
+			return err
+		}
+		cfg := config.Load(p)
+		cfg.EnableResilience = true
+		if err := config.Save(p, cfg); err != nil {
+			return err
 		}
 		t.AddUndo(i18n.T("卸载网络自愈"), func() error { return sysd.RemoveResilience(sysd.DefaultName) })
 		return sysd.InstallResilience(sysd.ResilienceOptions{})

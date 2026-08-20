@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -22,33 +23,37 @@ import (
 )
 
 type Config struct {
-	AIDomainSuffixes        []string `json:"ai_domain_suffixes"`
-	StreamingDomainSuffixes []string `json:"streaming_domain_suffixes"`
-	DirectDomainSuffixes    []string `json:"direct_domain_suffixes"`
-	FakeIPFilter            []string `json:"fake_ip_filter"`
-	LocalBypassDomains      []string `json:"local_bypass_domains"`
-	RouteExcludeIPCidrs     []string `json:"route_exclude_ip_cidrs"`
-	BypassProcessNames      []string `json:"bypass_process_names"`
-	TunExcludeUIDs          []int    `json:"tun_exclude_uids"`
-	EnableTun               bool     `json:"enable_tun"`
-	LanPanel                bool     `json:"lan_panel"`
-	LanProxy                bool     `json:"lan_proxy"`
-	MixedPort               int      `json:"mixed_port"`
-	BootstrapDNSServer      string   `json:"bootstrap_dns_server"`
-	BootstrapDNSPort        int      `json:"bootstrap_dns_port"`
-	GenerateSGGroups        bool     `json:"generate_sg_groups"`
-	GenerateHKGroups        bool     `json:"generate_hk_groups"`
-	PreferKeywords          []string `json:"prefer_keywords"`
-	HKPreferKeywords        []string `json:"hk_prefer_keywords"`
-	DefaultOutbound         string   `json:"default_outbound"`
-	SubconverterBackend     string   `json:"subconverter_backend"`
-	Base64LocalFallback     bool     `json:"base64_local_fallback"`
-	GitHubMirror            string   `json:"github_mirror"`
-	DownloadProxy           string   `json:"download_proxy"`
-	GitHubToken             string   `json:"github_token"`
-	EnableFileLog           bool     `json:"enable_file_log"`
-	LogMaxMB                int      `json:"log_max_mb"`
-	Language                string   `json:"language"`
+	AIDomainSuffixes          []string `json:"ai_domain_suffixes"`
+	StreamingDomainSuffixes   []string `json:"streaming_domain_suffixes"`
+	DirectDomainSuffixes      []string `json:"direct_domain_suffixes"`
+	FakeIPFilter              []string `json:"fake_ip_filter"`
+	LocalBypassDomains        []string `json:"local_bypass_domains"`
+	RouteExcludeIPCidrs       []string `json:"route_exclude_ip_cidrs"`
+	BypassProcessNames        []string `json:"bypass_process_names"`
+	TunExcludeUIDs            []int    `json:"tun_exclude_uids"`
+	EnableTun                 bool     `json:"enable_tun"`
+	LanPanel                  bool     `json:"lan_panel"`
+	LanProxy                  bool     `json:"lan_proxy"`
+	MixedPort                 int      `json:"mixed_port"`
+	BootstrapDNSType          string   `json:"bootstrap_dns_type"`
+	BootstrapDNSServer        string   `json:"bootstrap_dns_server"`
+	BootstrapDNSPort          int      `json:"bootstrap_dns_port"`
+	BootstrapDNSPath          string   `json:"bootstrap_dns_path"`
+	BootstrapDNSTLSServerName string   `json:"bootstrap_dns_tls_server_name"`
+	EnableResilience          bool     `json:"enable_resilience"`
+	GenerateSGGroups          bool     `json:"generate_sg_groups"`
+	GenerateHKGroups          bool     `json:"generate_hk_groups"`
+	PreferKeywords            []string `json:"prefer_keywords"`
+	HKPreferKeywords          []string `json:"hk_prefer_keywords"`
+	DefaultOutbound           string   `json:"default_outbound"`
+	SubconverterBackend       string   `json:"subconverter_backend"`
+	Base64LocalFallback       bool     `json:"base64_local_fallback"`
+	GitHubMirror              string   `json:"github_mirror"`
+	DownloadProxy             string   `json:"download_proxy"`
+	GitHubToken               string   `json:"github_token"`
+	EnableFileLog             bool     `json:"enable_file_log"`
+	LogMaxMB                  int      `json:"log_max_mb"`
+	Language                  string   `json:"language"`
 }
 
 // Defaults 返回一份全新的默认配置（列表均为拷贝，可放心修改）。
@@ -80,27 +85,31 @@ func Defaults() Config {
 			"10.0.0.0/8", "192.168.0.0/16", "169.254.0.0/16", "fc00::/7", "fe80::/10",
 			"100.64.0.0/10",
 		},
-		BypassProcessNames:  []string{"tailscale", "tailscaled"},
-		TunExcludeUIDs:      []int{},
-		EnableTun:           true,
-		LanPanel:            false,
-		LanProxy:            false,
-		MixedPort:           DefaultMixedPort,
-		BootstrapDNSServer:  "223.5.5.5",
-		BootstrapDNSPort:    53,
-		GenerateSGGroups:    false,
-		GenerateHKGroups:    false,
-		PreferKeywords:      []string{"Singapore", "SG", "新加坡", "狮城"},
-		HKPreferKeywords:    []string{"Hong Kong", "HongKong", "HK", "香港"},
-		DefaultOutbound:     "Proxy",
-		SubconverterBackend: "https://sub.v1.mk",
-		Base64LocalFallback: false,
-		GitHubMirror:        "",
-		DownloadProxy:       "",
-		GitHubToken:         "",
-		EnableFileLog:       false,
-		LogMaxMB:            10,
-		Language:            "en",
+		BypassProcessNames:        []string{"tailscale", "tailscaled"},
+		TunExcludeUIDs:            []int{},
+		EnableTun:                 true,
+		LanPanel:                  false,
+		LanProxy:                  false,
+		MixedPort:                 DefaultMixedPort,
+		BootstrapDNSType:          DefaultBootstrapDNSType,
+		BootstrapDNSServer:        DefaultBootstrapDNSServer,
+		BootstrapDNSPort:          53,
+		BootstrapDNSPath:          DefaultBootstrapDNSPath,
+		BootstrapDNSTLSServerName: DefaultBootstrapDNSTLSServerName,
+		EnableResilience:          true,
+		GenerateSGGroups:          false,
+		GenerateHKGroups:          false,
+		PreferKeywords:            []string{"Singapore", "SG", "新加坡", "狮城"},
+		HKPreferKeywords:          []string{"Hong Kong", "HongKong", "HK", "香港"},
+		DefaultOutbound:           "Proxy",
+		SubconverterBackend:       "https://sub.v1.mk",
+		Base64LocalFallback:       false,
+		GitHubMirror:              "",
+		DownloadProxy:             "",
+		GitHubToken:               "",
+		EnableFileLog:             false,
+		LogMaxMB:                  10,
+		Language:                  "en",
 	}
 }
 
@@ -129,18 +138,22 @@ var BoolFields = map[string]string{
 	"generate_hk_groups":    "生成香港自动测速聚合组",
 	"base64_local_fallback": "base64 应急本地解析",
 	"enable_file_log":       "保存文件日志",
+	"enable_resilience":     "网络自愈",
 }
 
 var ScalarFields = map[string]string{
-	"mixed_port":           "本地代理 mixed 端口",
-	"bootstrap_dns_server": "引导 DNS 服务器",
-	"bootstrap_dns_port":   "引导 DNS 端口",
-	"default_outbound":     "默认出站（节点切换的目标分组）",
-	"subconverter_backend": "subconverter 后端",
-	"github_mirror":        "GitHub 加速前缀",
-	"download_proxy":       "下载代理",
-	"github_token":         "GitHub Token",
-	"log_max_mb":           "日志大小上限（MB）",
+	"mixed_port":                    "本地代理 mixed 端口",
+	"bootstrap_dns_type":            "引导 DNS 类型",
+	"bootstrap_dns_server":          "引导 DNS 服务器",
+	"bootstrap_dns_port":            "引导 DNS 端口",
+	"bootstrap_dns_path":            "引导 DNS HTTPS 路径",
+	"bootstrap_dns_tls_server_name": "引导 DNS TLS 服务器名称",
+	"default_outbound":              "默认出站（节点切换的目标分组）",
+	"subconverter_backend":          "subconverter 后端",
+	"github_mirror":                 "GitHub 加速前缀",
+	"download_proxy":                "下载代理",
+	"github_token":                  "GitHub Token",
+	"log_max_mb":                    "日志大小上限（MB）",
 }
 
 // DeploymentFields 部署字段编辑分组（始终生效：TUN / 网络 / 面板 / 下载设置）。
@@ -155,8 +168,11 @@ var DeploymentFields = []string{
 	"github_token",
 	"subconverter_backend",
 	"base64_local_fallback",
+	"bootstrap_dns_type",
 	"bootstrap_dns_server",
 	"bootstrap_dns_port",
+	"bootstrap_dns_path",
+	"bootstrap_dns_tls_server_name",
 	"route_exclude_ip_cidrs",
 	"tun_exclude_uids",
 	"bypass_process_names",
@@ -211,7 +227,7 @@ func FieldLabel(cfg Config, key string) string {
 // FieldSummary 字段值的单行摘要（列表→条数，布尔→开/关，涉密→脱敏）。
 func FieldSummary(cfg Config, key string) string {
 	switch key {
-	case "enable_tun", "lan_panel", "lan_proxy", "generate_sg_groups", "generate_hk_groups", "base64_local_fallback", "enable_file_log":
+	case "enable_tun", "lan_panel", "lan_proxy", "generate_sg_groups", "generate_hk_groups", "base64_local_fallback", "enable_file_log", "enable_resilience":
 		if Bool(cfg, key) {
 			return i18n.T("开")
 		}
@@ -266,6 +282,8 @@ func Bool(cfg Config, key string) bool {
 		return cfg.Base64LocalFallback
 	case "enable_file_log":
 		return cfg.EnableFileLog
+	case "enable_resilience":
+		return cfg.EnableResilience
 	default:
 		return false
 	}
@@ -275,10 +293,16 @@ func Str(cfg Config, key string) string {
 	switch key {
 	case "mixed_port":
 		return strconv.Itoa(EffectiveMixedPort(cfg))
+	case "bootstrap_dns_type":
+		return EffectiveBootstrapDNSType(cfg)
 	case "bootstrap_dns_server":
 		return cfg.BootstrapDNSServer
 	case "bootstrap_dns_port":
 		return strconv.Itoa(cfg.BootstrapDNSPort)
+	case "bootstrap_dns_path":
+		return cfg.BootstrapDNSPath
+	case "bootstrap_dns_tls_server_name":
+		return cfg.BootstrapDNSTLSServerName
 	case "default_outbound":
 		return cfg.DefaultOutbound
 	case "subconverter_backend":
@@ -390,20 +414,49 @@ func SetField(cfg *Config, key string, value string) error {
 		cfg.Base64LocalFallback = parseBool(value)
 	case "enable_file_log":
 		cfg.EnableFileLog = parseBool(value)
+	case "enable_resilience":
+		cfg.EnableResilience = parseBool(value)
 	case "mixed_port":
 		port, err := ParsePort(value)
 		if err != nil {
 			return err
 		}
 		cfg.MixedPort = port
+	case "bootstrap_dns_type":
+		dnsType, err := ParseBootstrapDNSType(value)
+		if err != nil {
+			return err
+		}
+		cfg.BootstrapDNSType = dnsType
+		if dnsType == "https" && cfg.BootstrapDNSPort == 53 {
+			cfg.BootstrapDNSPort = 443
+		} else if (dnsType == "tcp" || dnsType == "udp") && cfg.BootstrapDNSPort == 443 {
+			cfg.BootstrapDNSPort = 53
+		}
 	case "bootstrap_dns_server":
-		cfg.BootstrapDNSServer = value
+		server := strings.TrimSpace(value)
+		if EffectiveBootstrapDNSType(*cfg) != "dhcp" && net.ParseIP(server) == nil {
+			return fmt.Errorf("%s", i18n.T("引导 DNS 服务器必须是 IP 地址"))
+		}
+		cfg.BootstrapDNSServer = server
 	case "bootstrap_dns_port":
-		port, err := strconv.Atoi(value)
+		port, err := ParsePort(value)
 		if err != nil {
 			return err
 		}
 		cfg.BootstrapDNSPort = port
+	case "bootstrap_dns_path":
+		path := strings.TrimSpace(value)
+		if path == "" || !strings.HasPrefix(path, "/") {
+			return fmt.Errorf("%s", i18n.T("引导 DNS HTTPS 路径必须以 / 开头"))
+		}
+		cfg.BootstrapDNSPath = path
+	case "bootstrap_dns_tls_server_name":
+		serverName := strings.TrimSpace(value)
+		if serverName == "" {
+			return fmt.Errorf("%s", i18n.T("引导 DNS TLS 服务器名称不能为空"))
+		}
+		cfg.BootstrapDNSTLSServerName = serverName
 	case "default_outbound":
 		cfg.DefaultOutbound = value
 	case "subconverter_backend":
@@ -480,6 +533,7 @@ func Load(p paths.Paths) Config {
 		return Defaults()
 	}
 	cfg.MixedPort = EffectiveMixedPort(cfg)
+	cfg = NormalizeBootstrapDNS(cfg)
 	return cfg
 }
 
@@ -489,6 +543,7 @@ func Save(p paths.Paths, cfg Config) error {
 		return err
 	}
 	cfg.MixedPort = EffectiveMixedPort(cfg)
+	cfg = NormalizeBootstrapDNS(cfg)
 	var buf []byte
 	buf, err := marshalNoEscape(cfg)
 	if err != nil {

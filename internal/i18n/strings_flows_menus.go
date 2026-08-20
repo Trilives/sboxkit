@@ -8,6 +8,8 @@ func init() {
 		"安装网络自愈":             "Install network self-healing",
 		"调整探测间隔":             "Adjust probe interval",
 		"卸载网络自愈":             "Uninstall network self-healing",
+		"安装不完整或已禁用":          "incomplete or disabled",
+		"修复并启用网络自愈":          "Repair and enable network self-healing",
 		"网络自愈设置（当前：%s）":      "Network Self-Healing Settings (current: %s)",
 		"探测间隔（如 2min / 90s）": "Probe interval (e.g. 2min / 90s)",
 

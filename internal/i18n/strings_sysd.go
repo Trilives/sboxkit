@@ -45,6 +45,8 @@ func init() {
 		"网络自愈已安装（探测间隔 %s）。":            "Network self-healing installed (probe interval %s).",
 		"卸载网络自愈":                       "Uninstall network self-healing",
 		"网络自愈已卸载。":                     "Network self-healing uninstalled.",
+		"检测到网络自愈组件缺失或过期，正在修复…":         "Missing or stale self-healing components detected; repairing…",
+		"修复网络自愈失败（主服务不受影响）：%v":         "Failed to repair network self-healing (the primary service is unaffected): %v",
 
 		"未找到 systemctl，定时器需要 systemd": "systemctl not found; the timer requires systemd",
 		"安装每周更新定时器":                   "Install weekly update timer",

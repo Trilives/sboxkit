@@ -47,6 +47,7 @@ func buildInbounds(cfg config.Config) []map[string]any {
 }
 
 func buildDNS(cfg config.Config, p paths.Paths, source sourceOptions) map[string]any {
+	cfg = config.NormalizeBootstrapDNS(cfg)
 	rules := []map[string]any{{"domain": cfg.LocalBypassDomains, "action": "route", "server": bootstrapDNSTag}}
 	servers := []map[string]any{}
 	hostRules := hostAliasRules(source.HostAliases)
@@ -77,14 +78,24 @@ func buildDNS(cfg config.Config, p paths.Paths, source sourceOptions) map[string
 		})
 	}
 
-	bootstrap := map[string]any{"type": "udp", "tag": bootstrapDNSTag, "server": cfg.BootstrapDNSServer, "server_port": cfg.BootstrapDNSPort, "detour": "DIRECT"}
-	if strings.EqualFold(cfg.BootstrapDNSServer, bootstrapDNSDHCP) {
+	bootstrapType := config.EffectiveBootstrapDNSType(cfg)
+	bootstrap := map[string]any{
+		"type": bootstrapType, "tag": bootstrapDNSTag,
+		"server": cfg.BootstrapDNSServer, "server_port": cfg.BootstrapDNSPort,
+		"detour": "DIRECT",
+	}
+	if bootstrapType == bootstrapDNSDHCP || strings.EqualFold(cfg.BootstrapDNSServer, bootstrapDNSDHCP) {
 		bootstrap = map[string]any{"type": "dhcp", "tag": bootstrapDNSTag, "detour": "DIRECT"}
+	} else if bootstrapType == "https" {
+		bootstrap["path"] = cfg.BootstrapDNSPath
+		bootstrap["tls"] = map[string]any{
+			"enabled":     true,
+			"server_name": cfg.BootstrapDNSTLSServerName,
+		}
 	}
 
 	servers = append(servers,
 		bootstrap,
-		map[string]any{"type": "udp", "tag": "dns-dnspod", "server": "119.29.29.29", "server_port": 53, "detour": "DIRECT"},
 		map[string]any{"type": "https", "tag": remoteDNSTag, "server": "1.1.1.1", "server_port": 443, "path": "/dns-query", "tls": map[string]any{"server_name": "cloudflare-dns.com"}, "detour": "Proxy"},
 	)
 	if source.FakeIP != nil {

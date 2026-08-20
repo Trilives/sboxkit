@@ -82,6 +82,28 @@ func (c *Client) Reachable() bool {
 	return resp.StatusCode < 400
 }
 
+// Current 返回 group 在运行时当前选中的节点。
+func (c *Client) Current(group string) (string, error) {
+	resp, err := c.req(http.MethodGet, "/proxies/"+url.PathEscape(group), nil, 4*time.Second)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	var out struct {
+		Now string `json:"now"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(out.Now) == "" {
+		return "", fmt.Errorf("empty current proxy")
+	}
+	return out.Now, nil
+}
+
 // Switch 实时切换 group 的选中节点（PUT /proxies/{group}）。
 func (c *Client) Switch(group, node string) error {
 	body, _ := json.Marshal(map[string]string{"name": node})

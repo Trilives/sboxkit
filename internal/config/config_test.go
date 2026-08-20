@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/Trilives/sboxkit/internal/paths"
@@ -173,6 +174,57 @@ func TestBootstrapDNSTypeValidation(t *testing.T) {
 	}
 	if err := SetField(&cfg, "bootstrap_dns_type", "bogus"); err == nil {
 		t.Fatal("expected invalid bootstrap_dns_type to be rejected")
+	}
+}
+
+func TestBootstrapDNSTypeAdjustsConventionalPort(t *testing.T) {
+	cfg := Defaults()
+	if err := SetField(&cfg, "bootstrap_dns_type", "https"); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.BootstrapDNSPort != 443 {
+		t.Fatalf("https port = %d, want 443", cfg.BootstrapDNSPort)
+	}
+	if err := SetField(&cfg, "bootstrap_dns_type", "tcp"); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.BootstrapDNSPort != 53 {
+		t.Fatalf("tcp port = %d, want 53", cfg.BootstrapDNSPort)
+	}
+}
+
+func TestBootstrapDNSServerRequiresIPAddressAndInvalidStoredValueFallsBack(t *testing.T) {
+	cfg := Defaults()
+	if err := SetField(&cfg, "bootstrap_dns_server", "dns.example"); err == nil {
+		t.Fatal("expected domain bootstrap server to be rejected")
+	}
+
+	p := testPaths(t)
+	if err := os.WriteFile(p.CustomizeFile, []byte(`{"bootstrap_dns_type":"https","bootstrap_dns_server":"dns.example","bootstrap_dns_port":443}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded := Load(p)
+	if loaded.BootstrapDNSServer != DefaultBootstrapDNSServer {
+		t.Fatalf("invalid stored bootstrap server = %q, want %q", loaded.BootstrapDNSServer, DefaultBootstrapDNSServer)
+	}
+	if loaded.BootstrapDNSTLSServerName != DefaultBootstrapDNSTLSServerName {
+		t.Fatalf("fallback TLS server name = %q, want %q", loaded.BootstrapDNSTLSServerName, DefaultBootstrapDNSTLSServerName)
+	}
+}
+
+func TestEnableResilienceIsRuntimeOnlyConfig(t *testing.T) {
+	cfg := Defaults()
+	if !Bool(cfg, "enable_resilience") {
+		t.Fatal("resilience should default to enabled")
+	}
+	if err := SetField(&cfg, "enable_resilience", "false"); err != nil {
+		t.Fatal(err)
+	}
+	if Bool(cfg, "enable_resilience") {
+		t.Fatal("SetField did not disable resilience")
+	}
+	if slices.Contains(DeploymentFields, "enable_resilience") {
+		t.Fatal("runtime resilience preference must not appear in DeploymentFields")
 	}
 }
 
