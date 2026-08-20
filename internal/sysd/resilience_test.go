@@ -3,6 +3,7 @@ package sysd
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -66,7 +67,7 @@ func TestInspectResilienceStatusHonorsUserDisableMarker(t *testing.T) {
 	}
 }
 
-func TestInspectResilienceStatusRepairsInactiveTimer(t *testing.T) {
+func TestInspectResilienceStatusOnlyRepairsInactiveTimerWhenMainServiceIsActive(t *testing.T) {
 	root := t.TempDir()
 	layout := resilienceLayout{
 		dispatcherDir: filepath.Join(root, "dispatcher.d"),
@@ -90,8 +91,48 @@ func TestInspectResilienceStatusRepairsInactiveTimer(t *testing.T) {
 	}
 
 	st := inspectResilienceStatus(layout, DefaultName, "2min", "singbox", "/usr/bin/sboxkit", true, false, false)
-	if !st.NeedsRepair {
-		t.Fatalf("inactive enabled timer should need repair: %#v", st)
+	if st.NeedsRepair {
+		t.Fatalf("inactive enabled timer is not an installation defect: %#v", st)
+	}
+	if st.NeedsRuntimeRepair(false) {
+		t.Fatal("paused main service must not cause the watchdog timer to restart")
+	}
+	if !st.NeedsRuntimeRepair(true) {
+		t.Fatal("active main service should repair an unexpectedly inactive watchdog timer")
+	}
+}
+
+func TestInstalledWatchdogIntervalIsPreserved(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "watchdog.timer")
+	if err := os.WriteFile(file, []byte(wdTimerText("90s")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := installedWatchdogInterval(file); got != "90s" {
+		t.Fatalf("interval = %q, want 90s", got)
+	}
+	if got := installedWatchdogInterval(filepath.Join(t.TempDir(), "missing")); got != "2min" {
+		t.Fatalf("missing timer interval = %q, want default 2min", got)
+	}
+}
+
+func TestInstalledWatchdogIntervalFallsBackFromInvalidValue(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "watchdog.timer")
+	content := `[Unit]
+Description=Run sing-box-watchdog.service every 2 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2 minutes
+Unit=sing-box-watchdog.service
+
+[Install]
+WantedBy=timers.target
+`
+	if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := installedWatchdogInterval(file); got != "2min" {
+		t.Fatalf("invalid interval fallback = %q, want default 2min", got)
 	}
 }
 
@@ -134,5 +175,25 @@ func TestStableExecutablePathUsesLookPathForBareCommand(t *testing.T) {
 	}
 	if got != want {
 		t.Fatalf("executable path = %q, want %q", got, want)
+	}
+}
+
+func TestWatchdogServiceQuotesExecutablePath(t *testing.T) {
+	unit := wdServiceText(DefaultName, "singbox", `/opt/sbox kit/%preview/sboxkit`)
+	if !strings.Contains(unit, `ExecStart="/opt/sbox kit/%%preview/sboxkit" healthcheck`) {
+		t.Fatalf("unsafe or unescaped ExecStart:\n%s", unit)
+	}
+}
+
+func TestWatchdogIntervalValidationRejectsUnitInjection(t *testing.T) {
+	for _, value := range []string{"2min", "90s", "12h"} {
+		if err := validateResilienceInterval(value); err != nil {
+			t.Fatalf("valid interval %q rejected: %v", value, err)
+		}
+	}
+	for _, value := range []string{"", "0s", "2 minutes", "2min\nOnBootSec=0", "-1s"} {
+		if err := validateResilienceInterval(value); err == nil {
+			t.Fatalf("unsafe interval %q accepted", value)
+		}
 	}
 }

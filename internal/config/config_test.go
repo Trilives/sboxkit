@@ -51,6 +51,9 @@ func TestLoadMergesKnownFieldsWithDefaults(t *testing.T) {
 	if cfg.BootstrapDNSTLSServerName != "dns.example" {
 		t.Fatalf("unexpected bootstrap DNS TLS server name %q", cfg.BootstrapDNSTLSServerName)
 	}
+	if cfg.BootstrapDNSPort != 443 {
+		t.Fatalf("https bootstrap without a stored port = %d, want safe default 443", cfg.BootstrapDNSPort)
+	}
 	if cfg.MixedPort != DefaultMixedPort {
 		t.Fatalf("missing mixed_port should default to %d, got %d", DefaultMixedPort, cfg.MixedPort)
 	}
@@ -209,6 +212,34 @@ func TestBootstrapDNSServerRequiresIPAddressAndInvalidStoredValueFallsBack(t *te
 	}
 	if loaded.BootstrapDNSTLSServerName != DefaultBootstrapDNSTLSServerName {
 		t.Fatalf("fallback TLS server name = %q, want %q", loaded.BootstrapDNSTLSServerName, DefaultBootstrapDNSTLSServerName)
+	}
+}
+
+func TestNormalizeBootstrapDoHRepairsEmptyTLSName(t *testing.T) {
+	cfg := Defaults()
+	cfg.BootstrapDNSType = "https"
+	cfg.BootstrapDNSTLSServerName = ""
+	got := NormalizeBootstrapDNS(cfg)
+	if got.BootstrapDNSTLSServerName != DefaultBootstrapDNSTLSServerName {
+		t.Fatalf("empty DoH TLS name = %q, want %q", got.BootstrapDNSTLSServerName, DefaultBootstrapDNSTLSServerName)
+	}
+}
+
+func TestNormalizeBootstrapDNSRepairsInvalidStoredValues(t *testing.T) {
+	cfg := Defaults()
+	cfg.BootstrapDNSType = "bogus"
+	cfg.BootstrapDNSServer = "not-an-ip"
+	cfg.BootstrapDNSPort = 0
+	cfg.BootstrapDNSPath = "missing-slash"
+	got := NormalizeBootstrapDNS(cfg)
+	if got.BootstrapDNSType != "tcp" || got.BootstrapDNSServer != DefaultBootstrapDNSServer || got.BootstrapDNSPort != 53 || got.BootstrapDNSPath != DefaultBootstrapDNSPath {
+		t.Fatalf("invalid bootstrap values were not normalized: %#v", got)
+	}
+
+	cfg = Defaults()
+	cfg.BootstrapDNSServer = "dhcp"
+	if got := NormalizeBootstrapDNS(cfg); got.BootstrapDNSType != "dhcp" {
+		t.Fatalf("legacy dhcp server did not select DHCP type: %#v", got)
 	}
 }
 

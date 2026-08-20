@@ -44,3 +44,10 @@ func TestStageRuntimeConfigRewritesExternalUIAndCachePath(t *testing.T) {
 		t.Fatalf("cache_file.path was not rewritten in staged config:\n%s", out)
 	}
 }
+
+func TestResumeCompanionUnitsExcludesResidualWatchdog(t *testing.T) {
+	got := resumeCompanionUnits([]string{WatchdogName + ".timer", TimerName + ".timer"})
+	if len(got) != 1 || got[0] != TimerName+".timer" {
+		t.Fatalf("resume companions = %v, want only weekly update timer", got)
+	}
+}

@@ -37,11 +37,9 @@ func resilienceMenuFlow() error {
 	}
 	switch {
 	case !complete && (!present || idx == 0):
-		cfg.EnableResilience = true
-		if err := config.Save(p, cfg); err != nil {
-			return err
-		}
-		return sysd.InstallResilience(sysd.ResilienceOptions{})
+		return applyResiliencePreference(p, true, func() error {
+			return sysd.InstallResilience(sysd.ResilienceOptions{})
+		})
 	case complete && idx == 0:
 		interval, err := tui.Ask(i18n.T("探测间隔（如 2min / 90s）"), tui.AskOpts{Default: "2min"})
 		if err != nil {
@@ -49,11 +47,9 @@ func resilienceMenuFlow() error {
 		}
 		return sysd.InstallResilience(sysd.ResilienceOptions{Interval: interval})
 	default:
-		cfg.EnableResilience = false
-		if err := config.Save(p, cfg); err != nil {
-			return err
-		}
-		return sysd.RemoveResilience(sysd.DefaultName)
+		return applyResiliencePreference(p, false, func() error {
+			return sysd.RemoveResilience(sysd.DefaultName)
+		})
 	}
 }
 

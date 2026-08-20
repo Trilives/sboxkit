@@ -12,6 +12,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
 
 	"github.com/Trilives/sboxkit/internal/config"
 	"github.com/Trilives/sboxkit/internal/execx"
@@ -56,6 +59,7 @@ exit 0
 }
 
 func wdServiceText(name, tunDev, exe string) string {
+	exe = strconv.Quote(strings.ReplaceAll(exe, "%", "%%"))
 	return fmt.Sprintf(`[Unit]
 Description=Probe %[1]s and restart it if it has soft-died (%[2]s)
 After=%[1]s.service
@@ -90,6 +94,15 @@ type ResilienceOptions struct {
 	TunDev   string // tun 设备名，默认 singbox
 }
 
+var resilienceIntervalPattern = regexp.MustCompile(`^[1-9][0-9]*(s|min|h)$`)
+
+func validateResilienceInterval(interval string) error {
+	if !resilienceIntervalPattern.MatchString(interval) {
+		return fmt.Errorf("%s", i18n.T("探测间隔必须是正整数加 s、min 或 h（例如 90s、2min）"))
+	}
+	return nil
+}
+
 func (o *ResilienceOptions) defaults() {
 	if o.Name == "" {
 		o.Name = DefaultName
@@ -108,6 +121,9 @@ func (o *ResilienceOptions) defaults() {
 // InstallResilience 安装 NM 钩子（如有 NetworkManager）与 watchdog 定时器。
 func InstallResilience(opts ResilienceOptions) error {
 	opts.defaults()
+	if err := validateResilienceInterval(opts.Interval); err != nil {
+		return err
+	}
 	if !execx.Have("systemctl") {
 		return fmt.Errorf("%s", i18n.T("未找到 systemctl，自愈需要 systemd"))
 	}
@@ -176,7 +192,7 @@ func ResilienceInstalled() bool {
 // userDisabled comes from customize.json and suppresses NeedsRepair while still
 // exposing any files left behind from an older installation.
 func InspectResilience(name string, userDisabled bool) (ResilienceStatus, error) {
-	opts := ResilienceOptions{Name: name}
+	opts := ResilienceOptions{Name: name, Interval: installedWatchdogInterval(wdTimer())}
 	opts.defaults()
 	exe, err := StableExecutablePath()
 	if err != nil {
@@ -205,9 +221,9 @@ func ReconcileResilience(p paths.Paths, name string) error {
 	if err != nil {
 		return err
 	}
-	if !status.NeedsRepair {
+	if !status.NeedsRuntimeRepair(IsActive(name)) {
 		return nil
 	}
 	execx.Info(i18n.T("检测到网络自愈组件缺失或过期，正在修复…"))
-	return InstallResilience(ResilienceOptions{Name: name})
+	return InstallResilience(ResilienceOptions{Name: name, Interval: installedWatchdogInterval(wdTimer())})
 }

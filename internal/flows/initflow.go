@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Trilives/sboxkit/internal/config"
 	"github.com/Trilives/sboxkit/internal/errs"
 	"github.com/Trilives/sboxkit/internal/execx"
 	"github.com/Trilives/sboxkit/internal/i18n"
@@ -220,27 +219,18 @@ func installResilienceIfWanted(p paths.Paths) error {
 			return err
 		}
 		if !ok {
-			cfg := config.Load(p)
-			cfg.EnableResilience = false
-			if err := config.Save(p, cfg); err != nil {
-				return err
-			}
-			status, inspectErr := sysd.InspectResilience(sysd.DefaultName, true)
-			if inspectErr == nil && status.AnyInstalled() {
-				return sysd.RemoveResilience(sysd.DefaultName)
-			}
-			return nil
-		}
-		if err := t.BackupFile(p.CustomizeFile); err != nil {
-			return err
-		}
-		cfg := config.Load(p)
-		cfg.EnableResilience = true
-		if err := config.Save(p, cfg); err != nil {
-			return err
+			return stageResiliencePreference(t, p, false, func() error {
+				status, inspectErr := sysd.InspectResilience(sysd.DefaultName, true)
+				if inspectErr == nil && status.AnyInstalled() {
+					return sysd.RemoveResilience(sysd.DefaultName)
+				}
+				return inspectErr
+			})
 		}
 		t.AddUndo(i18n.T("卸载网络自愈"), func() error { return sysd.RemoveResilience(sysd.DefaultName) })
-		return sysd.InstallResilience(sysd.ResilienceOptions{})
+		return stageResiliencePreference(t, p, true, func() error {
+			return sysd.InstallResilience(sysd.ResilienceOptions{})
+		})
 	})
 }
 

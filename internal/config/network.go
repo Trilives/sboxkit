@@ -95,5 +95,8 @@ func NormalizeBootstrapDNS(cfg Config) Config {
 	}
 	normalized.BootstrapDNSPath = path
 	normalized.BootstrapDNSTLSServerName = strings.TrimSpace(normalized.BootstrapDNSTLSServerName)
+	if normalized.BootstrapDNSType == "https" && normalized.BootstrapDNSTLSServerName == "" {
+		normalized.BootstrapDNSTLSServerName = DefaultBootstrapDNSTLSServerName
+	}
 	return normalized
 }

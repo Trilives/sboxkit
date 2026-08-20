@@ -532,6 +532,12 @@ func Load(p paths.Paths) Config {
 		execx.Warn(i18n.T("customize.json 解析失败，使用默认值：") + err.Error())
 		return Defaults()
 	}
+	var storedFields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &storedFields); err == nil {
+		if _, hasPort := storedFields["bootstrap_dns_port"]; !hasPort && EffectiveBootstrapDNSType(cfg) == "https" {
+			cfg.BootstrapDNSPort = 443
+		}
+	}
 	cfg.MixedPort = EffectiveMixedPort(cfg)
 	cfg = NormalizeBootstrapDNS(cfg)
 	return cfg

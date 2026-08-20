@@ -60,6 +60,13 @@ func (s ResilienceStatus) Complete() bool {
 	return !s.UserDisabled && !s.NeedsRepair
 }
 
+// NeedsRuntimeRepair additionally considers timer activity only while the main
+// service is active. A deliberately paused main service must not have its
+// watchdog timer restarted behind the user's back.
+func (s ResilienceStatus) NeedsRuntimeRepair(mainServiceActive bool) bool {
+	return s.NeedsRepair || (mainServiceActive && !s.WatchdogTimerActive)
+}
+
 func fileMatches(path, want string) (installed, stale bool) {
 	got, err := os.ReadFile(path)
 	if err != nil {
@@ -107,8 +114,24 @@ func inspectResilienceStatus(
 	status.NeedsRepair = !userDisabled && ((dispatcherSupported && (!dispatcherInstalled || dispatcherStale)) ||
 		!serviceInstalled || serviceStale ||
 		!timerInstalled || timerStale ||
-		!timerEnabled || !timerActive)
+		!timerEnabled)
 	return status
+}
+
+func installedWatchdogInterval(path string) string {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "2min"
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		if value, ok := strings.CutPrefix(strings.TrimSpace(line), "OnUnitActiveSec="); ok && value != "" {
+			if validateResilienceInterval(value) == nil {
+				return value
+			}
+			return "2min"
+		}
+	}
+	return "2min"
 }
 
 func systemdUnitState(unit, state string) bool {

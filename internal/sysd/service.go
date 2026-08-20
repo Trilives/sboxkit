@@ -394,6 +394,16 @@ func CompanionUnits() []string {
 	return units
 }
 
+func resumeCompanionUnits(units []string) []string {
+	resumed := make([]string, 0, len(units))
+	for _, unit := range units {
+		if unit != WatchdogName+".timer" {
+			resumed = append(resumed, unit)
+		}
+	}
+	return resumed
+}
+
 // Pause 暂停主服务及全部伴生单元（运行时停止；单元保持开机自启）。
 func Pause(name string) error {
 	if name == "" {
@@ -421,7 +431,8 @@ func Pause(name string) error {
 	return nil
 }
 
-// Resume 启动主服务及全部已安装的伴生单元。
+// Resume 启动主服务及符合当前配置的伴生单元。watchdog 交给
+// ReconcileResilience 校验完整性和用户偏好，避免启动历史残留单元。
 func Resume(name string) error {
 	if name == "" {
 		name = DefaultName
@@ -430,11 +441,14 @@ func Resume(name string) error {
 		execx.Warn(i18n.T("服务 ") + name + i18n.T(" 未安装，请先执行『初始化』。"))
 		return nil
 	}
-	companions := CompanionUnits()
+	companions := resumeCompanionUnits(CompanionUnits())
 	if err := execx.EnsureSudo(i18n.T("启动服务")); err != nil {
 		return err
 	}
 	execx.RunRoot([]string{"systemctl", "start", name + ".service"}, "", nil)
+	if err := ReconcileResilience(paths.Detect(), name); err != nil {
+		return err
+	}
 	for _, unit := range companions {
 		execx.RunRoot([]string{"systemctl", "start", unit}, "", &execx.Opt{Capture: true})
 	}
