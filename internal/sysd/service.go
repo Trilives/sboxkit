@@ -447,7 +447,7 @@ func Resume(name string) error {
 	}
 	execx.RunRoot([]string{"systemctl", "start", name + ".service"}, "", nil)
 	if err := ReconcileResilience(paths.Detect(), name); err != nil {
-		return err
+		execx.Warn(fmt.Sprintf(i18n.T("修复网络自愈失败（主服务不受影响）：%v"), err))
 	}
 	for _, unit := range companions {
 		execx.RunRoot([]string{"systemctl", "start", unit}, "", &execx.Opt{Capture: true})

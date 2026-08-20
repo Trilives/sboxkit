@@ -122,7 +122,13 @@ Go 测试和静态检查；任何配置破坏性变更都会在创建 GitHub Rel
 - NetworkManager dispatcher 钩子：真实网卡 up / 连通性变化时防抖重启（忽略 tun 自身）
 - watchdog 定时器 + `sboxkit healthcheck`：仅当「有上行但代理探测不通」且服务
   已运行足够久才重启，避免重启风暴
-- 暂停 / 启动把伴生单元一并带上（否则 watchdog 会把刚停的主服务拉起来）
+- `customize.json` 的 `enable_resilience` 保存用户意图；完整性检查分别观察 dispatcher、
+  watchdog service、watchdog timer 及 timer 的 enabled/active 状态。启用时，初始化、
+  服务安装/重载、更新和交互启动会幂等补齐缺失或陈旧组件；显式禁用时不自动安装。
+- watchdog unit 保留用户调用的稳定可执行路径（包括 `/usr/bin/sboxkit` 这类更新符号
+  链接），不会绑定即将被版本清理删除的真实目标；修复时保留已配置的探测间隔。
+- 暂停先停止 watchdog 与更新 timer，再停止主服务；启动先恢复主服务，再按当前偏好
+  reconcile watchdog，历史残留或显式禁用的 timer 不会被直接拉起。
 
 ## 8. sboxkit 自更新
 

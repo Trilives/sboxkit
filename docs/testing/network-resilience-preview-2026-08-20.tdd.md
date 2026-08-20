@@ -1,4 +1,4 @@
-# Network Resilience Preview TDD Evidence
+# v0.2.4-beta.2 TDD 与验证记录（2026-08-21）
 
 1. Source plan
 
@@ -54,12 +54,12 @@
 
    - Full-suite command: `go test ./...`
    - Package coverage sampled during this run:
-     - `go test ./internal/config -coverprofile=/tmp/config.cover.out` -> `coverage: 64.7% of statements`
-     - `go test ./internal/sysd -coverprofile=/tmp/sysd.cover.out` -> `coverage: 13.3% of statements`
+     - `go test ./internal/config -coverprofile=/tmp/config.cover.out` -> `coverage: 67.2% of statements`
+     - `go test ./internal/sysd -coverprofile=/tmp/sysd.cover.out` -> `coverage: 14.4% of statements`
    - Known gap: the repository as a whole is still below the ECC target of 80% coverage. This preview release improves coverage around the changed resilience/bootstrap paths, but it does not bring legacy packages up to 80%.
 
 6. Merge evidence
 
    - RED checkpoint commit: `58394d9 test: add red coverage for dns resilience and node state`
    - GREEN checkpoint commit: `133912f feat: harden dns bootstrap and repair network resilience`
-   - Final preview-release follow-up: local fixes after GREEN tightened systemd quoting/validation, resilience preference rollback, invalid interval fallback, and release snapshot verification on August 20, 2026.
+   - Final preview-release follow-up: local fixes after GREEN tightened systemd quoting/validation, resilience preference rollback, invalid interval fallback, and release snapshot verification on August 21, 2026.

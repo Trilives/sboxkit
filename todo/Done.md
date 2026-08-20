@@ -1,5 +1,14 @@
 # 已完成
 
+## 2026-08-21：DNS 与网络自愈 v0.2.4-beta.2 预览版加固
+
+- bootstrap DNS 默认从 UDP 改为直连 TCP，并支持 UDP、TCP、直连 DoH 与 DHCP；DoH 只接受 IP 地址、始终走 `DIRECT`，不会通过 `Proxy` 或反向依赖业务 DNS，旧 `customize.json` 会安全补齐或修复新增字段。
+- 删除从未被引用的 `dns-dnspod`；节点域名、直连域名、代理 DoH 与 bootstrap 的依赖关系新增测试，TCP、DoH、DHCP、默认 TUN 与 FakeIP 代表配置均通过随包 sing-box v1.13.19 的真实 `check`。
+- 网络自愈新增 dispatcher/service/timer 的完整、陈旧、enabled/active 状态模型；初始化、启动、重载、更新会幂等修复缺失或过期组件，同时持久尊重用户明确禁用，并保留自定义探测间隔。
+- watchdog 使用稳定的调用路径，避免自更新清理旧版本后留下失效 `ExecStart`；systemd unit 参数经过校验和引用，暂停主服务不会在后台重新拉起 watchdog，失败的安装/卸载会回滚用户偏好。
+- 信息页展示三项自愈组件状态；切换/固定节点前优先读取 Clash API 的当前节点，API 不可用时以持久化 selector 首项作为明确标注的本地兜底。
+- TDD 的 RED/GREEN 证据、覆盖率和未完成的真实主机验收记录于 [`../docs/testing/network-resilience-preview-2026-08-20.tdd.md`](../docs/testing/network-resilience-preview-2026-08-20.tdd.md)。
+
 ## 2026-08-11：初始化表单优化与稳定版内核兼容门禁
 
 - 初始化表单进入空值文本字段时立即隐藏示例提示；编辑态按上/下方向键会校验并直接退出编辑、同步移动焦点，无需额外按一次 Enter。
