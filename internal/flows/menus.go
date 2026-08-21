@@ -3,8 +3,6 @@ package flows
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/Trilives/sboxkit/internal/config"
 	"github.com/Trilives/sboxkit/internal/errs"
@@ -171,9 +169,7 @@ func printAccessHint(p paths.Paths) {
 	if lanPanel {
 		host = "0.0.0.0"
 	}
-	if _, err := os.Stat(filepath.Join(p.UI, "index.html")); err == nil {
-		execx.Info(fmt.Sprintf(i18n.T("Web UI（sing-box 内置路径）: http://%s:9090/ui/"), host))
-	}
+	execx.Info(fmt.Sprintf(i18n.T("Web UI（sing-box 内置路径）: http://%s:9090/ui/"), host))
 	if host == "127.0.0.1" {
 		execx.Info(i18n.T("远程查看建议用 SSH 端口转发： ssh -N -L 9090:127.0.0.1:9090 user@server"))
 	}
