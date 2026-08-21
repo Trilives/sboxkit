@@ -71,7 +71,9 @@ func stageRuntimeConfig(p paths.Paths, rt runtimePaths) (string, error) {
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return "", fmt.Errorf(i18n.T("解析 state/config.json: %w"), err)
 	}
-	rewriteRuntimePaths(data, rt, hasUIAssets(p))
+	// The panel is embedded in every sboxkit binary, so runtime staging does
+	// not depend on a mutable state/ui copy being present or user-writable.
+	rewriteRuntimePaths(data, rt, true)
 	out, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		return "", err
@@ -114,26 +116,32 @@ func rewriteRuntimePaths(doc map[string]any, rt runtimePaths, hasUI bool) {
 	}
 }
 
-func hasUIAssets(p paths.Paths) bool {
-	_, err := os.Stat(filepath.Join(p.UI, "index.html"))
-	return err == nil
+type rootCommandRunner func([]string, string, *execx.Opt) (execx.Result, error)
+
+// syncUIRuntimeWith materializes the embedded panel in a caller-owned temporary
+// directory and only uses privileged operations for the runtime copy. It must
+// not rewrite state/ui: the weekly root timer would otherwise make that shared
+// state root-owned and break the next interactive refresh by a regular user.
+func syncUIRuntimeWith(rt runtimePaths, runRoot rootCommandRunner) error {
+	staged, err := os.MkdirTemp("", "sboxkit-ui-*")
+	if err != nil {
+		return fmt.Errorf("stage embedded UI: %w", err)
+	}
+	defer os.RemoveAll(staged)
+	if err := uiassets.Write(staged); err != nil {
+		return err
+	}
+	if _, err := runRoot([]string{"rm", "-rf", rt.UI}, "", nil); err != nil {
+		return err
+	}
+	if _, err := runRoot([]string{"cp", "-a", staged, rt.UI}, "", nil); err != nil {
+		return err
+	}
+	return nil
 }
 
-// syncUIRuntime 把 state/ui 的最新面板资源同步到运行时目录（sing-box 只会读运行时
-// 副本），Install 和 SyncAndRestart 都要调用，否则自更新/配置变更后面板会停留在
-// 服务首次注册时的旧版本。先用当前二进制内置的面板重新物化 state/ui，确保运行时
-// 拿到的面板与本二进制一致——否则 sboxkit 自更新换了新面板后，state/ui 仍是旧订阅
-// 构建时落地的旧副本，光同步只会把旧面板拷过去。
-func syncUIRuntime(p paths.Paths, rt runtimePaths) {
-	if err := uiassets.Write(p.UI); err != nil {
-		execx.Warn(i18n.T("刷新内置 Web 面板资源失败：") + err.Error())
-	}
-	if !hasUIAssets(p) {
-		execx.Warn(i18n.T("未找到内置 Web 面板资源，面板将不可用。"))
-		return
-	}
-	execx.RunRoot([]string{"rm", "-rf", rt.UI}, "", nil)
-	execx.RunRoot([]string{"cp", "-a", p.UI, rt.UI}, "", nil)
+func syncUIRuntime(rt runtimePaths) error {
+	return syncUIRuntimeWith(rt, execx.RunRoot)
 }
 
 // panelUpToDate 比对运行时目录里的面板与当前二进制内置的面板是否一致。运行时目录
@@ -172,7 +180,10 @@ func RefreshPanelIfStale(p paths.Paths, name string) {
 	if err := execx.EnsureSudo(i18n.T("更新内置 Web 面板")); err != nil {
 		return
 	}
-	syncUIRuntime(p, rt)
+	if err := syncUIRuntime(rt); err != nil {
+		execx.Warn(i18n.T("刷新内置 Web 面板资源失败：") + err.Error())
+		return
+	}
 	execx.Ok(i18n.T("内置 Web 面板已更新（浏览器刷新 http://host:9090/ui/ 即可看到新版）。"))
 }
 
@@ -229,7 +240,9 @@ func Install(p paths.Paths, name string, start bool) error {
 		}
 	}
 	// UI（内置静态面板，见 internal/uiassets；缺失也不影响内核运行）
-	syncUIRuntime(p, rt)
+	if err := syncUIRuntime(rt); err != nil {
+		execx.Warn(i18n.T("刷新内置 Web 面板资源失败：") + err.Error())
+	}
 	// 配置 + 运行时校验
 	if _, err := execx.RunRoot([]string{"install", "-m", "0644", staged, rt.Config}, "", nil); err != nil {
 		return err
@@ -301,7 +314,9 @@ func SyncAndRestart(p paths.Paths, name string) error {
 		return err
 	}
 	defer os.Remove(staged)
-	syncUIRuntime(p, rt)
+	if err := syncUIRuntime(rt); err != nil {
+		execx.Warn(i18n.T("刷新内置 Web 面板资源失败：") + err.Error())
+	}
 	if _, err := execx.RunRoot([]string{"install", "-m", "0644", staged, rt.Config}, "", nil); err != nil {
 		return err
 	}
