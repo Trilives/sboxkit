@@ -43,7 +43,7 @@ clashdock 的生效配置 `config.yaml` 内容其实是 JSON（利用"JSON 是�
 
 | 位置 | 内容 |
 |---|---|
-| `/var/lib/sboxkit`（固定工作目录，`SBOXKIT_HOME` 可覆盖） | 状态数据：内核、内置面板资源、geo 规则集、`subscriptions/<name>/{meta.json,raw.*,config.json}`、`active` 指针、`customize.json`。首次使用经 sudo 创建并交回调用者属主，root 定时器与用户会话共享同一份数据 |
+| `/var/lib/sboxkit`（固定工作目录，`SBOXKIT_HOME` 可覆盖） | 状态数据：内核、geo 规则集、`subscriptions/<name>/{meta.json,raw.*,config.json}`、`active` 指针、`customize.json`。首次使用经 sudo 创建并交回调用者属主，root 定时器与用户会话共享同一份数据；旧版留下的 `ui/` 不再作为运行来源 |
 | `/var/lib/sboxkit-runtime` | root 态自包含运行时：内核 + 配置 + geo 规则集 + 面板资源的暂存副本（服务与用户目录解耦） |
 | `/etc/systemd/system` | `sing-box` / `sing-box-watchdog` / `sing-box-update` 三组单元 |
 
@@ -54,6 +54,9 @@ sboxkit 自己写了一个极简面板（`internal/uiassets`，go:embed 打进�
 进程——面板页面里的 JS 直接调用同源的 sing-box Clash API（`/proxies`、
 `/proxies/{group}`、`/proxies/{name}/delay`）。`lan_panel` 定制字段只决定
 `external_controller` 绑定 `127.0.0.1` 还是 `0.0.0.0`，不影响面板是否可用。
+服务安装、重载和自更新会先在私有临时目录物化二进制内嵌资源，再经提权操作替换
+`/var/lib/sboxkit-runtime/ui`；订阅重建不再改写共享状态目录，避免 root 周更把
+`state/ui` 变成普通用户不可写并导致后续刷新失败。
 
 普通用户运行，特权操作全部经 `sudo` 子进程（`internal/execx`），凭证会话内缓存。
 

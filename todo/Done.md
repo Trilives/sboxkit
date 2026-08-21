@@ -1,5 +1,12 @@
 # 已完成
 
+## 2026-08-21：v0.2.4-beta.3 Web 面板权限修复
+
+- 本机验收定位到 root 周更会重建 `/var/lib/sboxkit/ui` 并把其属主变成 `root:root`，导致普通用户刷新或重建订阅时报 `unlinkat ... permission denied`。
+- 面板运行来源改为二进制内嵌资源直接暂存到 `/var/lib/sboxkit-runtime/ui`；服务同步和订阅转换均不再改写共享的 `state/ui`，旧 root-owned 目录可原样保留且不影响运行。
+- 新增缺失/只读 state UI、提权替换失败和访问提示测试；变更函数 `syncUIRuntimeWith` 的定向语句覆盖率为 90.9%。
+- 本机 `Hua` 订阅已在无提权模式成功重建，生成配置默认使用直连 TCP bootstrap，移除了 `dns-dnspod`，并通过已部署 sing-box v1.13.18 的真实 `check`；运行时同步仍需交互式 sudo 后完成。
+
 ## 2026-08-21：DNS 与网络自愈 v0.2.4-beta.2 预览版加固
 
 - bootstrap DNS 默认从 UDP 改为直连 TCP，并支持 UDP、TCP、直连 DoH 与 DHCP；DoH 只接受 IP 地址、始终走 `DIRECT`，不会通过 `Proxy` 或反向依赖业务 DNS，旧 `customize.json` 会安全补齐或修复新增字段。
