@@ -1,6 +1,8 @@
 package sysd
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -108,6 +110,37 @@ func TestSyncUIRuntimeStagesEmbeddedAssetsWithoutTouchingStateUI(t *testing.T) {
 		if strings.Contains(strings.Join(cmd, " "), "/var/lib/sboxkit/ui") {
 			t.Fatalf("runtime refresh must not mutate shared state UI: %v", cmd)
 		}
+	}
+}
+
+func TestSyncUIRuntimeReturnsPrivilegedReplacementErrors(t *testing.T) {
+	wantErr := errors.New("root operation failed")
+	for _, failAt := range []int{1, 2} {
+		t.Run(fmt.Sprintf("command_%d", failAt), func(t *testing.T) {
+			calls := 0
+			runRoot := func(_ []string, _ string, _ *execx.Opt) (execx.Result, error) {
+				calls++
+				if calls == failAt {
+					return execx.Result{}, wantErr
+				}
+				return execx.Result{}, nil
+			}
+			err := syncUIRuntimeWith(runtimePaths{UI: filepath.Join(t.TempDir(), "runtime-ui")}, runRoot)
+			if !errors.Is(err, wantErr) {
+				t.Fatalf("error = %v, want %v", err, wantErr)
+			}
+			if calls != failAt {
+				t.Fatalf("root calls = %d, want stop at %d", calls, failAt)
+			}
+		})
+	}
+}
+
+func TestSyncUIRuntimeReturnsTemporaryDirectoryError(t *testing.T) {
+	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing"))
+	err := syncUIRuntimeWith(runtimePaths{UI: "/runtime/ui"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "stage embedded UI") {
+		t.Fatalf("error = %v, want temporary staging failure", err)
 	}
 }
 
