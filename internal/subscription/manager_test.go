@@ -117,3 +117,45 @@ proxies:
 		}
 	}
 }
+
+func TestRebuildDoesNotRewriteReadOnlyStateUI(t *testing.T) {
+	p := paths.FromRoot(t.TempDir())
+	if err := p.EnsureStateDirs(); err != nil {
+		t.Fatal(err)
+	}
+	sub := &Subscription{
+		Name: "readonly-ui", URL: "/unused", SourceType: "local",
+		CreatedAt: now(), UpdatedAt: now(),
+	}
+	if err := os.MkdirAll(p.SubscriptionDir(sub.Name), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	meta, err := json.Marshal(sub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(metaFile(p, sub.Name), meta, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	raw := `proxies:
+  - {name: ss, type: ss, server: 1.2.3.4, port: 443, cipher: aes-128-gcm, password: pw}
+`
+	if err := os.WriteFile(rawFile(p, sub), []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(p.UI, "root-owned-marker")
+	if err := os.WriteFile(marker, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(p.UI, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(p.UI, 0o755)
+
+	if _, err := Rebuild(p, sub.Name); err != nil {
+		t.Fatalf("rebuild must not depend on write access to state UI: %v", err)
+	}
+	if got, err := os.ReadFile(marker); err != nil || string(got) != "keep" {
+		t.Fatalf("state UI was modified: data=%q err=%v", got, err)
+	}
+}
