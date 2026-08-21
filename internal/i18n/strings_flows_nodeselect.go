@@ -6,8 +6,12 @@ func init() {
 		"指定分组 '%s' 不存在":           "Specified group '%s' does not exist",
 		"分组 '%s' 下没有可选项":          "No selectable items under group '%s'",
 
-		"已连上 Clash API，列表将实时测速。": "Connected to the Clash API; the list will show live latency.",
-		"Clash API 不可达，跳过测速。":    "Clash API unreachable, skipping latency test.",
+		"已连上 Clash API，列表将实时测速。":     "Connected to the Clash API; the list will show live latency.",
+		"Clash API 不可达，跳过测速。":        "Clash API unreachable, skipping latency test.",
+		"未识别到主选择组；当前 selector 分组：%s": "Main selector not recognized; current selector groups: %s",
+		"输入主选择组识别关键词（留空跳过）":          "Enter a main-group keyword (leave empty to skip)",
+		"主选择组识别关键词已保存：%s":            "Saved main-group keyword: %s",
+		"未识别到主选择组，无法切换节点":            "Main selector not recognized; cannot switch nodes",
 
 		"测速中（%d 个节点）…":         "Testing latency (%d nodes)…",
 		"\r\033[K  测速中… %d/%d": "\r\033[K  Testing latency… %d/%d",

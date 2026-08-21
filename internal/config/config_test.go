@@ -275,6 +275,26 @@ func TestFakeIPFilterRoundTripAndEditorMetadata(t *testing.T) {
 	}
 }
 
+func TestMainGroupKeywordsDefaultRoundTripAndEditorMetadata(t *testing.T) {
+	defaults := Defaults()
+	if !slices.Equal(defaults.MainGroupKeywords, []string{"Proxy"}) {
+		t.Fatalf("default main_group_keywords = %#v", defaults.MainGroupKeywords)
+	}
+
+	p := testPaths(t)
+	updated := defaults
+	updated.MainGroupKeywords = []string{"节点选择", "Proxy"}
+	if err := Save(p, updated); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if got := StrList(Load(p), "main_group_keywords"); !slices.Equal(got, updated.MainGroupKeywords) {
+		t.Fatalf("main_group_keywords = %#v", got)
+	}
+	if label := FieldLabel(updated, "main_group_keywords"); label == "" {
+		t.Fatal("main_group_keywords editor label is empty")
+	}
+}
+
 func TestEnsureExistsWritesDefaultsOnce(t *testing.T) {
 	p := testPaths(t)
 	if _, err := os.Stat(p.CustomizeFile); err == nil {

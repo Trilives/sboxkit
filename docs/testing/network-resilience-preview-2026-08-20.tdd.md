@@ -2,7 +2,7 @@
 
 1. Source plan
 
-   - Derived from [todo/Todo.md](../../todo/Todo.md), focusing on the P0 items for bootstrap DNS hardening and resilience migration/state repair.
+   - Derived from the P0 items now archived in [Records/Done.md](../../Records/Done.md), focusing on bootstrap DNS hardening and resilience migration/state repair.
 
 2. User journeys
 

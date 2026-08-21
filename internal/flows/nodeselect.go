@@ -3,9 +3,9 @@
 // sing-box 的运行时配置把节点和分组混在同一个 outbounds 数组里（不像 Clash 的
 // proxies / proxy-groups 分开两个顶层字段）：分组是 type=selector/urltest 的
 // outbound，条目里的 tag 是分组名、outbounds 字段是成员 tag 列表；真实节点是
-// 其余类型（vmess/trojan/vless/ss/...）的 outbound。目标分组的挑选也更简单：
-// converter 生成配置时把主选择组固定命名为 cfg.DefaultOutbound（默认
-// "Proxy"），不需要再像 mihomo 版那样按用户自定义关键词逐个猜测分组名。
+// 其余类型（vmess/trojan/vless/ss/...）的 outbound。目标分组优先精确匹配
+// cfg.DefaultOutbound（默认 "Proxy"）；导入外部已有配置且 tag 不同的场景，
+// 再按 customize.json 的 main_group_keywords 顺序做包含匹配。
 //
 // 把选中项设为目标分组（默认 cfg.DefaultOutbound）的第一个成员，使重启后稳定
 // 停在该节点；服务在跑时还经 Clash API 实时切换，并并发实测延迟。选组持久化由
@@ -23,7 +23,6 @@ import (
 	"golang.org/x/term"
 
 	"github.com/Trilives/sboxkit/internal/clashapi"
-	"github.com/Trilives/sboxkit/internal/config"
 	"github.com/Trilives/sboxkit/internal/configfile"
 	"github.com/Trilives/sboxkit/internal/errs"
 	"github.com/Trilives/sboxkit/internal/execx"
@@ -72,53 +71,6 @@ func groupsOf(cfg map[string]any) []map[string]any {
 		}
 	}
 	return out
-}
-
-// pickGroup 定位目标分组：forced 指定时精确匹配 tag；否则用 defaultTag
-// （通常是 cfg.DefaultOutbound，即 converter 生成时固定命名的主选择组，例如
-// "Proxy"）；两者都找不到则退化为成员数最多的 selector 分组。
-func pickGroup(cfg map[string]any, forced, defaultTag string) (map[string]any, error) {
-	var selects []map[string]any
-	for _, g := range groupsOf(cfg) {
-		if t, _ := g["type"].(string); t == "selector" {
-			selects = append(selects, g)
-		}
-	}
-	if len(selects) == 0 {
-		return nil, fmt.Errorf("%s", i18n.T("配置里没有 selector 分组，无法切换节点"))
-	}
-	if forced != "" {
-		for _, g := range selects {
-			if g["tag"] == forced {
-				return g, nil
-			}
-		}
-		return nil, fmt.Errorf(i18n.T("指定分组 '%s' 不存在"), forced)
-	}
-	if defaultTag != "" {
-		for _, g := range selects {
-			if g["tag"] == defaultTag {
-				return g, nil
-			}
-		}
-	}
-	best := selects[0]
-	for _, g := range selects[1:] {
-		if lenAnyList(g["outbounds"]) > lenAnyList(best["outbounds"]) {
-			best = g
-		}
-	}
-	return best, nil
-}
-
-func lenAnyList(v any) int {
-	switch x := v.(type) {
-	case []any:
-		return len(x)
-	case []string:
-		return len(x)
-	}
-	return 0
 }
 
 func classify(name string) string {
@@ -274,8 +226,7 @@ func pickNode(p paths.Paths, configPath, group string) (*pickResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	defaultTag := config.Load(p).DefaultOutbound
-	target, err := pickGroup(cfg, group, defaultTag)
+	target, err := resolveTargetGroup(p, cfg, group, tui.Ask)
 	if err != nil {
 		return nil, err
 	}

@@ -43,6 +43,7 @@ type Config struct {
 	EnableResilience          bool     `json:"enable_resilience"`
 	GenerateSGGroups          bool     `json:"generate_sg_groups"`
 	GenerateHKGroups          bool     `json:"generate_hk_groups"`
+	MainGroupKeywords         []string `json:"main_group_keywords"`
 	PreferKeywords            []string `json:"prefer_keywords"`
 	HKPreferKeywords          []string `json:"hk_prefer_keywords"`
 	DefaultOutbound           string   `json:"default_outbound"`
@@ -99,6 +100,7 @@ func Defaults() Config {
 		EnableResilience:          true,
 		GenerateSGGroups:          false,
 		GenerateHKGroups:          false,
+		MainGroupKeywords:         []string{"Proxy"},
 		PreferKeywords:            []string{"Singapore", "SG", "新加坡", "狮城"},
 		HKPreferKeywords:          []string{"Hong Kong", "HongKong", "HK", "香港"},
 		DefaultOutbound:           "Proxy",
@@ -125,6 +127,7 @@ var ListFields = map[string]string{
 	"local_bypass_domains":      "本地域名绕过",
 	"route_exclude_ip_cidrs":    "TUN 排除网段",
 	"bypass_process_names":      "绕过进程名",
+	"main_group_keywords":       "主选择组识别关键词（按顺序匹配，新增项插最前）",
 	"tun_exclude_uids":          "TUN 排除 UID",
 	"prefer_keywords":           "新加坡关键词",
 	"hk_prefer_keywords":        "香港关键词",
@@ -163,6 +166,7 @@ var DeploymentFields = []string{
 	"mixed_port",
 	"lan_panel",
 	"default_outbound",
+	"main_group_keywords",
 	"download_proxy",
 	"github_mirror",
 	"github_token",
@@ -232,7 +236,7 @@ func FieldSummary(cfg Config, key string) string {
 			return i18n.T("开")
 		}
 		return i18n.T("关")
-	case "ai_domain_suffixes", "streaming_domain_suffixes", "direct_domain_suffixes", "fake_ip_filter", "local_bypass_domains", "route_exclude_ip_cidrs", "bypass_process_names", "prefer_keywords", "hk_prefer_keywords":
+	case "ai_domain_suffixes", "streaming_domain_suffixes", "direct_domain_suffixes", "fake_ip_filter", "local_bypass_domains", "route_exclude_ip_cidrs", "bypass_process_names", "main_group_keywords", "prefer_keywords", "hk_prefer_keywords":
 		return listSummary(StrList(cfg, key))
 	case "tun_exclude_uids":
 		return listSummary(intListToStr(cfg.TunExcludeUIDs))
@@ -338,6 +342,8 @@ func StrList(cfg Config, key string) []string {
 		return append([]string(nil), cfg.RouteExcludeIPCidrs...)
 	case "bypass_process_names":
 		return append([]string(nil), cfg.BypassProcessNames...)
+	case "main_group_keywords":
+		return append([]string(nil), cfg.MainGroupKeywords...)
 	case "prefer_keywords":
 		return append([]string(nil), cfg.PreferKeywords...)
 	case "hk_prefer_keywords":
@@ -383,6 +389,8 @@ func SetStrList(cfg *Config, key string, items []string) {
 		cfg.RouteExcludeIPCidrs = items
 	case "bypass_process_names":
 		cfg.BypassProcessNames = items
+	case "main_group_keywords":
+		cfg.MainGroupKeywords = items
 	case "prefer_keywords":
 		cfg.PreferKeywords = items
 	case "hk_prefer_keywords":
