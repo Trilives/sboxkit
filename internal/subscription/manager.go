@@ -27,7 +27,6 @@ import (
 	"github.com/Trilives/sboxkit/internal/jsonx"
 	"github.com/Trilives/sboxkit/internal/paths"
 	"github.com/Trilives/sboxkit/internal/sysd"
-	"github.com/Trilives/sboxkit/internal/uiassets"
 )
 
 // Subscription 元数据；JSON 字段与 Python 版 meta.json 完全一致（老数据直读）。
@@ -243,12 +242,6 @@ func build(p paths.Paths, sub *Subscription, cfg config.Config) error {
 // 读取，而不是当成 URL 去发起 HTTP 请求），真正决定走哪条转换路径的是这里
 // 按内容现场探测出的 kind，无法判断时回退按 Clash YAML 处理。
 func convertAndWrite(p paths.Paths, sub *Subscription, raw []byte, cfg config.Config) error {
-	// 内置面板始终物化到 state/ui（sysd 部署运行时会把它连同内核一起暂存到
-	// runtime 目录），与 mihomo 版当年下载 metacubexd 到同一位置的角色一致。
-	if err := uiassets.Write(p.UI); err != nil {
-		return err
-	}
-
 	text := string(raw)
 
 	kind := SourceKind(sub.SourceType)
