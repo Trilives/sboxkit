@@ -1,5 +1,23 @@
 # 已完成
 
+## 2026-09-14：复发 bootstrap DNS 软故障的软件侧加固（真实 A/B 尚待验收）
+
+- healthcheck 改为物理上行 → bootstrap DNS → 节点域名解析 → mixed 端口 → 端到端代理的
+  短路分层探测，日志与诊断使用稳定故障分类；物理/bootstrap 套接字不走业务代理并绑定
+  非 TUN 默认接口。
+- 新增每 incident 一次的脱敏有界快照和 `sboxkit diagnose [--json]` 只读入口；采集固定
+  白名单的接口、规则/路由、resolver、systemd 生命周期、socket、conntrack 与探针结果。
+- watchdog 状态持久化到 `/run/sboxkit`，默认 10 分钟最多重启 2 次、指数退避、物理断网
+  不重启、连续两轮健康才清状态；状态损坏时保守熔断，NetworkManager 事件复用同一限流器。
+- 新增只监听 loopback 的 bootstrap DNS relay，支持 UDP/TCP/DoH 有序上游、逐次超时、
+  冷却与半开恢复；默认使用不同运营方和传输，主 systemd unit 显式依赖 relay。
+- relay 包测试覆盖率达到 80.8%；TUN × FakeIP 四组合通过 sing-box 1.13.18 与随包
+  1.13.19 的真实
+  `check`。1.13.18/1.13.19 × 四故障 × TUN/FakeIP 的 32 项隔离 netns harness 与证据模板
+  已完成安全自测，但当前环境未执行特权矩阵，故 Todo 中版本 A/B 与总验收继续保持未完成。
+  RED/GREEN、覆盖率和验收边界见
+  [`../docs/testing/bootstrap-dns-resilience-2026-09-14.tdd.md`](../docs/testing/bootstrap-dns-resilience-2026-09-14.tdd.md)。
+
 ## 2026-08-22：v0.2.4 稳定版收口
 
 - 将 `v0.2.4-beta.1` 至 `v0.2.4-beta.3` 的 DNS bootstrap、网络自愈、Web 面板权限修复，以及本次主选择组限定功能收口为 `v0.2.4` 稳定版。

@@ -203,14 +203,18 @@ func FileLocationsTool(p paths.Paths) error {
 }
 
 // ToolsMenu groups diagnostics, documentation and every update channel.
+func toolMenuOptions() []string {
+	return []string{
+		i18n.T("网络测试"), i18n.T("故障诊断"), i18n.T("查看日志"),
+		i18n.T("主要文件位置"), i18n.T("信息"), i18n.T("更新"),
+		i18n.T("使用说明"),
+	}
+}
+
 func ToolsMenu(p paths.Paths, currentVersion string) error {
 	idx := 0
 	for {
-		options := []string{
-			i18n.T("网络测试"), i18n.T("查看日志"), i18n.T("主要文件位置"),
-			i18n.T("信息"), i18n.T("更新"), i18n.T("使用说明"),
-		}
-		i, err := tui.Select(i18n.T("工具"), options, tui.SelectOpts{BackLabel: i18n.T("返回上层"), Initial: idx})
+		i, err := tui.Select(i18n.T("工具"), toolMenuOptions(), tui.SelectOpts{BackLabel: i18n.T("返回上层"), Initial: idx})
 		if err != nil {
 			return nil
 		}
@@ -220,14 +224,19 @@ func ToolsMenu(p paths.Paths, currentVersion string) error {
 		case 0:
 			terr = Nettest(p)
 		case 1:
-			terr = LogTool(p)
+			terr = Diagnose(p, DiagnoseOptions{})
+			if terr == nil {
+				tui.Pause(i18n.T("回车返回主菜单… "))
+			}
 		case 2:
-			terr = FileLocationsTool(p)
+			terr = LogTool(p)
 		case 3:
-			terr = InfoTool(p)
+			terr = FileLocationsTool(p)
 		case 4:
-			terr = updateMenuFlow(p, currentVersion)
+			terr = InfoTool(p)
 		case 5:
+			terr = updateMenuFlow(p, currentVersion)
+		case 6:
 			terr = UsageTool()
 		}
 		if terr != nil {

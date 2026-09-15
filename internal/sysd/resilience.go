@@ -2,7 +2,8 @@
 //
 // 解决 sing-box 在网卡晚启动/掉线/漫游时卡在 "missing default interface" 的软死：
 //
-//	A. NM dispatcher 钩子：真实网卡 up / 连通性变化时重启 sing-box（防抖，忽略 tun）。
+//	A. NM dispatcher 钩子：真实网卡 up / 连通性变化时触发分层探测（防抖，忽略 tun），
+//	   由 healthcheck 的持久冷却/熔断策略决定是否重启。
 //	B. watchdog 定时器：周期探测，仅当「有上行但代理打不通」才重启。
 //
 // watchdog 探针由 sboxkit healthcheck 子命令提供，避免额外 shell/curl 运行时依赖。
@@ -34,28 +35,35 @@ func dispatcherFile(name string) string {
 func wdService() string { return "/etc/systemd/system/" + WatchdogName + ".service" }
 func wdTimer() string   { return "/etc/systemd/system/" + WatchdogName + ".timer" }
 
-func dispatcherText(name, tunDev string, debounce int) string {
+func dispatcherText(name, tunDev string, debounce int, exe string) string {
+	exe = shellQuote(exe)
+	quotedName := shellQuote(name)
+	quotedTunDev := shellQuote(tunDev)
 	return fmt.Sprintf(`#!/usr/bin/env bash
-# Auto-generated. Restart %[1]s when a real uplink comes up or connectivity
-# changes, so auto_detect_interface re-binds. Ignores the tun device; debounced.
+# Auto-generated. Ask sboxkit healthcheck to classify a network change and
+# apply its persistent restart limiter. Ignores the tun device; debounced.
 interface="$1"
 action="$2"
-[ "${interface}" = "%[2]s" ] && exit 0
+[ "${interface}" = %[2]s ] && exit 0
 case "${action}" in
   up|connectivity-change|dhcp4-change|dhcp6-change) ;;
   *) exit 0 ;;
 esac
-systemctl is-active --quiet "%[1]s.service" || exit 0
-stamp="/run/%[1]s-dispatcher.last"
+systemctl is-active --quiet %[1]s.service || exit 0
+stamp="/run/%[4]s-dispatcher.last"
 now="$(date +%%s)"
 if [ -f "${stamp}" ]; then
   last="$(cat "${stamp}" 2>/dev/null || echo 0)"
   [ "$(( now - last ))" -lt %[3]d ] && exit 0
 fi
 echo "${now}" > "${stamp}"
-systemctl restart --no-block "%[1]s.service"
+%[5]s healthcheck --event network-change --service %[1]s --tun-dev %[2]s
 exit 0
-`, name, tunDev, debounce)
+`, quotedName, quotedTunDev, debounce, name, exe)
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }
 
 func wdServiceText(name, tunDev, exe string) string {
@@ -121,6 +129,12 @@ func (o *ResilienceOptions) defaults() {
 // InstallResilience 安装 NM 钩子（如有 NetworkManager）与 watchdog 定时器。
 func InstallResilience(opts ResilienceOptions) error {
 	opts.defaults()
+	if err := validateManagedServiceName(opts.Name); err != nil {
+		return err
+	}
+	if err := validateInterfaceName(opts.TunDev); err != nil {
+		return err
+	}
 	if err := validateResilienceInterval(opts.Interval); err != nil {
 		return err
 	}
@@ -133,9 +147,13 @@ func InstallResilience(opts ResilienceOptions) error {
 	if _, err := execx.RunRoot([]string{"mkdir", "-p", paths.RuntimeDir}, "", nil); err != nil {
 		return err
 	}
+	exe, err := StableExecutablePath()
+	if err != nil {
+		return fmt.Errorf(i18n.T("定位 sboxkit 可执行文件: %w"), err)
+	}
 
 	if st, err := os.Stat(dispatcherDir); err == nil && st.IsDir() {
-		if err := execx.WriteRoot(dispatcherFile(opts.Name), dispatcherText(opts.Name, opts.TunDev, opts.Debounce), "0755", i18n.T("安装 NM 钩子")); err != nil {
+		if err := execx.WriteRoot(dispatcherFile(opts.Name), dispatcherText(opts.Name, opts.TunDev, opts.Debounce, exe), "0755", i18n.T("安装 NM 钩子")); err != nil {
 			return err
 		}
 		execx.Ok(i18n.T("已装 NetworkManager 钩子：") + dispatcherFile(opts.Name))
@@ -143,10 +161,6 @@ func InstallResilience(opts ResilienceOptions) error {
 		execx.Warn(dispatcherDir + i18n.T(" 不存在，跳过 NM 钩子（watchdog 仍兜底）。"))
 	}
 
-	exe, err := StableExecutablePath()
-	if err != nil {
-		return fmt.Errorf(i18n.T("定位 sboxkit 可执行文件: %w"), err)
-	}
 	if err := execx.WriteRoot(wdService(), wdServiceText(opts.Name, opts.TunDev, exe), "0644", i18n.T("写 watchdog 单元")); err != nil {
 		return err
 	}
@@ -167,6 +181,9 @@ func InstallResilience(opts ResilienceOptions) error {
 func RemoveResilience(name string) error {
 	if name == "" {
 		name = DefaultName
+	}
+	if err := validateManagedServiceName(name); err != nil {
+		return err
 	}
 	if err := execx.EnsureSudo(i18n.T("卸载网络自愈")); err != nil {
 		return err
@@ -194,6 +211,9 @@ func ResilienceInstalled() bool {
 func InspectResilience(name string, userDisabled bool) (ResilienceStatus, error) {
 	opts := ResilienceOptions{Name: name, Interval: installedWatchdogInterval(wdTimer())}
 	opts.defaults()
+	if err := validateManagedServiceName(opts.Name); err != nil {
+		return ResilienceStatus{}, err
+	}
 	exe, err := StableExecutablePath()
 	if err != nil {
 		return ResilienceStatus{}, fmt.Errorf(i18n.T("定位 sboxkit 可执行文件: %w"), err)
@@ -212,6 +232,9 @@ func InspectResilience(name string, userDisabled bool) (ResilienceStatus, error)
 func ReconcileResilience(p paths.Paths, name string) error {
 	if name == "" {
 		name = DefaultName
+	}
+	if err := validateManagedServiceName(name); err != nil {
+		return err
 	}
 	cfg := config.Load(p)
 	if !cfg.EnableResilience || !IsInstalled(name) {

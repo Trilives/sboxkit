@@ -23,38 +23,39 @@ import (
 )
 
 type Config struct {
-	AIDomainSuffixes          []string `json:"ai_domain_suffixes"`
-	StreamingDomainSuffixes   []string `json:"streaming_domain_suffixes"`
-	DirectDomainSuffixes      []string `json:"direct_domain_suffixes"`
-	FakeIPFilter              []string `json:"fake_ip_filter"`
-	LocalBypassDomains        []string `json:"local_bypass_domains"`
-	RouteExcludeIPCidrs       []string `json:"route_exclude_ip_cidrs"`
-	BypassProcessNames        []string `json:"bypass_process_names"`
-	TunExcludeUIDs            []int    `json:"tun_exclude_uids"`
-	EnableTun                 bool     `json:"enable_tun"`
-	LanPanel                  bool     `json:"lan_panel"`
-	LanProxy                  bool     `json:"lan_proxy"`
-	MixedPort                 int      `json:"mixed_port"`
-	BootstrapDNSType          string   `json:"bootstrap_dns_type"`
-	BootstrapDNSServer        string   `json:"bootstrap_dns_server"`
-	BootstrapDNSPort          int      `json:"bootstrap_dns_port"`
-	BootstrapDNSPath          string   `json:"bootstrap_dns_path"`
-	BootstrapDNSTLSServerName string   `json:"bootstrap_dns_tls_server_name"`
-	EnableResilience          bool     `json:"enable_resilience"`
-	GenerateSGGroups          bool     `json:"generate_sg_groups"`
-	GenerateHKGroups          bool     `json:"generate_hk_groups"`
-	MainGroupKeywords         []string `json:"main_group_keywords"`
-	PreferKeywords            []string `json:"prefer_keywords"`
-	HKPreferKeywords          []string `json:"hk_prefer_keywords"`
-	DefaultOutbound           string   `json:"default_outbound"`
-	SubconverterBackend       string   `json:"subconverter_backend"`
-	Base64LocalFallback       bool     `json:"base64_local_fallback"`
-	GitHubMirror              string   `json:"github_mirror"`
-	DownloadProxy             string   `json:"download_proxy"`
-	GitHubToken               string   `json:"github_token"`
-	EnableFileLog             bool     `json:"enable_file_log"`
-	LogMaxMB                  int      `json:"log_max_mb"`
-	Language                  string   `json:"language"`
+	AIDomainSuffixes          []string               `json:"ai_domain_suffixes"`
+	StreamingDomainSuffixes   []string               `json:"streaming_domain_suffixes"`
+	DirectDomainSuffixes      []string               `json:"direct_domain_suffixes"`
+	FakeIPFilter              []string               `json:"fake_ip_filter"`
+	LocalBypassDomains        []string               `json:"local_bypass_domains"`
+	RouteExcludeIPCidrs       []string               `json:"route_exclude_ip_cidrs"`
+	BypassProcessNames        []string               `json:"bypass_process_names"`
+	TunExcludeUIDs            []int                  `json:"tun_exclude_uids"`
+	EnableTun                 bool                   `json:"enable_tun"`
+	LanPanel                  bool                   `json:"lan_panel"`
+	LanProxy                  bool                   `json:"lan_proxy"`
+	MixedPort                 int                    `json:"mixed_port"`
+	BootstrapDNSType          string                 `json:"bootstrap_dns_type"`
+	BootstrapDNSServer        string                 `json:"bootstrap_dns_server"`
+	BootstrapDNSPort          int                    `json:"bootstrap_dns_port"`
+	BootstrapDNSPath          string                 `json:"bootstrap_dns_path"`
+	BootstrapDNSTLSServerName string                 `json:"bootstrap_dns_tls_server_name"`
+	BootstrapDNSUpstreams     []BootstrapDNSUpstream `json:"bootstrap_dns_upstreams"`
+	EnableResilience          bool                   `json:"enable_resilience"`
+	GenerateSGGroups          bool                   `json:"generate_sg_groups"`
+	GenerateHKGroups          bool                   `json:"generate_hk_groups"`
+	MainGroupKeywords         []string               `json:"main_group_keywords"`
+	PreferKeywords            []string               `json:"prefer_keywords"`
+	HKPreferKeywords          []string               `json:"hk_prefer_keywords"`
+	DefaultOutbound           string                 `json:"default_outbound"`
+	SubconverterBackend       string                 `json:"subconverter_backend"`
+	Base64LocalFallback       bool                   `json:"base64_local_fallback"`
+	GitHubMirror              string                 `json:"github_mirror"`
+	DownloadProxy             string                 `json:"download_proxy"`
+	GitHubToken               string                 `json:"github_token"`
+	EnableFileLog             bool                   `json:"enable_file_log"`
+	LogMaxMB                  int                    `json:"log_max_mb"`
+	Language                  string                 `json:"language"`
 }
 
 // Defaults 返回一份全新的默认配置（列表均为拷贝，可放心修改）。
@@ -97,6 +98,7 @@ func Defaults() Config {
 		BootstrapDNSPort:          53,
 		BootstrapDNSPath:          DefaultBootstrapDNSPath,
 		BootstrapDNSTLSServerName: DefaultBootstrapDNSTLSServerName,
+		BootstrapDNSUpstreams:     DefaultBootstrapDNSUpstreams(),
 		EnableResilience:          true,
 		GenerateSGGroups:          false,
 		GenerateHKGroups:          false,
@@ -441,30 +443,35 @@ func SetField(cfg *Config, key string, value string) error {
 		} else if (dnsType == "tcp" || dnsType == "udp") && cfg.BootstrapDNSPort == 443 {
 			cfg.BootstrapDNSPort = 53
 		}
+		syncLegacyBootstrapDNSUpstream(cfg)
 	case "bootstrap_dns_server":
 		server := strings.TrimSpace(value)
 		if EffectiveBootstrapDNSType(*cfg) != "dhcp" && net.ParseIP(server) == nil {
 			return fmt.Errorf("%s", i18n.T("引导 DNS 服务器必须是 IP 地址"))
 		}
 		cfg.BootstrapDNSServer = server
+		syncLegacyBootstrapDNSUpstream(cfg)
 	case "bootstrap_dns_port":
 		port, err := ParsePort(value)
 		if err != nil {
 			return err
 		}
 		cfg.BootstrapDNSPort = port
+		syncLegacyBootstrapDNSUpstream(cfg)
 	case "bootstrap_dns_path":
 		path := strings.TrimSpace(value)
 		if path == "" || !strings.HasPrefix(path, "/") {
 			return fmt.Errorf("%s", i18n.T("引导 DNS HTTPS 路径必须以 / 开头"))
 		}
 		cfg.BootstrapDNSPath = path
+		syncLegacyBootstrapDNSUpstream(cfg)
 	case "bootstrap_dns_tls_server_name":
 		serverName := strings.TrimSpace(value)
 		if serverName == "" {
 			return fmt.Errorf("%s", i18n.T("引导 DNS TLS 服务器名称不能为空"))
 		}
 		cfg.BootstrapDNSTLSServerName = serverName
+		syncLegacyBootstrapDNSUpstream(cfg)
 	case "default_outbound":
 		cfg.DefaultOutbound = value
 	case "subconverter_backend":
@@ -541,13 +548,21 @@ func Load(p paths.Paths) Config {
 		return Defaults()
 	}
 	var storedFields map[string]json.RawMessage
+	hasStoredUpstreams := false
 	if err := json.Unmarshal(data, &storedFields); err == nil {
 		if _, hasPort := storedFields["bootstrap_dns_port"]; !hasPort && EffectiveBootstrapDNSType(cfg) == "https" {
 			cfg.BootstrapDNSPort = 443
 		}
+		_, hasStoredUpstreams = storedFields["bootstrap_dns_upstreams"]
+		if !hasStoredUpstreams {
+			cfg.BootstrapDNSUpstreams = []BootstrapDNSUpstream{legacyBootstrapDNSUpstream(cfg)}
+		}
 	}
 	cfg.MixedPort = EffectiveMixedPort(cfg)
 	cfg = NormalizeBootstrapDNS(cfg)
+	if hasStoredUpstreams {
+		syncLegacyBootstrapDNSFields(&cfg)
+	}
 	return cfg
 }
 

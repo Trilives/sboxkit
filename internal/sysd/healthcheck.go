@@ -2,9 +2,11 @@ package sysd
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -34,6 +36,7 @@ func RunHealthcheck(args []string) int {
 	fs := flag.NewFlagSet("healthcheck", flag.ContinueOnError)
 	service := fs.String("service", envOr("SERVICE_NAME", DefaultName), "systemd service name")
 	tunDev := fs.String("tun-dev", envOr("TUN_DEV", "singbox"), "TUN interface to ignore")
+	event := fs.String("event", "timer", "probe trigger (timer or network-change)")
 	proxyAddr := fs.String("proxy", envOr("PROXY_ADDR", ""), "HTTP proxy address")
 	probeURL := fs.String("url", envOr("PROBE_URL", defaultProbeURL), "probe URL")
 	attempts := fs.Int("attempts", envInt("PROBE_ATTEMPTS", defaultProbeAttempts), "probe attempts")
@@ -43,13 +46,23 @@ func RunHealthcheck(args []string) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
+	if err := validateHealthcheckInputs(*service, *tunDev, *event, *probeURL, *attempts, *timeout, *gap, *minUptime); err != nil {
+		execx.Error(err.Error())
+		return 2
+	}
+	release, err := acquireHealthcheckRunLock()
+	if err != nil {
+		if errors.Is(err, errHealthcheckAlreadyRunning) {
+			logHealthcheck("classification=concurrent_probe event=%s action=skip reason=already_running", *event)
+			return 0
+		}
+		execx.Error("healthcheck lock: " + err.Error())
+		return 1
+	}
+	defer release()
 
 	if !systemctlQuiet("is-active", *service) {
-		logHealthcheck("%s is not active; leaving it to systemd.", *service)
-		return 0
-	}
-	if !haveUplink(*tunDev) {
-		logHealthcheck("No uplink except %s/none; restart cannot help. Skipping.", *tunDev)
+		logHealthcheck("classification=service_inactive service=%s event=%s action=skip", *service, *event)
 		return 0
 	}
 
@@ -60,22 +73,134 @@ func RunHealthcheck(args []string) int {
 	if addr == "" {
 		addr = defaultProxyAddr
 	}
-	if proxyWorks(addr, *probeURL, *attempts, *timeout, *gap) {
+	if err := validateLoopbackProxyAddress(addr); err != nil {
+		execx.Error(err.Error())
+		return 2
+	}
+	probes, runtime := productionHealthProbes(
+		*service, *tunDev, addr, *probeURL, *attempts, *timeout, *gap,
+	)
+	report := annotateBootstrapDegraded(RunLayeredProbes(probes), runtime.bootstrapDegraded)
+
+	restartAllowed := report.Healthy || serviceUptime(*service) >= *minUptime
+	decision, err := evaluateWatchdogFile(
+		DefaultWatchdogStatePath(), time.Now().UTC(), report, DefaultWatchdogPolicy(), restartAllowed,
+	)
+	if err != nil {
+		execx.Error("watchdog state: " + err.Error())
+		return 1
+	}
+	// Full per-layer details are emitted only at incident boundaries or before
+	// an action. Periodic healthy/backoff rounds retain a single summary line,
+	// avoiding both log floods and repeated sensitive failure strings.
+	if decision.CaptureSnapshot || decision.Restart || decision.Recovered {
+		logHealthReport(report, *event)
+	}
+
+	if decision.Recovered {
+		if err := RemoveDiagnosticSnapshot(DefaultDiagnosticSnapshotPath()); err != nil {
+			logHealthcheck("classification=healthy action=retain_snapshot error=%q", err.Error())
+			return 0
+		}
+		if err := completeWatchdogRecovery(DefaultWatchdogStatePath()); err != nil {
+			execx.Error("complete watchdog recovery: " + err.Error())
+			return 1
+		}
+		logHealthcheck("classification=healthy action=recovered healthy_rounds=2")
+		return 0
+	}
+	if decision.CaptureSnapshot {
+		if decision.ReplaceSnapshot {
+			if err := RemoveDiagnosticSnapshot(DefaultDiagnosticSnapshotPath()); err != nil {
+				logHealthcheck("classification=%s action=discard_stale_snapshot_failed error=%q", report.Failure, err.Error())
+				decision.CaptureSnapshot = false
+			}
+		}
+	}
+	if decision.CaptureSnapshot {
+		cfg := config.NormalizeBootstrapDNS(config.Load(paths.Detect()))
+		snapshot := collectDiagnosticSnapshot(
+			report, runtime.interfaceName, *tunDev, *service,
+			bootstrapTargetLabels(cfg.BootstrapDNSUpstreams),
+		)
+		created, snapshotErr := WriteDiagnosticSnapshotOnce(
+			DefaultDiagnosticSnapshotPath(), snapshot, defaultDiagnosticMaxBytes,
+		)
+		if snapshotErr != nil {
+			logHealthcheck("classification=%s action=snapshot_failed error=%q", report.Failure, snapshotErr.Error())
+		} else {
+			if stateErr := setWatchdogSnapshotCaptured(DefaultWatchdogStatePath(), true); stateErr != nil {
+				logHealthcheck("classification=%s action=snapshot_state_failed error=%q", report.Failure, stateErr.Error())
+			}
+			if created {
+				logHealthcheck("classification=%s action=snapshot_created path=%s", report.Failure, DefaultDiagnosticSnapshotPath())
+			}
+		}
+	}
+	if report.Healthy {
+		return 0
+	}
+	if !decision.Restart {
+		logHealthcheck("classification=%s action=skip_restart reason=%s", report.Failure, decision.Reason)
 		return 0
 	}
 
-	uptime := serviceUptime(*service)
-	if uptime < *minUptime {
-		logHealthcheck("Proxy probe failed but %s is only %.0fs old; letting it settle.", *service, uptime.Seconds())
-		return 0
-	}
-
-	logHealthcheck("Uplink present but proxy %s is dead after %d tries; restarting %s.", addr, *attempts, *service)
+	logHealthcheck("classification=%s action=restart service=%s attempts=%d", report.Failure, *service, len(decision.State.RestartedAt))
 	if _, err := execx.Run([]string{"systemctl", "restart", *service}, &execx.Opt{Capture: true}); err != nil {
 		execx.Error(err.Error())
 		return 1
 	}
 	return 0
+}
+
+func validateHealthcheckInputs(
+	service, tunDev, event, probeURL string,
+	attempts int,
+	timeout, gap, minUptime time.Duration,
+) error {
+	if err := validateServiceName(service); err != nil {
+		return err
+	}
+	if err := validateInterfaceName(tunDev); err != nil {
+		return err
+	}
+	if event != "timer" && event != "network-change" {
+		return fmt.Errorf("invalid healthcheck event %q", event)
+	}
+	if attempts < 1 || attempts > 10 || timeout <= 0 || timeout > 30*time.Second || gap < 0 || gap > 30*time.Second || minUptime < 0 || minUptime > 24*time.Hour {
+		return fmt.Errorf("healthcheck limits are outside the safe range")
+	}
+	if time.Duration(attempts)*timeout+time.Duration(attempts-1)*gap > 2*time.Minute {
+		return fmt.Errorf("healthcheck probe budget exceeds two minutes")
+	}
+	parsed, err := url.Parse(probeURL)
+	if err != nil || parsed.Hostname() == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil {
+		return fmt.Errorf("healthcheck URL must be HTTP(S), include a host, and contain no credentials")
+	}
+	return nil
+}
+
+func validateLoopbackProxyAddress(address string) error {
+	host, portText, err := net.SplitHostPort(address)
+	port, portErr := strconv.Atoi(portText)
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	if err != nil || portErr != nil || port < 1 || port > 65535 || ip == nil || !ip.IsLoopback() {
+		return fmt.Errorf("healthcheck proxy must be a literal loopback address with a valid port")
+	}
+	return nil
+}
+
+func logHealthReport(report HealthReport, event string) {
+	for _, result := range report.Results {
+		status := "ok"
+		if !result.OK {
+			status = "failed"
+		}
+		logHealthcheck(
+			"classification=%s event=%s layer=%s status=%s duration_ms=%d detail=%q",
+			report.Failure, event, result.Layer, status, result.Duration.Milliseconds(), redactDiagnosticText(result.Detail),
+		)
+	}
 }
 
 func envOr(name, fallback string) string {

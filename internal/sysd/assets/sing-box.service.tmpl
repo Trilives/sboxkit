@@ -1,8 +1,9 @@
 [Unit]
 Description=sing-box Service ({{.Name}})
 Documentation=https://sing-box.sagernet.org/
-After=network-online.target
 Wants=network-online.target
+Requires={{.BootstrapUnit}}
+After=network-online.target {{.BootstrapUnit}}
 
 [Service]
 Type=simple

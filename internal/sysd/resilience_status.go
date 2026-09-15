@@ -88,7 +88,7 @@ func inspectResilienceStatus(
 ) ResilienceStatus {
 	dispatcherSupported := directoryExists(layout.dispatcherDir)
 	dispatcherInstalled, dispatcherStale := fileMatches(
-		dispatcherFileIn(layout, name), dispatcherText(name, tunDev, 20),
+		dispatcherFileIn(layout, name), dispatcherText(name, tunDev, 20, exe),
 	)
 	serviceInstalled, serviceStale := fileMatches(
 		wdServiceIn(layout), wdServiceText(name, tunDev, exe),

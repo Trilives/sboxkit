@@ -2,6 +2,7 @@ package sysd
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -24,6 +25,149 @@ func TestFailureClassValuesAreStableForLogsAndDiagnostics(t *testing.T) {
 		if got := string(test.class); got != test.want {
 			t.Errorf("failure class = %q, want stable value %q", got, test.want)
 		}
+	}
+}
+
+func TestWatchdogFileFailsClosedWhenPersistentStateIsCorrupted(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "watchdog.json")
+	if err := os.WriteFile(path, []byte("not-json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, time.September, 11, 16, 35, 0, 0, time.UTC)
+	decision, err := evaluateWatchdogFile(path, now, HealthReport{Failure: FailureEndToEnd}, DefaultWatchdogPolicy(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Restart || decision.Reason != RestartSkippedBackoff {
+		t.Fatalf("corrupted-state decision = %#v, want fail-closed backoff", decision)
+	}
+	if len(decision.State.RestartedAt) != DefaultWatchdogPolicy().MaxRestarts {
+		t.Fatalf("synthetic restart history = %v", decision.State.RestartedAt)
+	}
+}
+
+func TestMinimumUptimeSkipDoesNotConsumeRestartBudget(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "watchdog.json")
+	now := time.Date(2026, time.September, 11, 16, 35, 0, 0, time.UTC)
+	decision, err := evaluateWatchdogFile(path, now, HealthReport{Failure: FailureMixedPort}, DefaultWatchdogPolicy(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Restart || decision.Reason != RestartSkippedMinUptime {
+		t.Fatalf("minimum-uptime decision = %#v", decision)
+	}
+	if len(decision.State.RestartedAt) != 0 || decision.State.RestartAttempts != 0 {
+		t.Fatalf("minimum-uptime skip consumed budget: %#v", decision.State)
+	}
+	if !decision.CaptureSnapshot {
+		t.Fatal("minimum-uptime skip lost first-failure snapshot request")
+	}
+}
+
+func TestHealthRuntimePathsHonorOverride(t *testing.T) {
+	directory := t.TempDir()
+	t.Setenv("SBOXKIT_RUN_DIR", directory)
+	if got := HealthRuntimeDir(); got != directory {
+		t.Fatalf("HealthRuntimeDir() = %q, want %q", got, directory)
+	}
+	if got := DefaultWatchdogStatePath(); got != filepath.Join(directory, "watchdog-state.json") {
+		t.Fatalf("state path = %q", got)
+	}
+	if got := DefaultDiagnosticSnapshotPath(); got != filepath.Join(directory, "health-diagnostic.json") {
+		t.Fatalf("snapshot path = %q", got)
+	}
+}
+
+func TestHealthcheckRunLockRejectsConcurrentInvocationWithoutWaiting(t *testing.T) {
+	directory := t.TempDir()
+	t.Setenv("SBOXKIT_RUN_DIR", directory)
+	release, err := acquireHealthcheckRunLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+
+	secondRelease, err := acquireHealthcheckRunLock()
+	if secondRelease != nil {
+		secondRelease()
+	}
+	if !errors.Is(err, errHealthcheckAlreadyRunning) {
+		t.Fatalf("concurrent lock error = %v, want errHealthcheckAlreadyRunning", err)
+	}
+}
+
+func TestSnapshotCaptureCanBeRetriedAfterPersistenceFailure(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "watchdog.json")
+	now := time.Date(2026, time.September, 11, 16, 35, 0, 0, time.UTC)
+	first := EvaluateWatchdog(now, WatchdogState{}, HealthReport{Failure: FailureBootstrapDNS}, DefaultWatchdogPolicy())
+	if !first.CaptureSnapshot || !first.ReplaceSnapshot {
+		t.Fatal("first failure did not request replacement of any orphan snapshot")
+	}
+	if first.State.SnapshotCaptured {
+		t.Fatal("snapshot marked captured before durable snapshot persistence")
+	}
+	if err := SaveWatchdogState(path, first.State); err != nil {
+		t.Fatal(err)
+	}
+	state, err := LoadWatchdogState(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retry := EvaluateWatchdog(now.Add(30*time.Second), state, HealthReport{Failure: FailureBootstrapDNS}, DefaultWatchdogPolicy())
+	if !retry.CaptureSnapshot {
+		t.Fatalf("snapshot persistence failure was not retried: %#v", retry)
+	}
+	if err := setWatchdogSnapshotCaptured(path, true); err != nil {
+		t.Fatal(err)
+	}
+	persisted, err := LoadWatchdogState(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again := EvaluateWatchdog(now.Add(45*time.Second), persisted, HealthReport{Failure: FailureBootstrapDNS}, DefaultWatchdogPolicy()); again.CaptureSnapshot {
+		t.Fatalf("durably captured snapshot requested again: %#v", again)
+	}
+}
+
+func TestRecoveryPersistsSnapshotStaleUntilCleanupCompletes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "watchdog.json")
+	now := time.Date(2026, time.September, 15, 12, 0, 0, 0, time.UTC)
+	state := WatchdogState{InFailure: true, SnapshotCaptured: true, ConsecutiveHealthy: 1}
+	if err := SaveWatchdogState(path, state); err != nil {
+		t.Fatal(err)
+	}
+	decision, err := evaluateWatchdogFile(path, now, HealthReport{Healthy: true}, DefaultWatchdogPolicy(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !decision.Recovered {
+		t.Fatalf("decision = %#v, want pending recovery", decision)
+	}
+	pending, err := LoadWatchdogState(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pending.InFailure || !pending.SnapshotStale {
+		t.Fatalf("persisted recovery state = %#v, want stale snapshot marker", pending)
+	}
+	if err := completeWatchdogRecovery(path); err != nil {
+		t.Fatal(err)
+	}
+	completed, err := LoadWatchdogState(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed.InFailure || completed.SnapshotStale {
+		t.Fatalf("completed recovery state = %#v", completed)
+	}
+}
+
+func TestFailureDuringPendingRecoveryReplacesStaleSnapshot(t *testing.T) {
+	now := time.Date(2026, time.September, 15, 12, 0, 0, 0, time.UTC)
+	state := WatchdogState{InFailure: true, SnapshotCaptured: true, SnapshotStale: true, ConsecutiveHealthy: 2}
+	decision := EvaluateWatchdog(now, state, HealthReport{Failure: FailureBootstrapDNS}, DefaultWatchdogPolicy())
+	if !decision.CaptureSnapshot || !decision.ReplaceSnapshot {
+		t.Fatalf("decision = %#v, want stale snapshot replacement", decision)
 	}
 }
 
@@ -141,6 +285,8 @@ func TestWatchdogStateSurvivesSeparateInvocations(t *testing.T) {
 	if first.State.NextRestartAt != now.Add(time.Minute) {
 		t.Fatalf("next restart = %v, want %v", first.State.NextRestartAt, now.Add(time.Minute))
 	}
+	first.State.SnapshotCaptured = true // simulate successful snapshot write
+	first.State.SnapshotStale = false
 
 	statePath := filepath.Join(t.TempDir(), "watchdog-state.json")
 	if err := SaveWatchdogState(statePath, first.State); err != nil {
@@ -249,6 +395,8 @@ func TestWatchdogRequiresTwoConsecutiveHealthyReportsBeforeReset(t *testing.T) {
 	healthy := HealthReport{Healthy: true, Failure: FailureNone}
 
 	failed := EvaluateWatchdog(now, WatchdogState{}, failure, policy)
+	failed.State.SnapshotCaptured = true // simulate successful snapshot write
+	failed.State.SnapshotStale = false
 	oneHealthy := EvaluateWatchdog(now.Add(2*time.Minute), failed.State, healthy, policy)
 	if oneHealthy.Recovered {
 		t.Fatal("one healthy report must not mark the watchdog recovered")
@@ -284,6 +432,8 @@ func TestWatchdogFailureInterruptsRecoveryStreak(t *testing.T) {
 	healthy := HealthReport{Healthy: true, Failure: FailureNone}
 
 	failed := EvaluateWatchdog(now, WatchdogState{}, failure, policy)
+	failed.State.SnapshotCaptured = true // simulate successful snapshot write
+	failed.State.SnapshotStale = false
 	oneHealthy := EvaluateWatchdog(now.Add(time.Minute), failed.State, healthy, policy)
 	failedAgain := EvaluateWatchdog(now.Add(2*time.Minute), oneHealthy.State, failure, policy)
 	healthyAgain := EvaluateWatchdog(now.Add(3*time.Minute), failedAgain.State, healthy, policy)

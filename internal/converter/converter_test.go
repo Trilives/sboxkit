@@ -61,7 +61,7 @@ func TestClashToSingBoxUsesConfiguredMixedPort(t *testing.T) {
 	t.Fatal("mixed inbound not found")
 }
 
-func TestClashToSingBoxBuildsDirectBootstrapDNSWithoutUnusedFallbackServer(t *testing.T) {
+func TestClashToSingBoxBuildsLocalBootstrapRelayWithoutUnusedFallbackServer(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.BootstrapDNSType = "tcp"
 	result, _, err := ClashToSingBox(testkit.ReadFixture(t, "testdata/converter/clash-basic.yaml"), cfg, paths.FromRoot(t.TempDir()))
@@ -73,8 +73,8 @@ func TestClashToSingBoxBuildsDirectBootstrapDNSWithoutUnusedFallbackServer(t *te
 	for _, server := range servers {
 		if server["tag"] == bootstrapDNSTag {
 			foundBootstrap = true
-			if server["type"] != "tcp" {
-				t.Fatalf("bootstrap DNS type = %v, want tcp", server["type"])
+			if server["type"] != "udp" || server["server"] != config.DefaultBootstrapDNSRelayServer || server["server_port"] != config.DefaultBootstrapDNSRelayPort {
+				t.Fatalf("unexpected bootstrap relay server: %#v", server)
 			}
 		}
 		if server["tag"] == "dns-dnspod" {
@@ -86,7 +86,7 @@ func TestClashToSingBoxBuildsDirectBootstrapDNSWithoutUnusedFallbackServer(t *te
 	}
 }
 
-func TestClashToSingBoxBuildsDirectBootstrapDoHWithoutResolverLoop(t *testing.T) {
+func TestClashToSingBoxBuildsRemoteDoHOverDirectWithBootstrapResolver(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.BootstrapDNSType = "https"
 	cfg.BootstrapDNSServer = "1.1.1.1"
@@ -99,25 +99,26 @@ func TestClashToSingBoxBuildsDirectBootstrapDoHWithoutResolverLoop(t *testing.T)
 	}
 	servers, _ := result.DNS["servers"].([]map[string]any)
 	for _, server := range servers {
-		if server["tag"] != bootstrapDNSTag {
+		if server["tag"] != remoteDNSTag {
 			continue
 		}
 		if server["type"] != "https" || server["detour"] != "DIRECT" {
-			t.Fatalf("unexpected bootstrap DoH server: %#v", server)
+			t.Fatalf("unexpected remote DoH server: %#v", server)
 		}
-		if _, ok := server["domain_resolver"]; ok {
-			t.Fatalf("bootstrap DoH must not depend on another resolver: %#v", server)
+		resolver, ok := server["domain_resolver"].(map[string]any)
+		if !ok || resolver["server"] != bootstrapDNSTag {
+			t.Fatalf("remote DoH must resolve through bootstrap relay: %#v", server)
 		}
 		tls, _ := server["tls"].(map[string]any)
-		if tls["server_name"] != "cloudflare-dns.com" {
-			t.Fatalf("bootstrap DoH TLS server_name missing: %#v", server)
+		if tls["server_name"] != "dns.google" {
+			t.Fatalf("remote DoH TLS server_name missing: %#v", server)
 		}
 		return
 	}
-	t.Fatal("bootstrap DoH server not found")
+	t.Fatal("remote DoH server not found")
 }
 
-func TestClashToSingBoxBuildsUDPAndDHCPBootstrapDNS(t *testing.T) {
+func TestLegacyBootstrapScalarTransportDoesNotBypassRelay(t *testing.T) {
 	for _, dnsType := range []string{"udp", "dhcp"} {
 		t.Run(dnsType, func(t *testing.T) {
 			cfg := config.Defaults()
@@ -131,13 +132,8 @@ func TestClashToSingBoxBuildsUDPAndDHCPBootstrapDNS(t *testing.T) {
 				if server["tag"] != bootstrapDNSTag {
 					continue
 				}
-				if server["type"] != dnsType {
-					t.Fatalf("bootstrap DNS type = %v, want %s", server["type"], dnsType)
-				}
-				if dnsType == "dhcp" {
-					if _, ok := server["server"]; ok {
-						t.Fatalf("DHCP bootstrap should not include a server: %#v", server)
-					}
+				if server["type"] != "udp" || server["server"] != config.DefaultBootstrapDNSRelayServer || server["server_port"] != config.DefaultBootstrapDNSRelayPort {
+					t.Fatalf("legacy %s scalar bypassed bootstrap relay: %#v", dnsType, server)
 				}
 				return
 			}
@@ -492,6 +488,25 @@ proxies:
 				return cfg
 			}(),
 		},
+	}
+	for _, enableTun := range []bool{false, true} {
+		for _, enableFakeIP := range []bool{false, true} {
+			raw := testkit.ReadFixture(t, "testdata/converter/clash-basic.yaml")
+			if enableFakeIP {
+				raw = "dns: {enhanced-mode: fake-ip, fake-ip-filter: [\"*.lan\"]}\n" + raw
+			}
+			cfg := config.Defaults()
+			cfg.EnableTun = enableTun
+			cases = append(cases, struct {
+				name string
+				raw  string
+				cfg  config.Config
+			}{
+				name: "TUN " + boolName(enableTun) + " FakeIP " + boolName(enableFakeIP),
+				raw:  raw,
+				cfg:  cfg,
+			})
+		}
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

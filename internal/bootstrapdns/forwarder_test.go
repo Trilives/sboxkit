@@ -43,6 +43,22 @@ func TestForwarderRejectsMalformedQueriesBeforeExchange(t *testing.T) {
 	}
 }
 
+func TestForwarderRejectsAnUnboundedUpstreamList(t *testing.T) {
+	t.Parallel()
+	upstreams := make([]Upstream, maxUpstreamCount+1)
+	for index := range upstreams {
+		upstreams[index] = Upstream{Name: "resolver", Network: "udp", Address: "192.0.2.1:53"}
+	}
+	_, err := NewForwarder(Config{
+		Upstreams: upstreams, AttemptTimeout: time.Second, FailureCooldown: time.Second,
+		MaxRequestBytes: 4096, MaxConcurrent: 1,
+		Exchange: func(context.Context, Upstream, []byte) ([]byte, error) { return nil, errors.New("unused") },
+	})
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("NewForwarder() error = %v, want ErrInvalidConfig", err)
+	}
+}
+
 func TestForwarderValidatesResponsesAndFallsBack(t *testing.T) {
 	t.Parallel()
 
@@ -67,6 +83,30 @@ func TestForwarderValidatesResponsesAndFallsBack(t *testing.T) {
 			response: func(query []byte) []byte {
 				response := dnsResponse(query)
 				response[1]++
+				return response
+			},
+		},
+		{
+			name: "truncated response",
+			response: func(query []byte) []byte {
+				response := dnsResponse(query)
+				response[2] |= 0x02
+				return response
+			},
+		},
+		{
+			name: "server failure response",
+			response: func(query []byte) []byte {
+				response := dnsResponse(query)
+				response[3] = 2
+				return response
+			},
+		},
+		{
+			name: "refused response",
+			response: func(query []byte) []byte {
+				response := dnsResponse(query)
+				response[3] = 5
 				return response
 			},
 		},
@@ -98,6 +138,30 @@ func TestForwarderValidatesResponsesAndFallsBack(t *testing.T) {
 				t.Fatalf("attempts = %v, want %v", attempts, wantAttempts)
 			}
 		})
+	}
+}
+
+func TestForwarderReturnsNXDOMAINWithoutTryingAnotherUpstream(t *testing.T) {
+	t.Parallel()
+
+	query := dnsQuery(0x7788)
+	var attempts []string
+	forwarder := newTestForwarder(t, func(_ context.Context, upstream Upstream, request []byte) ([]byte, error) {
+		attempts = append(attempts, upstream.Name)
+		response := dnsResponse(request)
+		response[3] = 3
+		return response, nil
+	})
+
+	response, err := forwarder.Resolve(context.Background(), query)
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if response[3]&0x0f != 3 {
+		t.Fatalf("response rcode = %d, want NXDOMAIN", response[3]&0x0f)
+	}
+	if want := []string{"primary"}; !reflect.DeepEqual(attempts, want) {
+		t.Fatalf("attempts = %v, want %v", attempts, want)
 	}
 }
 

@@ -22,11 +22,16 @@ sing-box JSON；原生 sing-box passthrough 则不受白名单限制。
 避免节点尚未建立时反过来依赖代理 DNS。源订阅中的 fake-ip-filter 仍会保留，
 用于需要返回真实地址而不能进入 FakeIP 映射的域名。
 
-引导 DNS 默认使用直连 TCP，亦可在 `customize.json` 中选择 `udp`、`https` 或
-`dhcp`。直连 DoH 始终走 `DIRECT`，并要求服务器使用 IP 字面量；证书名称通过
-独立的 TLS `server_name` 配置，因此无需再设置可能引用自身的
-`domain_resolver`，也不会反向依赖 `Proxy`。配置不再生成未被规则或默认解析器
-引用的 `dns-dnspod` 伪备用项。
+引导 DNS 由独立的 loopback relay 提供。sing-box 配置中的 `dns-direct` 固定指向
+`127.0.0.1:6450`，relay 再按 `customize.json.bootstrap_dns_upstreams` 的顺序访问至少两个
+IP 字面量上游。默认顺序是 AliDNS TCP 与 Cloudflare DoH，刻意跨运营方和传输；单个上游
+RST、黑洞或无响应时会在逐次超时后切到下一项。UDP/TCP/DoH 套接字均动态绑定非 TUN
+物理默认接口，不读取 HTTP 代理环境变量，也不依赖业务 `Proxy`。DoH 的证书名通过独立
+TLS SNI 字段提供。生成配置仍不包含未引用的伪备用 DNS server。
+
+旧版单上游字段继续读取并迁移为有序列表的第一项，再自动补一个不同默认上游；交互编辑
+旧字段时同步更新第一项。旧 `dhcp` 选择无法提供固定、可验证的故障转移目标，因此迁移后
+relay 使用安全的双直连默认值；保存配置后旧标量会与实际第一项对齐。
 
 如果代理节点的 `server` 命中源 `hosts` 中的域名别名，转换器会先将节点拨号地址
 改写为别名目标，再交给直连引导 DNS；因为 sing-box 对显式 `domain_resolver` 的

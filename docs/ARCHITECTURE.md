@@ -44,8 +44,9 @@ clashdock 的生效配置 `config.yaml` 内容其实是 JSON（利用"JSON 是�
 | 位置 | 内容 |
 |---|---|
 | `/var/lib/sboxkit`（固定工作目录，`SBOXKIT_HOME` 可覆盖） | 状态数据：内核、geo 规则集、`subscriptions/<name>/{meta.json,raw.*,config.json}`、`active` 指针、`customize.json`。首次使用经 sudo 创建并交回调用者属主，root 定时器与用户会话共享同一份数据；旧版留下的 `ui/` 不再作为运行来源 |
-| `/var/lib/sboxkit-runtime` | root 态自包含运行时：内核 + 配置 + geo 规则集 + 面板资源的暂存副本（服务与用户目录解耦） |
-| `/etc/systemd/system` | `sing-box` / `sing-box-watchdog` / `sing-box-update` 三组单元 |
+| `/var/lib/sboxkit-runtime` | root 态自包含运行时：内核 + 配置 + geo 规则集 + 面板资源，以及仅含 IP 字面量上游的 `bootstrap-dns.json`（服务与用户目录解耦） |
+| `/run/sboxkit` | watchdog 跨 invocation 状态与当前 incident 的首份脱敏诊断快照；原子写入并由文件锁串行化 |
+| `/etc/systemd/system` | `sing-box` 主服务、bootstrap DNS relay、watchdog 与自动更新单元 |
 
 **Web 面板**：sing-box 没有官方面板可下载（不像 mihomo 有 metacubexd），因此
 sboxkit 自己写了一个极简面板（`internal/uiassets`，go:embed 打进二进制，无需
@@ -59,6 +60,8 @@ sboxkit 自己写了一个极简面板（`internal/uiassets`，go:embed 打进�
 `state/ui` 变成普通用户不可写并导致后续刷新失败。
 
 普通用户运行，特权操作全部经 `sudo` 子进程（`internal/execx`），凭证会话内缓存。
+运行时目录、bootstrap relay 端口及 watchdog 单元是共享单例，因此服务变更入口只接受
+主服务名 `sing-box`；不会伪装支持多个名称后让实例互相覆盖配置或争抢端口。
 
 ## 4. 交互契约：esc 保存 / ^R 回退 + 事务
 
@@ -122,9 +125,21 @@ Go 测试和静态检查；任何配置破坏性变更都会在创建 GitHub Rel
 
 ## 7. 自愈与守护
 
-- NetworkManager dispatcher 钩子：真实网卡 up / 连通性变化时防抖重启（忽略 tun 自身）
-- watchdog 定时器 + `sboxkit healthcheck`：仅当「有上行但代理探测不通」且服务
-  已运行足够久才重启，避免重启风暴
+- `sing-box-bootstrap-dns.service` 是只监听 `127.0.0.1:6450` 的 UDP/TCP relay。
+  它按 `customize.json` 中的有序 IP 字面量上游直连转发，默认 AliDNS TCP →
+  Cloudflare DoH；每次拨号动态选择非 TUN 默认物理接口，并通过
+  `SO_BINDTODEVICE` 绕过 TUN/代理循环。失败上游进入短冷却，随后半开恢复。
+  sing-box 的 `dns-direct`、节点域名及 route resolver 只依赖该 loopback relay。
+- NetworkManager dispatcher 钩子：真实网卡 up / 连通性变化时防抖触发
+  `sboxkit healthcheck --event network-change`（忽略 tun 自身），不再绕过统一限流器直接重启。
+- watchdog 定时器 + `sboxkit healthcheck` 依次判断物理上行、bootstrap DNS、当前运行时
+  selector 实际选中链路的节点入口解析、mixed 端口和端到端代理，并输出稳定故障分类。
+  未使用节点不会触发误重启；物理上行故障不重启；其它失败采用跨 timer
+  invocation 的指数退避和滑动窗口熔断，默认 10 分钟最多重启 2 次，连续两轮健康后复位。
+- 每个故障 incident 只保存第一份有界、脱敏快照；固定白名单命令并发且各自限时/限量。
+  `sboxkit diagnose [--json]` 与工具菜单只读取已有状态和快照，不触发探测、修复或重启。
+  状态与快照刻意保持本机普通用户只读（0644），内容只含脱敏后的网络拓扑、分类和计数；
+  这是无需 sudo 即可诊断的产品取舍，多用户主机应视其为本地可见信息。
 - `customize.json` 的 `enable_resilience` 保存用户意图；完整性检查分别观察 dispatcher、
   watchdog service、watchdog timer 及 timer 的 enabled/active 状态。启用时，初始化、
   服务安装/重载、更新和交互启动会幂等补齐缺失或陈旧组件；显式禁用时不自动安装。
@@ -163,6 +178,7 @@ internal/errs         ErrSaveExit / ErrCancelled 导航哨兵
 internal/execx        日志、子进程、sudo
 internal/paths        状态目录解析（SBOXKIT_HOME > XDG）
 internal/config       customize.json：类型化 Config struct，默认值 / 读写 / 字段元数据 / 脱敏
+internal/bootstrapdns loopback UDP/TCP relay：物理接口直连、UDP/TCP/DoH 有序故障转移
 internal/converter    Clash / sing-box 原生 / base64 → sing-box 配置的核心转换器
 internal/txn          事务：BackupFile / Snapshot / TrackPath / AddUndo，LIFO 回滚
 internal/tui          Bubble Tea 四类提示 + 非 TTY 回退
@@ -171,7 +187,7 @@ internal/kernel       sing-box 内核 / geo 规则集下载部署 + deb 种子�
 internal/uiassets     内置 Web 面板静态资源（go:embed，无需联网下载）
 internal/selfupdate   sboxkit 自更新：版本化目录 + 原子符号链接切换
 internal/subscription 订阅域：fetch / detect（三态）/ b64（分享链接解析）/ manager
-internal/sysd         systemd 三组单元（模板 go:embed）
+internal/sysd         主服务/relay/watchdog/更新单元，分层健康探测与持久熔断状态
 internal/clashapi     Clash API：切组 / 并发测延迟（协议与 mihomo 版共用）
 internal/firewall     ufw > firewalld > nft > iptables 探测与放行
 internal/proxyenv     ~/.bashrc 代理变量标记块

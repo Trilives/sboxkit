@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/Trilives/sboxkit/internal/bootstrapdns"
 	"github.com/Trilives/sboxkit/internal/config"
 	"github.com/Trilives/sboxkit/internal/errs"
 	"github.com/Trilives/sboxkit/internal/execx"
@@ -21,7 +22,7 @@ import (
 var version = "dev"
 
 func usageText() string {
-	return i18n.T("用法: sboxkit [init|modify|nettest|uninstall|update|portable-update|pause|resume|version]\n不带参数则进入交互式主菜单。")
+	return i18n.T("用法: sboxkit [init|modify|nettest|diagnose|uninstall|update|portable-update|pause|resume|version]\n不带参数则进入交互式主菜单。")
 }
 
 func main() {
@@ -51,6 +52,8 @@ func main() {
 		exitFlow(flows.ModifyConfig(p))
 	case "nettest":
 		exitFlow(flows.Nettest(p))
+	case "diagnose":
+		os.Exit(runDiagnose(p, args[1:], os.Stdout, os.Stderr, flows.Diagnose))
 	case "uninstall":
 		exitFlow(flows.Uninstall(p))
 	case "update":
@@ -63,6 +66,8 @@ func main() {
 		exitFlow(sysd.Resume(sysd.DefaultName))
 	case "healthcheck":
 		os.Exit(sysd.RunHealthcheck(args[1:]))
+	case "bootstrap-dns":
+		os.Exit(bootstrapdns.Run(args[1:]))
 	default:
 		fmt.Fprintf(os.Stderr, i18n.T("未知子命令: %s\n%s\n"), args[0], usageText())
 		os.Exit(2)

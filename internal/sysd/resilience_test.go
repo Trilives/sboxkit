@@ -25,7 +25,7 @@ func TestInspectResilienceStatusDetectsMissingAndStaleUnits(t *testing.T) {
 		t.Fatalf("expected empty layout to need repair: %#v", st)
 	}
 
-	if err := os.WriteFile(dispatcherFileIn(layout, DefaultName), []byte(dispatcherText(DefaultName, "singbox", 20)), 0o755); err != nil {
+	if err := os.WriteFile(dispatcherFileIn(layout, DefaultName), []byte(dispatcherText(DefaultName, "singbox", 20, "/usr/bin/sboxkit")), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(wdServiceIn(layout), []byte(wdServiceText(DefaultName, "singbox", "/old/bin/sboxkit")), 0o644); err != nil {
@@ -80,7 +80,7 @@ func TestInspectResilienceStatusOnlyRepairsInactiveTimerWhenMainServiceIsActive(
 		t.Fatal(err)
 	}
 	files := map[string]string{
-		dispatcherFileIn(layout, DefaultName): dispatcherText(DefaultName, "singbox", 20),
+		dispatcherFileIn(layout, DefaultName): dispatcherText(DefaultName, "singbox", 20, "/usr/bin/sboxkit"),
 		wdServiceIn(layout):                   wdServiceText(DefaultName, "singbox", "/usr/bin/sboxkit"),
 		wdTimerIn(layout):                     wdTimerText("2min"),
 	}
@@ -182,6 +182,16 @@ func TestWatchdogServiceQuotesExecutablePath(t *testing.T) {
 	unit := wdServiceText(DefaultName, "singbox", `/opt/sbox kit/%preview/sboxkit`)
 	if !strings.Contains(unit, `ExecStart="/opt/sbox kit/%%preview/sboxkit" healthcheck`) {
 		t.Fatalf("unsafe or unescaped ExecStart:\n%s", unit)
+	}
+}
+
+func TestDispatcherRoutesNetworkChangesThroughHealthcheckLimiter(t *testing.T) {
+	script := dispatcherText(DefaultName, "singbox", 20, `/opt/sbox kit/sboxkit`)
+	if strings.Contains(script, "systemctl restart") {
+		t.Fatalf("dispatcher bypasses healthcheck restart limiter:\n%s", script)
+	}
+	if !strings.Contains(script, `'/opt/sbox kit/sboxkit' healthcheck --event network-change --service 'sing-box' --tun-dev 'singbox'`) {
+		t.Fatalf("dispatcher does not use the stable sboxkit healthcheck entrypoint:\n%s", script)
 	}
 }
 

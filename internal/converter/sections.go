@@ -14,7 +14,6 @@ const (
 	geoipCNRuleSetTag   = "geoip-cn"
 	bootstrapDNSTag     = "dns-direct"
 	remoteDNSTag        = "dns-proxy"
-	bootstrapDNSDHCP    = "dhcp"
 	generate204URL      = "https://www.google.com/generate_204"
 	defaultController   = "127.0.0.1:9090"
 	lanController       = "0.0.0.0:9090"
@@ -78,25 +77,15 @@ func buildDNS(cfg config.Config, p paths.Paths, source sourceOptions) map[string
 		})
 	}
 
-	bootstrapType := config.EffectiveBootstrapDNSType(cfg)
 	bootstrap := map[string]any{
-		"type": bootstrapType, "tag": bootstrapDNSTag,
-		"server": cfg.BootstrapDNSServer, "server_port": cfg.BootstrapDNSPort,
+		"type": "udp", "tag": bootstrapDNSTag,
+		"server": config.DefaultBootstrapDNSRelayServer, "server_port": config.DefaultBootstrapDNSRelayPort,
 		"detour": "DIRECT",
-	}
-	if bootstrapType == bootstrapDNSDHCP || strings.EqualFold(cfg.BootstrapDNSServer, bootstrapDNSDHCP) {
-		bootstrap = map[string]any{"type": "dhcp", "tag": bootstrapDNSTag, "detour": "DIRECT"}
-	} else if bootstrapType == "https" {
-		bootstrap["path"] = cfg.BootstrapDNSPath
-		bootstrap["tls"] = map[string]any{
-			"enabled":     true,
-			"server_name": cfg.BootstrapDNSTLSServerName,
-		}
 	}
 
 	servers = append(servers,
 		bootstrap,
-		map[string]any{"type": "https", "tag": remoteDNSTag, "server": "1.1.1.1", "server_port": 443, "path": "/dns-query", "tls": map[string]any{"server_name": "cloudflare-dns.com"}, "detour": "Proxy"},
+		map[string]any{"type": "https", "tag": remoteDNSTag, "server": "dns.google", "server_port": 443, "path": "/dns-query", "tls": map[string]any{"server_name": "dns.google"}, "detour": "DIRECT", "domain_resolver": bootstrapResolver()},
 	)
 	if source.FakeIP != nil {
 		servers = append(servers, map[string]any{

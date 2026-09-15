@@ -1,6 +1,7 @@
 package sysd
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Trilives/sboxkit/internal/config"
 	"github.com/Trilives/sboxkit/internal/execx"
 	"github.com/Trilives/sboxkit/internal/paths"
 )
@@ -45,6 +47,12 @@ func TestStageRuntimeConfigRewritesExternalUIAndCachePath(t *testing.T) {
 	}
 	if !strings.Contains(string(out), `"/var/lib/sboxkit-runtime/cache.db"`) {
 		t.Fatalf("cache_file.path was not rewritten in staged config:\n%s", out)
+	}
+}
+
+func TestRuntimeSecretsUsePrivateDeploymentModes(t *testing.T) {
+	if runtimeDirectoryMode != "0700" || runtimeConfigMode != "0600" {
+		t.Fatalf("runtime modes expose node credentials: directory=%s config=%s", runtimeDirectoryMode, runtimeConfigMode)
 	}
 }
 
@@ -145,8 +153,158 @@ func TestSyncUIRuntimeReturnsTemporaryDirectoryError(t *testing.T) {
 }
 
 func TestResumeCompanionUnitsExcludesResidualWatchdog(t *testing.T) {
-	got := resumeCompanionUnits([]string{WatchdogName + ".timer", TimerName + ".timer"})
-	if len(got) != 1 || got[0] != TimerName+".timer" {
-		t.Fatalf("resume companions = %v, want only weekly update timer", got)
+	bootstrapUnit := bootstrapServiceName(DefaultName) + ".service"
+	got := resumeCompanionUnits([]string{bootstrapUnit, WatchdogName + ".timer", TimerName + ".timer"})
+	if len(got) != 2 || got[0] != bootstrapUnit || got[1] != TimerName+".timer" {
+		t.Fatalf("resume companions = %v, want bootstrap relay and weekly update timer", got)
+	}
+}
+
+func TestStageBootstrapDNSConfigPreservesNormalizedUpstreamOrder(t *testing.T) {
+	p := paths.Paths{
+		State:         t.TempDir(),
+		CustomizeFile: filepath.Join(t.TempDir(), "customize.json"),
+	}
+	want := []config.BootstrapDNSUpstream{
+		{Provider: "Cloudflare", Type: "https", Server: "1.1.1.1", Port: 443, Path: "/dns-query", TLSServerName: "cloudflare-dns.com"},
+		{Provider: "AliDNS", Type: "tcp", Server: "223.5.5.5", Port: 53},
+	}
+	raw, err := json.Marshal(config.Config{BootstrapDNSUpstreams: want})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p.CustomizeFile, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	staged, err := stageBootstrapDNSConfig(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(staged)
+
+	gotRaw, err := os.ReadFile(staged)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got bootstrapDNSRuntimeConfig
+	if err := json.Unmarshal(gotRaw, &got); err != nil {
+		t.Fatalf("unmarshal staged bootstrap config: %v\n%s", err, gotRaw)
+	}
+	if len(got.Upstreams) != len(want) {
+		t.Fatalf("staged upstreams = %#v, want %#v", got.Upstreams, want)
+	}
+	for i := range want {
+		if got.Upstreams[i] != want[i] {
+			t.Fatalf("staged upstream[%d] = %#v, want %#v", i, got.Upstreams[i], want[i])
+		}
+	}
+}
+
+func TestBootstrapDNSServiceRunsStableExecutableAndFollowsMainService(t *testing.T) {
+	rt := runtimePaths{Dir: "/var/lib/sboxkit-runtime"}
+	unit := bootstrapServiceText(DefaultName, rt, `/opt/sbox kit/%preview/sboxkit`)
+
+	for _, want := range []string{
+		"Before=sing-box.service",
+		"PartOf=sing-box.service",
+		`ExecStart="/opt/sbox kit/%%preview/sboxkit" bootstrap-dns --config /var/lib/sboxkit-runtime/bootstrap-dns.json --listen 127.0.0.1:6450 --tun-dev singbox`,
+		"CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW",
+		"ProtectSystem=strict",
+		"ProtectHome=true",
+		"RestrictAddressFamilies=AF_INET AF_INET6",
+	} {
+		if !strings.Contains(unit, want) {
+			t.Fatalf("bootstrap unit missing %q:\n%s", want, unit)
+		}
+	}
+}
+
+func TestMainServiceRequiresBootstrapDNSRelay(t *testing.T) {
+	unit, err := renderUnit(DefaultName, rtPaths(DefaultName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrapUnit := bootstrapServiceName(DefaultName) + ".service"
+	for _, want := range []string{
+		"Requires=" + bootstrapUnit,
+		"After=network-online.target " + bootstrapUnit,
+	} {
+		if !strings.Contains(unit, want) {
+			t.Fatalf("main unit missing %q:\n%s", want, unit)
+		}
+	}
+}
+
+func TestBootstrapDNSArtifactsUseRuntimeAndSystemdPaths(t *testing.T) {
+	rt := rtPaths("custom")
+	artifacts := bootstrapArtifacts("custom", rt)
+	if artifacts.Config != filepath.Join(rt.Dir, "bootstrap-dns.json") {
+		t.Fatalf("bootstrap config path = %q", artifacts.Config)
+	}
+	if artifacts.Unit != "/etc/systemd/system/custom-bootstrap-dns.service" {
+		t.Fatalf("bootstrap unit path = %q", artifacts.Unit)
+	}
+}
+
+func TestInstallBootstrapDNSWritesRuntimeConfigAndCompanionUnit(t *testing.T) {
+	p := paths.Paths{State: t.TempDir()}
+	rt := rtPaths(DefaultName)
+	var installedConfig bootstrapDNSRuntimeConfig
+	var installedDestination string
+	runRoot := func(cmd []string, _ string, _ *execx.Opt) (execx.Result, error) {
+		if len(cmd) != 5 || cmd[0] != "install" {
+			t.Fatalf("unexpected root command: %v", cmd)
+		}
+		raw, err := os.ReadFile(cmd[3])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(raw, &installedConfig); err != nil {
+			t.Fatalf("unmarshal installed relay config: %v", err)
+		}
+		installedDestination = cmd[4]
+		return execx.Result{}, nil
+	}
+	var unitPath, unitText string
+	writeRoot := func(path, content, mode, _ string) error {
+		if mode != "0644" {
+			t.Fatalf("unit mode = %q", mode)
+		}
+		unitPath, unitText = path, content
+		return nil
+	}
+
+	if err := installBootstrapDNSWith(p, DefaultName, rt, "/usr/bin/sboxkit", runRoot, writeRoot); err != nil {
+		t.Fatal(err)
+	}
+	artifacts := bootstrapArtifacts(DefaultName, rt)
+	if installedDestination != artifacts.Config || len(installedConfig.Upstreams) < 2 {
+		t.Fatalf("installed relay config destination=%q config=%#v", installedDestination, installedConfig)
+	}
+	if unitPath != artifacts.Unit || !strings.Contains(unitText, "PartOf=sing-box.service") {
+		t.Fatalf("installed relay unit path=%q content=\n%s", unitPath, unitText)
+	}
+}
+
+func TestRemoveBootstrapDNSStopsDisablesAndDeletesAllArtifacts(t *testing.T) {
+	rt := rtPaths(DefaultName)
+	var commands [][]string
+	runRoot := func(cmd []string, _ string, _ *execx.Opt) (execx.Result, error) {
+		commands = append(commands, append([]string(nil), cmd...))
+		return execx.Result{}, nil
+	}
+
+	removeBootstrapDNSWith(DefaultName, rt, true, runRoot)
+
+	unit := bootstrapServiceName(DefaultName) + ".service"
+	artifacts := bootstrapArtifacts(DefaultName, rt)
+	want := [][]string{
+		{"systemctl", "stop", unit},
+		{"systemctl", "disable", unit},
+		{"rm", "-f", artifacts.Unit, artifacts.Config},
+	}
+	if fmt.Sprint(commands) != fmt.Sprint(want) {
+		t.Fatalf("remove commands = %v, want %v", commands, want)
 	}
 }

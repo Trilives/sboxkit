@@ -113,6 +113,23 @@ func TestNormalizeBootstrapDNSUpstreamsRepairsSingleUpstreamWithDistinctFallback
 	}
 }
 
+func TestNormalizeBootstrapDNSUpstreamsCapsWorkPerRequest(t *testing.T) {
+	cfg := Defaults()
+	cfg.BootstrapDNSUpstreams = make([]BootstrapDNSUpstream, MaxBootstrapDNSUpstreams+3)
+	for index := range cfg.BootstrapDNSUpstreams {
+		cfg.BootstrapDNSUpstreams[index] = BootstrapDNSUpstream{
+			Provider: "provider-" + strconv.Itoa(index),
+			Type:     "udp",
+			Server:   "192.0.2." + strconv.Itoa(index+1),
+			Port:     53,
+		}
+	}
+	got := NormalizeBootstrapDNS(cfg)
+	if len(got.BootstrapDNSUpstreams) != MaxBootstrapDNSUpstreams {
+		t.Fatalf("normalized upstream count = %d, want cap %d", len(got.BootstrapDNSUpstreams), MaxBootstrapDNSUpstreams)
+	}
+}
+
 func assertValidBootstrapUpstream(t *testing.T, upstream BootstrapDNSUpstream) {
 	t.Helper()
 	if net.ParseIP(strings.TrimSpace(upstream.Server)) == nil {

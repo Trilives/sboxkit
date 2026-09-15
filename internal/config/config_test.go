@@ -113,8 +113,17 @@ func TestSaveWritesJSON(t *testing.T) {
 	cfg := Defaults()
 	cfg.GitHubToken = "secret"
 	cfg.BootstrapDNSType = "https"
+	cfg.BootstrapDNSPort = 443
 	cfg.BootstrapDNSPath = "/dns-query"
 	cfg.BootstrapDNSTLSServerName = "cloudflare-dns.com"
+	cfg.BootstrapDNSUpstreams[0] = BootstrapDNSUpstream{
+		Provider:      "Cloudflare",
+		Type:          "https",
+		Server:        "1.1.1.1",
+		Port:          443,
+		Path:          "/dns-query",
+		TLSServerName: "cloudflare-dns.com",
+	}
 
 	if err := Save(p, cfg); err != nil {
 		t.Fatalf("save config: %v", err)
@@ -129,6 +138,9 @@ func TestSaveWritesJSON(t *testing.T) {
 	}
 	if loaded.BootstrapDNSType != "https" || loaded.BootstrapDNSPath != "/dns-query" || loaded.BootstrapDNSTLSServerName != "cloudflare-dns.com" {
 		t.Fatalf("bootstrap DNS fields did not round-trip: %#v", loaded)
+	}
+	if len(loaded.BootstrapDNSUpstreams) < 2 || loaded.BootstrapDNSUpstreams[0].Server != "1.1.1.1" {
+		t.Fatalf("bootstrap DNS upstreams did not round-trip: %#v", loaded.BootstrapDNSUpstreams)
 	}
 }
 
