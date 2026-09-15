@@ -70,9 +70,9 @@ python3 scripts/network-resilience-no-response.py --help  PASS
 - 全仓：44.2% statements。仓库历史覆盖率显著低于 80%，因此不把 changed-package 或
   changed-function 覆盖率冒充全仓 80%；若发布门禁要求全仓 80%，需另开旧代码补测任务。
 
-## 未完成验收
+## 取消的实验范围
 
-- 尚未在可丢弃 VM 运行 1.13.18 / 1.13.19 × 四类故障 × TUN/FakeIP 的 32 项矩阵。
-- 尚无本轮真实 pcap、socket/conntrack、恢复时间和 watchdog 重启次数证据。
-- 因此 `Records/Todo.md` 的版本 A/B 和总验收继续保持未勾选，结论保持“证据不足，不能
-  归因到具体 sing-box 版本”。
+- 用户于 2026-09-15 决定停止 1.13.18 / 1.13.19 × 四类故障 × TUN/FakeIP 的 32 项矩阵
+  及后续特权故障注入，不再把它们保留为 Todo。
+- 因未执行，仍无本轮真实 pcap、socket/conntrack、恢复时间和 watchdog 重启次数证据；
+  结论保持“证据不足，不能归因到具体 sing-box 版本”。

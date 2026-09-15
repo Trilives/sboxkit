@@ -1,6 +1,16 @@
 # 已完成
 
-## 2026-09-14：复发 bootstrap DNS 软故障的软件侧加固（真实 A/B 尚待验收）
+## 2026-09-15：v0.2.5 稳定版
+
+- 发布 bootstrap DNS 双上游故障转移、五层健康分类、watchdog 持久熔断与只读故障诊断。
+- 修复 DNS 错误响应阻断 fallback、未使用节点误触发健康检查、并发探测排队，以及诊断快照
+  在恢复/崩溃边界沿用旧证据的问题。
+- 发布门禁覆盖竞态测试、vet、真实 sing-box 配置检查、A/B harness 安全自测和独立安全/
+  代码复审。用户决定停止版本 A/B 与特权故障矩阵，相关事项从 Todo 关闭；这表示范围取消，
+  不表示已经取得内核版本差异或真实故障注入证据。
+- 发布依赖刷新到 sing-box v1.14.1；三架构 tar.gz/deb 快照构建及包结构校验通过。
+
+## 2026-09-14：复发 bootstrap DNS 软故障的软件侧加固（后续 A/B 已取消）
 
 - healthcheck 改为物理上行 → bootstrap DNS → 节点域名解析 → mixed 端口 → 端到端代理的
   短路分层探测，日志与诊断使用稳定故障分类；物理/bootstrap 套接字不走业务代理并绑定
@@ -14,7 +24,7 @@
 - relay 包测试覆盖率达到 80.8%；TUN × FakeIP 四组合通过 sing-box 1.13.18 与随包
   1.13.19 的真实
   `check`。1.13.18/1.13.19 × 四故障 × TUN/FakeIP 的 32 项隔离 netns harness 与证据模板
-  已完成安全自测，但当前环境未执行特权矩阵，故 Todo 中版本 A/B 与总验收继续保持未完成。
+  已完成安全自测；特权矩阵未执行，并于 2026-09-15 按用户决定取消，不再保留为 Todo。
   RED/GREEN、覆盖率和验收边界见
   [`../docs/testing/bootstrap-dns-resilience-2026-09-14.tdd.md`](../docs/testing/bootstrap-dns-resilience-2026-09-14.tdd.md)。
 

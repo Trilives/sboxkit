@@ -1,4 +1,7 @@
-# sing-box 1.13.18 / 1.13.19 网络自愈 A/B 实验
+# sing-box 1.13.18 / 1.13.19 网络自愈 A/B 实验（已取消）
+
+状态：用户于 2026-09-15 决定停止版本 A/B 与后续特权故障注入；本文及脚本仅作为历史
+实验设计留档，不再属于 Todo 或 v0.2.5 发布验收。
 
 本文描述 `scripts/network-resilience-ab.sh` 的安全边界、输入契约、证据目录和待填写的
 实验记录。脚本用于比较相同 sing-box 配置在两个内核版本下遇到 bootstrap DNS 故障时
@@ -7,7 +10,7 @@
 这不是当前 sboxkit 整体自愈链路的验收脚本：它只启动两个版本的 sing-box，复现历史上
 由内核直接访问 bootstrap DNS 的路径，不启动新增的 loopback relay、healthcheck 或
 watchdog。relay fallback、分层分类、重启限额、单次快照和解除故障后恢复必须另做真实
-systemd/产品级故障注入；在取得该证据前，`Records/Todo.md` 的总验收保持未完成。
+systemd/产品级故障注入；该实验范围现已取消，不能据此声称取得上述证据。
 
 ## 安全边界
 

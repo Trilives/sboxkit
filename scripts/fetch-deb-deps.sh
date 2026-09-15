@@ -13,8 +13,16 @@ mkdir -p "${DEPS}/rules"
 
 fetch() { curl -fL --retry 3 --retry-delay 2 -o "$2" "$1"; }
 
+github_api() {
+  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+    curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" "$1"
+    return
+  fi
+  curl -fsSL -H "Accept: application/vnd.github+json" "$1"
+}
+
 echo "==> sing-box 最新版本号"
-TAG="$(curl -fsSL https://api.github.com/repos/SagerNet/sing-box/releases/latest | grep -oE '"tag_name":\s*"[^"]+"' | cut -d'"' -f4)"
+TAG="$(github_api https://api.github.com/repos/SagerNet/sing-box/releases/latest | grep -oE '"tag_name":\s*"[^"]+"' | cut -d'"' -f4)"
 VERSION="${TAG#v}"
 if [[ -z "${TAG}" || -z "${VERSION}" ]]; then
   echo "无法获取最新 sing-box 稳定版版本号" >&2
