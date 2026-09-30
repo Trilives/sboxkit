@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -146,7 +147,7 @@ func RunHealthcheck(args []string) int {
 	}
 
 	logHealthcheck("classification=%s action=restart service=%s attempts=%d", report.Failure, *service, len(decision.State.RestartedAt))
-	if _, err := execx.Run([]string{"systemctl", "restart", *service}, &execx.Opt{Capture: true}); err != nil {
+	if _, err := execx.Run(currentScope().systemctl("restart", *service), &execx.Opt{Capture: true}); err != nil {
 		execx.Error(err.Error())
 		return 1
 	}
@@ -231,12 +232,12 @@ func logHealthcheck(format string, args ...any) {
 }
 
 func systemctlQuiet(args ...string) bool {
-	_, err := execx.Run(append([]string{"systemctl"}, args...), &execx.Opt{Capture: true})
+	_, err := execx.Run(currentScope().systemctl(args...), &execx.Opt{Capture: true})
 	return err == nil
 }
 
 func runtimeProxyAddr(service string) string {
-	raw, err := os.ReadFile(paths.RuntimeDir + "/" + service + ".json")
+	raw, err := os.ReadFile(filepath.Join(currentScope().RuntimeDir, service+".json"))
 	if err != nil {
 		return ""
 	}
@@ -319,7 +320,7 @@ func httpProbe(client *http.Client, probeURL string) bool {
 }
 
 func serviceUptime(service string) time.Duration {
-	res, err := execx.Run([]string{"systemctl", "show", "-p", "ActiveEnterTimestampMonotonic", "--value", service}, &execx.Opt{Capture: true})
+	res, err := execx.Run(currentScope().systemctl("show", "-p", "ActiveEnterTimestampMonotonic", "--value", service), &execx.Opt{Capture: true})
 	if err != nil {
 		return 999999 * time.Second
 	}

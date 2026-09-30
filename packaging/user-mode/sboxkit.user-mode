@@ -1,0 +1,9 @@
+# sboxkit user-mode marker
+#
+# While this file sits next to the sboxkit executable, sboxkit runs in user
+# mode: state defaults to ./.sboxkit, the sing-box core and base rule-sets are
+# seeded from ./core and ./ruleset, and the service is installed as a systemd
+# *user* unit (systemctl --user). sudo is only requested when TUN is enabled,
+# to grant the runtime sing-box binary network-admin capabilities (setcap).
+#
+# Delete this file to manage a system-wide service (/etc/systemd/system) instead.

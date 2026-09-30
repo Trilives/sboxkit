@@ -118,7 +118,7 @@ func serviceSettings(p paths.Paths) error {
 	case 0:
 		sysd.Status(sysd.DefaultName)
 	case 1:
-		execx.RunRoot([]string{"systemctl", "restart", sysd.DefaultName + ".service"}, i18n.T("重启服务"), nil)
+		return sysd.Restart(sysd.DefaultName)
 	default:
 		return reloadService(p)
 	}

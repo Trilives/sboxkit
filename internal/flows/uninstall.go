@@ -17,7 +17,7 @@ import (
 func Uninstall(p paths.Paths) error {
 	items := []string{
 		i18n.T("systemd 服务"),
-		i18n.T("网络自愈（NM 钩子 + watchdog）"),
+		resilienceItemLabel(p),
 		i18n.T("每周更新定时器"),
 		i18n.T("清理产物（内核 / UI / 下载缓存 / geo 数据）"),
 		i18n.T("清理所有订阅与配置（含整个状态目录）"),
@@ -41,7 +41,12 @@ func Uninstall(p paths.Paths) error {
 	}
 
 	actions := []func() error{
-		func() error { return sysd.Remove(p, sysd.DefaultName, true) },
+		func() error {
+			if err := sysd.Remove(p, sysd.DefaultName, true); err != nil {
+				return err
+			}
+			return sysd.RevertLinger(p) // 仅用户模式、且 linger 由 sboxkit 开启时生效
+		},
 		func() error { return sysd.RemoveResilience(sysd.DefaultName) },
 		sysd.RemoveTimer,
 		func() error {
@@ -64,5 +69,16 @@ func Uninstall(p paths.Paths) error {
 		}
 	}
 	execx.Ok(i18n.T("卸载流程结束。"))
+	if p.UserMode {
+		execx.Info(fmt.Sprintf(i18n.T("用户模式：移除全部项目后，再删除安装包目录 %s 即可彻底清除。"), p.BundleRoot))
+	}
 	return nil
+}
+
+// resilienceItemLabel 用户模式没有 NetworkManager 钩子，只有 watchdog。
+func resilienceItemLabel(p paths.Paths) string {
+	if p.UserMode {
+		return i18n.T("网络自愈（watchdog）")
+	}
+	return i18n.T("网络自愈（NM 钩子 + watchdog）")
 }

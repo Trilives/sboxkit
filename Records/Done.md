@@ -1,5 +1,58 @@
 # 已完成
 
+## 2026-09-30：用户模式全面复查
+
+- 拒绝以 root 操作他人的用户模式安装包（sudo/su 启动会写入 root 属主文件并连到 root 的用户
+  实例）；用户模式不再提示「直接用 sudo 启动」。
+- 用户模式状态目录收紧为 0700（订阅原文与生成配置含节点凭据，旧安装在下次启动时收紧）。
+- 系统模式 `sing-box.service` 运行中时拒绝注册用户服务（否则端口冲突导致用户服务反复重启），
+  仅安装未运行时维持提示；本机（系统服务运行中）实测注册被拒、未写入任何用户单元、系统服务不受影响。
+- 用户级各项服务操作（暂停/启动/重启/删除/定时器/自愈）先确认 systemd 用户实例可达，给出明确
+  提示而不是裸露的 bus 错误。
+- 措辞：卸载清单在用户模式显示「网络自愈（watchdog）」、结束后提示删除安装包目录；暂停提示区分
+  linger；安装失败回退时不再误报「服务已删除」。
+- 未改（记录）：日志为易失存储（无 `/var/log/journal`）时 `journalctl --user` 读不到用户服务
+  日志；系统模式注册时不检测该用户的用户模式服务；系统模式状态目录与订阅文件仍为 0755/0644。
+
+## 2026-09-30：用户模式（第二种主流用法）与随包内核
+
+- 原「便携版」更名为**用户模式**，与 .deb 的系统模式并列为两种主流用法：安装包
+  `sboxkit-user_*.tar.gz`、标记 `sboxkit.user-mode`、环境变量 `SBOXKIT_USER_MODE=1|0`、
+  脚本 `scripts/user-{update,test}.sh`；`portable-update` 子命令更名 `assets-update`，旧名保留兼容。
+- `paths.Detect` 沿 `os.Args[0]` 符号链接链查找标记（自更新后仍能找回包目录），状态默认落在
+  包目录 `.sboxkit/`，运行时在 `<state>/runtime`；`sysd.unitScope` 统一系统/用户两种模式：
+  用户模式下主服务、bootstrap DNS relay、watchdog 与每周更新写入 `~/.config/systemd/user`
+  并经 `systemctl --user` 管理，单元显式写入 `SBOXKIT_USER_MODE=1` / `SBOXKIT_HOME`，
+  watchdog 状态在 `$XDG_RUNTIME_DIR/sboxkit`，注册服务时尽力开启 linger；仅当 linger 由 sboxkit
+  开启时在状态目录记标记，卸载服务时据此 `loginctl disable-linger`。
+- 用户模式只在需要网络管理能力时提权：运行时配置含 `tun` 入站或 `routing_mark` /
+  `default_mark` 且运行时内核缺少能力时，经 sudo `setcap cap_net_admin,cap_net_bind_service,
+  cap_net_raw+ep`；内容未变的内核不再重新复制以保留能力，nosuid 挂载或缺少 setcap 时明确报错。
+  其余操作（含自更新、状态目录创建）不回退 sudo；防火墙与 NM 钩子跳过，检测到系统模式同名
+  服务时提示端口冲突。系统模式行为与命令保持不变。
+- GoReleaser 新增用户模式安装包：随包 `core/sing-box`、版本文件、`ruleset/*.srs` 与
+  `licenses/`，与 deb 共用 `fetch-deb-deps.sh` 预下载资产；初始化从包内种子离线接管并跳过初始化后
+  的自动下载。精简 `sboxkit_*.tar.gz` 只含二进制，继续作为自更新资产。
+- 每周更新定时器的 `ExecStart` 与 watchdog 一致改用稳定调用路径（系统模式同样生效），避免自更新
+  清理旧版本后指向失效的版本目录。
+- 验证：`gofmt`、`go test ./...`、`go vet ./...`、`git diff --check`、脚本 `bash -n`、
+  `goreleaser check` 与三架构快照构建及包结构检查。systemd 容器（sudo 记录日志）中以普通用户：
+  TUN 关闭时初始化、运行、pause/resume/重启全程零 sudo；开启 TUN 后「重载服务」恰好一次 sudo
+  `setcap`，sing-box 以 UID 1001、CapEff=0x3400 运行并创建 singbox 设备与策略路由，随后重装/重启
+  不再提权。上一轮另以 root 回归 deb 系统模式 init。容器无外网，未验证真实节点联网与 linger 自动开启。
+- 修复既有问题：更新路径（`sboxkit update` / 每周定时器 / 工具→更新 / `user-update.sh`）的
+  `SyncAndRestart` 原先不把新内核与 geo 复制到运行时，需下次重载服务才生效（两种模式相同）。现与
+  安装共用 `deployRuntimeAssets`；用户模式 + TUN 下新内核以 `.new` 暂存并 setcap 后原子替换，
+  无人值守无法 sudo 时保留旧内核、仍更新规则与配置，日志与下次进入菜单时提示「重载服务」。
+  卸载「systemd 服务」时撤销 linger：`ensureLinger` 仅在由 sboxkit 开启时于状态目录记
+  `linger-enabled-by-sboxkit`，卸载据此 `loginctl disable-linger <user>`；启停均显式带用户名，
+  不在登录会话内调用（ENXIO）也能成功。
+- 复验（systemd 容器，polkit 放行 set-self-linger，linger 初始为关）：TUN 初始化一次 sudo
+  `setcap`（作用于 `sing-box.new`）；重载服务开启 linger 并写标记；state 内核变化后在无终端且 sudo
+  需密码时同步，保留带能力的旧内核、服务与 TUN 正常，并在菜单提示；sudo 可用时同步恰好一次
+  `setcap`，运行中进程即新内核（CapEff=0x3400），提示消失；内核未变的同步零 sudo；卸载后
+  Linger=no、标记删除。系统模式（root）同步同样把新内核部署进 `/var/lib/sboxkit-runtime` 并重启。
+
 ## 2026-09-15：v0.2.5 稳定版
 
 - 发布 bootstrap DNS 双上游故障转移、五层健康分类、watchdog 持久熔断与只读故障诊断。

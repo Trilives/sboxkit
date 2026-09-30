@@ -212,7 +212,7 @@ func collectDiagnosticSnapshotWithRunner(
 	specs := []diagnosticSpec{
 		{key: "ip_rule", name: "ip", args: []string{"-json", "rule", "show"}},
 		{key: "routes", name: "ip", args: []string{"-json", "route", "show", "table", "all"}},
-		{key: "service_lifecycle", name: "systemctl", args: []string{"show", service, "--property=ActiveState,SubState,ActiveEnterTimestamp,ExecMainStartTimestamp,NRestarts"}},
+		{key: "service_lifecycle", name: "systemctl", args: serviceShowArgs(currentScope(), service)},
 		{key: "interface_lifecycle", name: "ip", args: []string{"-json", "-details", "link", "show", "dev", interfaceName}},
 		{key: "tun_lifecycle", name: "ip", args: []string{"-json", "-details", "link", "show", "dev", tunDev}},
 		{key: "sockets", name: "ss", args: []string{"-H", "-s"}},
@@ -303,4 +303,8 @@ func resolverDiagnosticWithRunner(run diagnosticRunner) string {
 		return "unavailable: " + err.Error()
 	}
 	return truncateUTF8(string(raw), diagnosticSectionBytes)
+}
+
+func serviceShowArgs(s unitScope, service string) []string {
+	return s.systemctl("show", service, "--property=ActiveState,SubState,ActiveEnterTimestamp,ExecMainStartTimestamp,NRestarts")[1:]
 }

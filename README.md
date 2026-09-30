@@ -6,8 +6,10 @@
 - **机场订阅三选一**：Clash 订阅（经 `internal/converter` 转换为 sing-box 配置，
   含 AI / 流媒体 / 地区自动测速分组现场生成）、sing-box 原生订阅（可选择直接信任
   或按同一套规则重建）、通用 base64 节点链接（经 subconverter 或本地解析）。
-- **开箱即用**：.deb 包内置 sing-box 内核与基础 geo 规则集（`geosite-cn.srs` +
-  `geoip-cn.srs`），安装后**离线即可启动**；可稍后在线更新到最新版本。
+- **两种主流用法**：系统模式（.deb，系统级 systemd 服务）与用户模式（tar.gz，
+  systemd 用户服务，数据留在解压目录，仅启用 TUN 时请求一次 sudo）。
+- **开箱即用**：两种安装包都内置 sing-box 内核与基础 geo 规则集
+  （`geosite-cn.srs` + `geoip-cn.srs`），安装/解压后**离线即可启动**；可稍后在线更新到最新版本。
 - **单文件零依赖**：Go 编译的静态二进制，不需要 python3 / curl / 任何运行时；
   内置 Web 面板资源直接 go:embed 进二进制，也不需要联网下载。
 - **自更新**：主菜单一键把 sboxkit 自身更新到最新发行版（校验 SHA-256、原子
@@ -21,7 +23,16 @@
 
 ## 安装
 
-### 方式一：.deb（推荐，内置离线种子）
+两种主流用法按需二选一：
+
+| | 系统模式（.deb） | 用户模式（tar.gz） |
+|---|---|---|
+| 服务 | `/etc/systemd/system` 系统服务 | `systemctl --user` 用户服务 |
+| 数据 | `/var/lib/sboxkit` | 解压目录 `.sboxkit/` |
+| sudo | 注册/变更服务时 | 仅启用 TUN 时（一次 `setcap`） |
+| TUN / 防火墙 / NM 钩子 | 全部支持 | TUN 支持；防火墙与 NM 钩子不处理 |
+
+### 方式一：系统模式（.deb）
 
 从 [Releases](https://github.com/Trilives/sboxkit/releases) 下载对应架构的包：
 
@@ -35,15 +46,27 @@ sboxkit
 无需联网即可注册并启动服务。第三方资产的许可与归属见
 `/usr/share/doc/sboxkit/copyright`。
 
-### 方式二：tar.gz（便携模式）
+### 方式二：用户模式（tar.gz）
+
+下载 `sboxkit-user_*_linux_<arch>.tar.gz`（内置 sing-box 内核与基础规则集）：
 
 ```bash
-tar -xzf sboxkit_*_linux_amd64.tar.gz
-export SBOXKIT_HOME="$PWD/.sboxkit"
-./sboxkit
-./scripts/portable-update.sh   # 无 root 更新内核 / geo
-./scripts/portable-test.sh     # 无 root烟雾测试
+tar -xzf sboxkit-user_*_linux_amd64.tar.gz
+cd sboxkit-user_*_linux_amd64
+./sboxkit                  # 初始化后服务以 systemctl --user 在后台运行
+./scripts/user-update.sh   # 更新内核 / geo，部署进运行时并重启用户服务
+./scripts/user-test.sh     # 无 root 烟雾测试
 ```
+
+包内 `sboxkit.user-mode` 标记让 sboxkit 以用户模式运行：状态默认放在包目录的
+`.sboxkit/`，单元装到 `~/.config/systemd/user/`，并尝试 `loginctl enable-linger`
+使服务在注销后继续运行、随开机启动（由 sboxkit 开启的 linger 会在卸载服务时关闭）。启用 TUN 时会请求一次 sudo，用 `setcap` 为
+运行时 sing-box 授予网络管理能力（需 `setcap`，且解压目录不能在 nosuid 挂载上）；
+此后重启无需再次授权；只有新内核进入运行时（更新或重载服务且内核有变化）才会再请求一次，
+每周定时更新无法授权时保留旧内核并提示稍后「重载服务」。用户模式不修改防火墙、不安装 NetworkManager
+钩子（由 watchdog 定时器兜底）。请以普通用户运行（sudo 启动会被拒绝），系统模式服务
+运行时需先暂停它。仅含二进制的 `sboxkit_*_linux_<arch>.tar.gz`
+是自更新使用的精简包。
 
 ### 方式三：源码构建
 
@@ -101,6 +124,9 @@ sboxkit
 
 ## 数据目录
 
+（用户模式例外：状态在包目录 `.sboxkit/`，运行时在 `.sboxkit/runtime/`，单元为
+`~/.config/systemd/user/` 下的同名用户单元。）
+
 运行期所有数据使用**固定工作目录 `/var/lib/sboxkit`**（不随用户 / HOME 变化，
 root 运行的定时器与用户会话看到同一份数据；首次使用自动经 sudo 创建并交回属主）。
 环境变量 `SBOXKIT_HOME` 可覆盖（主要用于测试）。运行时自包含暂存于
@@ -133,6 +159,6 @@ sboxkit/
 
 ## 许可
 
-sboxkit 以 [MIT](LICENSE) 发布。随 .deb 分发的第三方资产：
+sboxkit 以 [MIT](LICENSE) 发布。随 .deb 与用户模式安装包分发的第三方资产：
 sing-box（GPL-3.0，SagerNet/sing-box）、geosite-cn.srs / geoip-cn.srs
 （SagerNet/sing-geosite、SagerNet/sing-geoip）。详见 `packaging/copyright`。

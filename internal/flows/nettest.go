@@ -186,8 +186,9 @@ func fileLocations(p paths.Paths) []struct{ label, path string } {
 		{i18n.T("Web UI 目录"), p.UI},
 		{i18n.T("下载缓存目录"), p.Downloads},
 		{i18n.T("sboxkit TUI 日志"), execx.LogPath(p.State)},
-		{i18n.T("内核日志命令"), "journalctl -u " + sysd.DefaultName + ".service"},
-		{i18n.T("systemd 单元"), "/etc/systemd/system/" + sysd.DefaultName + ".service"},
+		{i18n.T("运行时目录"), p.Runtime},
+		{i18n.T("内核日志命令"), strings.Join(sysd.JournalCommand(sysd.DefaultName), " ")},
+		{i18n.T("systemd 单元"), sysd.UnitPath(sysd.DefaultName)},
 	}
 }
 

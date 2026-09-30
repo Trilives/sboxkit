@@ -48,6 +48,33 @@ clashdock 的生效配置 `config.yaml` 内容其实是 JSON（利用"JSON 是�
 | `/run/sboxkit` | watchdog 跨 invocation 状态与当前 incident 的首份脱敏诊断快照；原子写入并由文件锁串行化 |
 | `/etc/systemd/system` | `sing-box` 主服务、bootstrap DNS relay、watchdog 与自动更新单元 |
 
+**用户模式**（第二种主流用法；可执行文件旁有 `sboxkit.user-mode`，`paths.Detect` 沿
+`os.Args[0]` 的符号链接链查找，自更新后仍能找回包目录；`SBOXKIT_USER_MODE=1|0` 可强制）
+改用 systemd 用户单元，`sysd.unitScope` 统一承载两种模式的差异：
+
+| 系统模式 | 用户模式 |
+|---|---|
+| `/var/lib/sboxkit` | `<包目录>/.sboxkit` |
+| `/var/lib/sboxkit-runtime` | `<state>/runtime` |
+| `/run/sboxkit` | `$XDG_RUNTIME_DIR/sboxkit`（缺失时 `<state>/run`） |
+| `/etc/systemd/system` + `systemctl` + sudo | `~/.config/systemd/user` + `systemctl --user`，仅 TUN 时 sudo |
+| unit 的 `AmbientCapabilities` | 运行时内核的文件能力（`setcap`） |
+
+用户单元显式写入 `SBOXKIT_USER_MODE=1` 与 `SBOXKIT_HOME`，watchdog / 更新定时器 /
+relay 与交互会话看到同一份数据。用户服务本身没有 CAP_NET_ADMIN：暂存的运行时配置
+需要它（`tun` 入站或 `routing_mark` / `default_mark`）而运行时内核尚无对应文件能力时，
+`sysd.ensureNetCapabilities` 经 sudo `setcap` 授予与系统 unit 相同的三项能力（nosuid
+挂载或缺少 setcap 时直接报错）；内容未变的内核不会重新复制，以免丢失能力、反复提权。
+运行时目录为 0700，其他用户无法执行带能力的内核。防火墙与 NetworkManager 钩子跳过
+（watchdog 兜底），注册服务时尽力开启 linger，并仅在由 sboxkit 开启时于状态目录留标记，
+卸载服务时据此 `disable-linger`（`sysd/linger.go`）。
+
+`sysd.deployRuntimeAssets`（`sysd/runtime_deploy.go`）是安装与 `SyncAndRestart` 共用的
+内核/geo 部署路径，因此 `sboxkit update`、每周定时器与「工具 → 更新」下载的新资产都会
+进入运行中的服务（两种模式）。用户模式 + TUN 时新内核先以 `.new` 暂存并 `setcap`，再原子
+改名；`execx.CanElevate` 判定无法提权（无终端且 sudo 需要密码）时保留旧内核、只更新规则与
+配置，`sysd.WarnPendingCore` 在进入菜单时提示「重载服务」。
+
 **Web 面板**：sing-box 没有官方面板可下载（不像 mihomo 有 metacubexd），因此
 sboxkit 自己写了一个极简面板（`internal/uiassets`，go:embed 打进二进制，无需
 联网下载）。面板走 sing-box 内置的 `experimental.clash_api.external_ui` 机制，
@@ -110,11 +137,13 @@ config.json / active / customize.json / subscriptions/，esc 提交、^R 整体�
 （避免下载被静默隧道进本地 sing-box → 机场节点）；不可达才走配置的 `download_proxy`。
 支持重试、Range 续传、gzip/tar 完整性校验、GitHub 镜像前缀与 API Token。
 
-## 6. 离线种子（.deb）
+## 6. 离线种子（.deb / 用户模式安装包）
 
-.deb 内置 sing-box 内核与基础 geo 规则集（`geosite-cn.srs` + `geoip-cn.srs`），
-装包即可离线初始化：`kernel.SeedFromSystem` 在 state 缺失对应文件时从
-`/usr/libexec/sboxkit` / `/usr/share/sboxkit/ruleset` 复制接管。与 mihomo 版
+.deb 与用户模式安装包内置同一份 sing-box 内核与基础 geo 规则集（`geosite-cn.srs` +
+`geoip-cn.srs`），装包/解压即可离线初始化：`kernel.SeedFromSystem` 在 state 缺失
+对应文件时从 `/usr/libexec/sboxkit` / `/usr/share/sboxkit/ruleset`（用户模式为包内
+`core/` / `ruleset/`）复制接管。用户模式初始化后不再自动联网更新；只含二进制的
+`sboxkit_*.tar.gz` 精简包保持小体积，专供自更新下载。与 mihomo 版
 的三件套（geoip.metadb/geosite.dat/country.mmdb）不同，sing-box 用 sing-geosite
 / sing-geoip 项目发布的 `.srs` 规则集，一国家一份文件，无 MaxMind EULA 之类的
 新鲜度义务，可以放心冻结进安装包；仍支持在线『更新 geo 数据』获取最新版本。
@@ -176,7 +205,7 @@ Go 测试和静态检查；任何配置破坏性变更都会在创建 GitHub Rel
 cmd/sboxkit           入口：子命令 + TUI 主菜单
 internal/errs         ErrSaveExit / ErrCancelled 导航哨兵
 internal/execx        日志、子进程、sudo
-internal/paths        状态目录解析（SBOXKIT_HOME > XDG）
+internal/paths        状态目录解析（SBOXKIT_HOME > 用户模式标记 > 固定目录）
 internal/config       customize.json：类型化 Config struct，默认值 / 读写 / 字段元数据 / 脱敏
 internal/bootstrapdns loopback UDP/TCP relay：物理接口直连、UDP/TCP/DoH 有序故障转移
 internal/converter    Clash / sing-box 原生 / base64 → sing-box 配置的核心转换器

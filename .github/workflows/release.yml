@@ -18,7 +18,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: stable
-      - name: Prefetch deb assets (sing-box core + geo rule-set seeds)
+      - name: Prefetch bundled assets for deb + user-mode archive (sing-box core + geo rule-set seeds)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./scripts/fetch-deb-deps.sh

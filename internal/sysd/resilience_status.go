@@ -11,14 +11,19 @@ import (
 // resilienceLayout makes the filesystem side of the resilience installation
 // inspectable without requiring tests to touch /etc.
 type resilienceLayout struct {
-	dispatcherDir string
+	dispatcherDir string // 空串 = 当前层级不支持 NM 钩子（用户级服务）
 	systemdDir    string
+	scope         unitScope
 }
 
-var defaultResilienceLayout = resilienceLayout{
-	dispatcherDir: dispatcherDir,
-	systemdDir:    "/etc/systemd/system",
+func layoutFor(s unitScope) resilienceLayout {
+	if s.User {
+		return resilienceLayout{systemdDir: s.unitDir(), scope: s}
+	}
+	return resilienceLayout{dispatcherDir: dispatcherDir, systemdDir: s.unitDir(), scope: s}
 }
+
+func currentLayout() resilienceLayout { return layoutFor(currentScope()) }
 
 func dispatcherFileIn(layout resilienceLayout, name string) string {
 	return filepath.Join(layout.dispatcherDir, "90-"+name+"-restart")
@@ -86,12 +91,12 @@ func inspectResilienceStatus(
 	timerEnabled, userDisabled bool,
 	active ...bool,
 ) ResilienceStatus {
-	dispatcherSupported := directoryExists(layout.dispatcherDir)
+	dispatcherSupported := layout.dispatcherDir != "" && directoryExists(layout.dispatcherDir)
 	dispatcherInstalled, dispatcherStale := fileMatches(
 		dispatcherFileIn(layout, name), dispatcherText(name, tunDev, 20, exe),
 	)
 	serviceInstalled, serviceStale := fileMatches(
-		wdServiceIn(layout), wdServiceText(name, tunDev, exe),
+		wdServiceIn(layout), wdServiceText(layout.scope, name, tunDev, exe),
 	)
 	timerInstalled, timerStale := fileMatches(wdTimerIn(layout), wdTimerText(interval))
 	timerActive := timerEnabled
@@ -134,8 +139,9 @@ func installedWatchdogInterval(path string) string {
 	return "2min"
 }
 
-func systemdUnitState(unit, state string) bool {
-	result, err := exec.Command("systemctl", "is-"+state, unit).Output()
+func systemdUnitState(s unitScope, unit, state string) bool {
+	cmd := s.systemctl("is-"+state, unit)
+	result, err := exec.Command(cmd[0], cmd[1:]...).Output()
 	return err == nil && strings.TrimSpace(string(result)) == state
 }
 

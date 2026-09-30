@@ -22,20 +22,21 @@ import (
 var version = "dev"
 
 func usageText() string {
-	return i18n.T("用法: sboxkit [init|modify|nettest|diagnose|uninstall|update|portable-update|pause|resume|version]\n不带参数则进入交互式主菜单。")
+	return i18n.T("用法: sboxkit [init|modify|nettest|diagnose|uninstall|update|assets-update|pause|resume|version]\n不带参数则进入交互式主菜单。")
 }
 
 func main() {
 	p := paths.Detect()
 	setupLanguage(p)
 	setupLogging(p)
+	execx.SuggestSudoLaunch = !p.UserMode
 	args := os.Args[1:]
 	if len(args) == 0 {
 		exitIfErr(flows.EnsureStateRoot(p))
 		os.Exit(interactive(p))
 	}
 	switch args[0] {
-	case "init", "modify", "uninstall", "update", "portable-update", "pause", "resume":
+	case "init", "modify", "uninstall", "update", "assets-update", "portable-update", "pause", "resume":
 		exitIfErr(flows.EnsureStateRoot(p))
 	}
 	switch args[0] {
@@ -58,8 +59,8 @@ func main() {
 		exitFlow(flows.Uninstall(p))
 	case "update":
 		os.Exit(runUpdate(p))
-	case "portable-update":
-		os.Exit(runPortableUpdate(p))
+	case "assets-update", "portable-update": // portable-update：旧版本名称，保留兼容
+		os.Exit(runAssetsUpdate(p))
 	case "pause":
 		exitFlow(sysd.Pause(sysd.DefaultName))
 	case "resume":
@@ -171,6 +172,8 @@ func interactive(p paths.Paths) int {
 	// 自更新换了新面板后，运行时目录仍是旧副本；这里在进入主菜单前用当前二进制
 	// 的内置面板对齐运行时（仅在检测到过期时才动，日常启动零打扰）。
 	sysd.RefreshPanelIfStale(p, sysd.DefaultName)
+	// 用户模式下定时更新可能因 TUN 无法无人值守授权而推迟切换内核
+	sysd.WarnPendingCore(p, sysd.DefaultName)
 	if err := sysd.ReconcileResilience(p, sysd.DefaultName); err != nil {
 		execx.Warn(fmt.Sprintf(i18n.T("修复网络自愈失败（主服务不受影响）：%v"), err))
 	}
@@ -230,10 +233,10 @@ func runUpdate(p paths.Paths) int {
 	return 0
 }
 
-// runPortableUpdate updates managed assets but deliberately never touches
-// systemd. It is safe for an extracted archive using a user-owned
-// SBOXKIT_HOME; sboxkit itself remains available through Tools > Update.
-func runPortableUpdate(p paths.Paths) int {
+// runAssetsUpdate updates managed assets but deliberately never touches
+// systemd (formerly `portable-update`, still accepted as an alias).
+// sboxkit itself remains available through Tools > Update.
+func runAssetsUpdate(p paths.Paths) int {
 	if _, err := kernel.DownloadAll(p, kernel.Options{Force: true}); err != nil {
 		execx.Error(err.Error())
 		return 1

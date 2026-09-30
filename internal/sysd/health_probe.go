@@ -242,7 +242,7 @@ type runtimeOutbound struct {
 }
 
 func runtimeActiveNodeDomains(service string) []string {
-	raw, err := os.ReadFile(filepath.Join(paths.RuntimeDir, service+".json"))
+	raw, err := os.ReadFile(filepath.Join(currentScope().RuntimeDir, service+".json"))
 	if err != nil {
 		return nil
 	}

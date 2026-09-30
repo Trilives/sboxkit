@@ -42,6 +42,9 @@ func EditFieldGroup(p paths.Paths, title string, fields []string) (bool, error) 
 		case config.ListFields[key] != "":
 			changed = editList(&cfg, key, config.ListFields[key]) || changed
 		case config.BoolFields[key] != "":
+			if p.UserMode && key == "enable_tun" && !cfg.EnableTun {
+				execx.Info(i18n.T("用户模式启用 TUN：应用配置时会请求一次 sudo，为 sing-box 授予网络管理能力（setcap）。"))
+			}
 			config.ToggleBool(&cfg, key)
 			changed = true
 		default:
@@ -55,7 +58,9 @@ func EditFieldGroup(p paths.Paths, title string, fields []string) (bool, error) 
 		return false, err
 	}
 	execx.Ok(i18n.T("定制层已保存。"))
-	if ferr := syncLanProxyFirewall(original, cfg); ferr != nil {
+	if p.UserMode {
+		warnUserModeFirewall(original, cfg)
+	} else if ferr := syncLanProxyFirewall(original, cfg); ferr != nil {
 		return true, ferr
 	}
 	if config.EffectiveMixedPort(original) != config.EffectiveMixedPort(cfg) && proxyenv.IsConfigured() {
@@ -91,6 +96,15 @@ func syncLanProxyFirewall(original, cfg config.Config) error {
 		firewall.Allow(newPort)
 	}
 	return nil
+}
+
+// warnUserModeFirewall 用户模式不改防火墙（需要 root），只提示用户自行放行。
+func warnUserModeFirewall(original, cfg config.Config) {
+	newPort := config.EffectiveMixedPort(cfg)
+	if !cfg.LanProxy || (original.LanProxy && config.EffectiveMixedPort(original) == newPort) {
+		return
+	}
+	execx.Info(fmt.Sprintf(i18n.T("用户模式不会修改防火墙；如本机启用了防火墙，请自行放行 %d 端口。"), newPort))
 }
 
 // syncLogging enable_file_log 开关变化时立即生效，不必等下次启动 sboxkit。

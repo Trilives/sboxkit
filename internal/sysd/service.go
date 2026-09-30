@@ -8,6 +8,9 @@
 // 工作目录），并把配置内的 external_ui / cache_file.path 改写为该目录下的绝对
 // 路径，使服务与状态目录（可能在 /home）解耦。所有 root 操作经
 // execx.RunRoot（非 root 自动 sudo，凭证会话内缓存）。
+//
+// 用户模式改用 systemd 用户单元（见 scope.go）：运行时暂存在状态目录内，
+// 全部操作以当前用户执行，不请求 sudo。
 package sysd
 
 import (
@@ -30,6 +33,9 @@ import (
 //go:embed assets/sing-box.service.tmpl
 var singBoxUnitTmpl string
 
+//go:embed assets/sing-box.user.service.tmpl
+var singBoxUserUnitTmpl string
+
 const (
 	DefaultName          = "sing-box"
 	conflictingName      = "mihomo"
@@ -46,11 +52,20 @@ type runtimePaths struct {
 	GeoIP   string
 	CacheDB string
 	Unit    string
+	Scope   unitScope
 }
 
 func rtPaths(name string) runtimePaths {
-	d := paths.RuntimeDir
+	return rtPathsFor(currentScope(), name)
+}
+
+func rtPathsFor(s unitScope, name string) runtimePaths {
+	d := s.RuntimeDir
+	if d == "" {
+		d = paths.RuntimeDir
+	}
 	return runtimePaths{
+		Scope:   s,
 		Dir:     d,
 		Bin:     filepath.Join(d, "sing-box"),
 		Config:  filepath.Join(d, name+".json"),
@@ -58,7 +73,7 @@ func rtPaths(name string) runtimePaths {
 		Geosite: filepath.Join(d, "geosite-cn.srs"),
 		GeoIP:   filepath.Join(d, "geoip-cn.srs"),
 		CacheDB: filepath.Join(d, "cache.db"),
-		Unit:    "/etc/systemd/system/" + name + ".service",
+		Unit:    s.unitFile(name + ".service"),
 	}
 }
 
@@ -143,7 +158,7 @@ func syncUIRuntimeWith(rt runtimePaths, runRoot rootCommandRunner) error {
 }
 
 func syncUIRuntime(rt runtimePaths) error {
-	return syncUIRuntimeWith(rt, execx.RunRoot)
+	return syncUIRuntimeWith(rt, rt.Scope.run)
 }
 
 // panelUpToDate 比对运行时目录里的面板与当前二进制内置的面板是否一致。运行时目录
@@ -179,7 +194,7 @@ func RefreshPanelIfStale(p paths.Paths, name string) {
 		return
 	}
 	execx.Info(i18n.T("检测到内置 Web 面板有更新，正在同步到运行时…"))
-	if err := execx.EnsureSudo(i18n.T("更新内置 Web 面板")); err != nil {
+	if err := rt.Scope.ensurePrivilege(i18n.T("更新内置 Web 面板")); err != nil {
 		return
 	}
 	if err := syncUIRuntime(rt); err != nil {
@@ -205,7 +220,7 @@ func preflight(p paths.Paths) error {
 	if !execx.Have("systemctl") {
 		return fmt.Errorf("%s", i18n.T("未找到 systemctl，注册服务需要 systemd"))
 	}
-	return nil
+	return scopeFor(p).userManagerReady()
 }
 
 // Install 注册并（可选）启动主服务。会先移除同名及冲突的 mihomo 服务。
@@ -219,8 +234,12 @@ func Install(p paths.Paths, name string, start bool) error {
 	if err := preflight(p); err != nil {
 		return err
 	}
-	rt := rtPaths(name)
-	if err := execx.EnsureSudo(i18n.T("注册系统服务")); err != nil {
+	rt := rtPathsFor(scopeFor(p), name)
+	s := rt.Scope
+	if err := s.ensurePrivilege(i18n.T("注册系统服务")); err != nil {
+		return err
+	}
+	if err := checkScopeConflict(s, name); err != nil {
 		return err
 	}
 
@@ -230,36 +249,22 @@ func Install(p paths.Paths, name string, start bool) error {
 	}
 	defer os.Remove(staged)
 
-	steps := [][]string{
-		{"mkdir", "-p", rt.Dir},
-		{"chmod", runtimeDirectoryMode, rt.Dir},
-		// 二进制：临时名 + 原子改名，避免运行中替换报 ETXTBSY
-		{"install", "-m", "0755", p.SingBoxBin, rt.Bin + ".new"},
-		{"mv", "-f", rt.Bin + ".new", rt.Bin},
-		{"install", "-m", "0644", p.GeositeCN, rt.Geosite},
-		{"install", "-m", "0644", p.GeoIPCN, rt.GeoIP},
-	}
-	for _, cmd := range steps {
-		if _, err := execx.RunRoot(cmd, i18n.T("部署运行时"), nil); err != nil {
-			return err
-		}
+	if err := deployRuntimeAssets(p, rt, staged); err != nil {
+		return err
 	}
 	// UI（内置静态面板，见 internal/uiassets；缺失也不影响内核运行）
 	if err := syncUIRuntime(rt); err != nil {
 		execx.Warn(i18n.T("刷新内置 Web 面板资源失败：") + err.Error())
 	}
 	// 配置 + 运行时校验
-	if _, err := execx.RunRoot([]string{"install", "-m", runtimeConfigMode, staged, rt.Config}, "", nil); err != nil {
-		return err
-	}
-	if _, err := execx.RunRoot([]string{rt.Bin, "check", "-c", rt.Config}, i18n.T("校验配置"), nil); err != nil {
+	if err := installRuntimeConfig(rt, staged); err != nil {
 		return err
 	}
 
 	// 移除旧的同名 / 冲突服务
-	removeUnit(name, true)
+	removeUnit(s, name, true)
 	if name != conflictingName {
-		removeUnit(conflictingName, true)
+		removeUnit(s, conflictingName, true)
 	}
 
 	// 写 bootstrap DNS relay 和主 unit；主服务 Requires relay，relay 通过
@@ -267,21 +272,15 @@ func Install(p paths.Paths, name string, start bool) error {
 	if err := installBootstrapDNS(p, name, rt); err != nil {
 		return err
 	}
-	unitText, err := renderUnit(name, rt)
-	if err != nil {
+	if err := writeMainUnit(name, rt); err != nil {
 		return err
 	}
-	if err := execx.WriteRoot(rt.Unit, unitText, "0644", i18n.T("写服务单元")); err != nil {
+	if _, err := s.run(s.systemctl("enable", name+".service"), "", nil); err != nil {
 		return err
 	}
-	if _, err := execx.RunRoot([]string{"systemctl", "daemon-reload"}, "", nil); err != nil {
-		return err
-	}
-	if _, err := execx.RunRoot([]string{"systemctl", "enable", name + ".service"}, "", nil); err != nil {
-		return err
-	}
+	s.ensureLinger()
 	if start {
-		if _, err := execx.RunRoot([]string{"systemctl", "restart", name + ".service"}, "", nil); err != nil {
+		if _, err := s.run(s.systemctl("restart", name+".service"), "", nil); err != nil {
 			return err
 		}
 		execx.Ok(i18n.T("服务已启动: ") + name + ".service")
@@ -293,18 +292,27 @@ func Install(p paths.Paths, name string, start bool) error {
 }
 
 func renderUnit(name string, rt runtimePaths) (string, error) {
-	t, err := template.New("unit").Parse(singBoxUnitTmpl)
+	source := singBoxUnitTmpl
+	if rt.Scope.User {
+		source = singBoxUserUnitTmpl
+	}
+	t, err := template.New("unit").Parse(source)
 	if err != nil {
 		return "", err
 	}
+	dir, bin, cfg := rt.Dir, rt.Bin, rt.Config
+	if rt.Scope.User {
+		// 用户模式目录可能含空格或 %，用户单元统一引用/转义；系统单元路径固定，保持原样。
+		dir, bin, cfg = systemdEscape(dir), systemdExecArg(bin), systemdExecArg(cfg)
+	}
 	var sb strings.Builder
 	err = t.Execute(&sb, struct{ Name, RuntimeDir, Bin, Config, BootstrapUnit string }{
-		name, rt.Dir, rt.Bin, rt.Config, bootstrapServiceName(name) + ".service",
+		name, dir, bin, cfg, bootstrapServiceName(name) + ".service",
 	})
 	return sb.String(), err
 }
 
-// SyncAndRestart 把当前 state/config.json 同步到运行时并重启服务。
+// SyncAndRestart 把当前 state 中的配置、内核与 geo 规则集同步到运行时并重启服务。
 func SyncAndRestart(p paths.Paths, name string) error {
 	if name == "" {
 		name = DefaultName
@@ -319,8 +327,9 @@ func SyncAndRestart(p paths.Paths, name string) error {
 	if err := preflight(p); err != nil {
 		return err
 	}
-	rt := rtPaths(name)
-	if err := execx.EnsureSudo(i18n.T("更新服务配置")); err != nil {
+	rt := rtPathsFor(scopeFor(p), name)
+	s := rt.Scope
+	if err := s.ensurePrivilege(i18n.T("更新服务配置")); err != nil {
 		return err
 	}
 	staged, err := stageRuntimeConfig(p, rt)
@@ -328,29 +337,23 @@ func SyncAndRestart(p paths.Paths, name string) error {
 		return err
 	}
 	defer os.Remove(staged)
+	// 更新（含每周定时器）下载的新内核/规则在这里进入运行时
+	if err := deployRuntimeAssets(p, rt, staged); err != nil {
+		return err
+	}
 	if err := syncUIRuntime(rt); err != nil {
 		execx.Warn(i18n.T("刷新内置 Web 面板资源失败：") + err.Error())
 	}
-	if _, err := execx.RunRoot([]string{"install", "-m", runtimeConfigMode, staged, rt.Config}, "", nil); err != nil {
-		return err
-	}
-	if _, err := execx.RunRoot([]string{rt.Bin, "check", "-c", rt.Config}, i18n.T("校验配置"), nil); err != nil {
+	if err := installRuntimeConfig(rt, staged); err != nil {
 		return err
 	}
 	if err := installBootstrapDNS(p, name, rt); err != nil {
 		return err
 	}
-	unitText, err := renderUnit(name, rt)
-	if err != nil {
+	if err := writeMainUnit(name, rt); err != nil {
 		return err
 	}
-	if err := execx.WriteRoot(rt.Unit, unitText, "0644", i18n.T("写服务单元")); err != nil {
-		return err
-	}
-	if _, err := execx.RunRoot([]string{"systemctl", "daemon-reload"}, "", nil); err != nil {
-		return err
-	}
-	if _, err := execx.RunRoot([]string{"systemctl", "restart", name + ".service"}, "", nil); err != nil {
+	if _, err := s.run(s.systemctl("restart", name+".service"), "", nil); err != nil {
 		return err
 	}
 	execx.Ok(i18n.T("已同步配置并重启: ") + name + ".service")
@@ -372,32 +375,37 @@ func Remove(p paths.Paths, name string, purgeRuntime bool) error {
 	if err := validateManagedServiceName(name); err != nil {
 		return err
 	}
-	if err := execx.EnsureSudo(i18n.T("删除系统服务")); err != nil {
+	rt := rtPathsFor(scopeFor(p), name)
+	s := rt.Scope
+	if err := s.ensurePrivilege(i18n.T("删除系统服务")); err != nil {
 		return err
 	}
-	removeUnit(name, false)
+	wasInstalled := fileExists(rt.Unit)
+	removeUnit(s, name, false)
 	if purgeRuntime {
-		rt := rtPaths(name)
-		execx.RunRoot([]string{"rm", "-f", rt.Config}, "", nil)
-		remaining, _ := execx.RunRoot(
-			[]string{"bash", "-c", fmt.Sprintf("ls %s/*.json 2>/dev/null | wc -l", paths.RuntimeDir)},
+		s.run([]string{"rm", "-f", rt.Config}, "", nil)
+		remaining, findErr := s.run(
+			[]string{"find", rt.Dir, "-maxdepth", "1", "-name", "*.json"},
 			"", &execx.Opt{Capture: true})
-		if strings.TrimSpace(remaining.Stdout) == "0" {
-			execx.RunRoot([]string{"rm", "-rf", paths.RuntimeDir}, "", nil)
+		if findErr == nil && strings.TrimSpace(remaining.Stdout) == "" {
+			s.run([]string{"rm", "-rf", rt.Dir}, "", nil)
 		}
 	}
-	execx.Ok(i18n.T("服务已删除: ") + name + ".service")
+	if wasInstalled { // 安装失败的回退也会走到这里，未装过就不报「已删除」
+		execx.Ok(i18n.T("服务已删除: ") + name + ".service")
+	}
 	return nil
 }
 
-func removeUnit(name string, quiet bool) {
+func removeUnit(s unitScope, name string, quiet bool) {
 	opt := &execx.Opt{Capture: quiet}
-	execx.RunRoot([]string{"systemctl", "stop", name + ".service"}, "", opt)
-	execx.RunRoot([]string{"systemctl", "disable", name + ".service"}, "", opt)
-	removeBootstrapDNS(name, rtPaths(name), quiet)
-	execx.RunRoot([]string{"rm", "-f", rtPaths(name).Unit}, "", nil)
-	execx.RunRoot([]string{"systemctl", "daemon-reload"}, "", opt)
-	execx.RunRoot([]string{"systemctl", "reset-failed", name + ".service"}, "", opt)
+	rt := rtPathsFor(s, name)
+	s.run(s.systemctl("stop", name+".service"), "", opt)
+	s.run(s.systemctl("disable", name+".service"), "", opt)
+	removeBootstrapDNS(name, rt, quiet)
+	s.run([]string{"rm", "-f", rt.Unit}, "", nil)
+	s.run(s.systemctl("daemon-reload"), "", opt)
+	s.run(s.systemctl("reset-failed", name+".service"), "", opt)
 }
 
 func IsInstalled(name string) bool {
@@ -406,117 +414,4 @@ func IsInstalled(name string) bool {
 	}
 	_, err := os.Stat(rtPaths(name).Unit)
 	return err == nil
-}
-
-func Status(name string) {
-	if name == "" {
-		name = DefaultName
-	}
-	execx.Run([]string{"systemctl", "status", "--no-pager", name + ".service"}, nil)
-}
-
-func unitActive(unit string) bool {
-	r, _ := execx.Run([]string{"systemctl", "is-active", unit}, &execx.Opt{Capture: true})
-	return strings.TrimSpace(r.Stdout) == "active"
-}
-
-func IsActive(name string) bool {
-	if name == "" {
-		name = DefaultName
-	}
-	return unitActive(name + ".service")
-}
-
-// CompanionUnits 已安装的伴生 systemd 单元（暂停/启动须一并带上，
-// 否则 watchdog 会把刚停掉的主服务又拉起来）。
-func CompanionUnits() []string {
-	return companionUnits(DefaultName)
-}
-
-func companionUnits(name string) []string {
-	var units []string
-	if ResilienceInstalled() {
-		units = append(units, WatchdogName+".timer")
-	}
-	if TimerInstalled() {
-		units = append(units, TimerName+".timer")
-	}
-	// Keep the relay last: Pause must stop watchdog/update triggers before
-	// stopping a required dependency, which also stops the main service.
-	if BootstrapDNSInstalled(name) {
-		units = append(units, bootstrapServiceName(name)+".service")
-	}
-	return units
-}
-
-func resumeCompanionUnits(units []string) []string {
-	resumed := make([]string, 0, len(units))
-	for _, unit := range units {
-		if unit != WatchdogName+".timer" {
-			resumed = append(resumed, unit)
-		}
-	}
-	return resumed
-}
-
-// Pause 暂停主服务及全部伴生单元（运行时停止；单元保持开机自启）。
-func Pause(name string) error {
-	if name == "" {
-		name = DefaultName
-	}
-	if err := validateManagedServiceName(name); err != nil {
-		return err
-	}
-	if !IsInstalled(name) {
-		execx.Warn(i18n.T("服务 ") + name + i18n.T(" 未安装，无需暂停。"))
-		return nil
-	}
-	companions := companionUnits(name)
-	if err := execx.EnsureSudo(i18n.T("暂停服务")); err != nil {
-		return err
-	}
-	// 先停伴生 watchdog，否则刚停掉主服务它又会拉起来
-	for _, unit := range companions {
-		execx.RunRoot([]string{"systemctl", "stop", unit}, "", &execx.Opt{Capture: true})
-	}
-	execx.RunRoot([]string{"systemctl", "stop", name + ".service"}, "", nil)
-	suffix := ""
-	if len(companions) > 0 {
-		suffix = fmt.Sprintf(i18n.T(" + %d 个伴生单元"), len(companions))
-	}
-	execx.Ok(i18n.T("已暂停：") + name + ".service" + suffix)
-	execx.Info(i18n.T("提示：暂停为运行时停止，重启系统后会自动恢复运行。"))
-	return nil
-}
-
-// Resume 启动主服务及符合当前配置的伴生单元。watchdog 交给
-// ReconcileResilience 校验完整性和用户偏好，避免启动历史残留单元。
-func Resume(name string) error {
-	if name == "" {
-		name = DefaultName
-	}
-	if err := validateManagedServiceName(name); err != nil {
-		return err
-	}
-	if !IsInstalled(name) {
-		execx.Warn(i18n.T("服务 ") + name + i18n.T(" 未安装，请先执行『初始化』。"))
-		return nil
-	}
-	companions := resumeCompanionUnits(companionUnits(name))
-	if err := execx.EnsureSudo(i18n.T("启动服务")); err != nil {
-		return err
-	}
-	execx.RunRoot([]string{"systemctl", "start", name + ".service"}, "", nil)
-	if err := ReconcileResilience(paths.Detect(), name); err != nil {
-		execx.Warn(fmt.Sprintf(i18n.T("修复网络自愈失败（主服务不受影响）：%v"), err))
-	}
-	for _, unit := range companions {
-		execx.RunRoot([]string{"systemctl", "start", unit}, "", &execx.Opt{Capture: true})
-	}
-	suffix := ""
-	if len(companions) > 0 {
-		suffix = fmt.Sprintf(i18n.T(" + %d 个伴生单元"), len(companions))
-	}
-	execx.Ok(i18n.T("已启动：") + name + ".service" + suffix)
-	return nil
 }

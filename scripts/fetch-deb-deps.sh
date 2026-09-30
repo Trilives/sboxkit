@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# 预下载 .deb 内捆绑的第三方资产（goreleaser nfpm 打包前执行）。每次执行都
-# 强制重新下载最新稳定 sing-box，避免本地缓存混入新版本发布：
+# 预下载 .deb 与用户模式安装包（sboxkit-user_*.tar.gz）共同捆绑的第三方资产
+# （goreleaser 打包前执行）。每次执行都强制重新下载最新稳定 sing-box，避免本地
+# 缓存混入新版本发布：
 #   dist/deps/<arch>/sing-box          sing-box 内核（GPL-3.0，随包附 LICENSE）
 #   dist/deps/rules/geosite-cn.srs     国内域名规则集（SagerNet/sing-geosite，GPL-3.0）
 #   dist/deps/rules/geoip-cn.srs       国内 IP 规则集（SagerNet/sing-geoip，GPL-3.0）

@@ -45,7 +45,7 @@ func bootstrapServiceName(name string) string {
 func bootstrapArtifacts(name string, rt runtimePaths) bootstrapDNSArtifacts {
 	return bootstrapDNSArtifacts{
 		Config: filepath.Join(rt.Dir, "bootstrap-dns.json"),
-		Unit:   "/etc/systemd/system/" + bootstrapServiceName(name) + ".service",
+		Unit:   rt.Scope.unitFile(bootstrapServiceName(name) + ".service"),
 	}
 }
 
@@ -79,6 +79,9 @@ func stageBootstrapDNSConfig(p paths.Paths) (string, error) {
 }
 
 func bootstrapServiceText(name string, rt runtimePaths, exe string) string {
+	if rt.Scope.User {
+		return bootstrapUserServiceText(name, rt, exe)
+	}
 	artifacts := bootstrapArtifacts(name, rt)
 	quotedExe := strconv.Quote(strings.ReplaceAll(exe, "%", "%%"))
 	return fmt.Sprintf(`[Unit]
@@ -111,6 +114,34 @@ WantedBy=multi-user.target
 `, name, name, name, rt.Dir, quotedExe, artifacts.Config, bootstrapDNSListenAddress, bootstrapDNSTunDevice)
 }
 
+// bootstrapUserServiceText 用户级 relay：没有 User=root 与能力集；基于命名空间的
+// 沙箱（ProtectSystem 等）在用户实例中依赖非特权 userns，不同发行版可用性不一，
+// 因此只保留基于 seccomp 的加固项。
+func bootstrapUserServiceText(name string, rt runtimePaths, exe string) string {
+	artifacts := bootstrapArtifacts(name, rt)
+	return fmt.Sprintf(`[Unit]
+Description=Bootstrap DNS relay for %s (user mode service)
+Before=%s.service
+PartOf=%s.service
+
+[Service]
+Type=simple
+%sWorkingDirectory=%s
+ExecStart=%s bootstrap-dns --config %s --listen %s --tun-dev %s
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6
+
+[Install]
+WantedBy=%s
+`, name, name, name, rt.Scope.environmentLines(), systemdEscape(rt.Dir), systemdExecArg(exe),
+		systemdExecArg(artifacts.Config), bootstrapDNSListenAddress, bootstrapDNSTunDevice, rt.Scope.wantedBy())
+}
+
 // installBootstrapDNS writes both relay artifacts. The caller owns the single
 // daemon-reload/restart transaction shared with the main unit.
 func installBootstrapDNS(p paths.Paths, name string, rt runtimePaths) error {
@@ -118,7 +149,7 @@ func installBootstrapDNS(p paths.Paths, name string, rt runtimePaths) error {
 	if err != nil {
 		return fmt.Errorf(i18n.T("定位 sboxkit 可执行文件: %w"), err)
 	}
-	return installBootstrapDNSWith(p, name, rt, exe, execx.RunRoot, execx.WriteRoot)
+	return installBootstrapDNSWith(p, name, rt, exe, rt.Scope.run, rt.Scope.write)
 }
 
 func installBootstrapDNSWith(
@@ -148,14 +179,14 @@ func installBootstrapDNSWith(
 }
 
 func removeBootstrapDNS(name string, rt runtimePaths, quiet bool) {
-	removeBootstrapDNSWith(name, rt, quiet, execx.RunRoot)
+	removeBootstrapDNSWith(name, rt, quiet, rt.Scope.run)
 }
 
 func removeBootstrapDNSWith(name string, rt runtimePaths, quiet bool, runRoot rootCommandRunner) {
 	unit := bootstrapServiceName(name) + ".service"
 	opt := &execx.Opt{Capture: quiet}
-	runRoot([]string{"systemctl", "stop", unit}, "", opt)
-	runRoot([]string{"systemctl", "disable", unit}, "", opt)
+	runRoot(rt.Scope.systemctl("stop", unit), "", opt)
+	runRoot(rt.Scope.systemctl("disable", unit), "", opt)
 	artifacts := bootstrapArtifacts(name, rt)
 	runRoot([]string{"rm", "-f", artifacts.Unit, artifacts.Config}, "", nil)
 }

@@ -25,16 +25,47 @@ builds:
       - -s -w -X main.version={{.Version}}
 
 archives:
+  # 精简包：只有 sboxkit 本体，是自更新下载的资产（internal/selfupdate 按
+  # sboxkit_<version>_linux_<arch>.tar.gz 取用），保持体积小。
   - id: default
     formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
     files:
       - LICENSE
       - README.md
-      - src: scripts/portable-update.sh
-        dst: scripts/portable-update.sh
-      - src: scripts/portable-test.sh
-        dst: scripts/portable-test.sh
+  # 用户模式安装包（第二种主流用法）：随包附带 sing-box 内核与基础 geo 规则集
+  # （与 deb 同一份，由 scripts/fetch-deb-deps.sh 预下载），解压即可离线初始化；
+  # sboxkit.user-mode 标记让服务以 systemd 用户单元运行，仅启用 TUN 时请求 sudo。
+  - id: user-mode
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}-user_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
+    wrap_in_directory: true
+    files:
+      - LICENSE
+      - README.md
+      - src: packaging/user-mode/sboxkit.user-mode
+        dst: .
+        strip_parent: true
+      - src: "packaging/deps/{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}/sing-box"
+        dst: core
+        strip_parent: true
+        info:
+          mode: 0755
+      - src: packaging/deps/sing-box.version
+        dst: core
+        strip_parent: true
+      - src: packaging/deps/rules/*.srs
+        dst: ruleset
+        strip_parent: true
+      - src: packaging/copyright
+        dst: licenses
+        strip_parent: true
+      - src: packaging/deps/LICENSE.sing-box
+        dst: licenses
+        strip_parent: true
+      - src: scripts/user-*.sh
+        dst: scripts
+        strip_parent: true
 
 nfpms:
   - id: deb

@@ -122,6 +122,10 @@ func Have(name string) bool {
 
 var sudoOK bool
 
+// SuggestSudoLaunch 提权时是否提示「直接用 sudo 启动」。用户模式必须以普通用户运行，
+// 由 main 关闭此提示。
+var SuggestSudoLaunch = true
+
 // EnsureSudo 确保后续 root 操作可执行：已是 root 直接返回；
 // 否则用 `sudo -v` 交互式预热（会话内缓存），失败返回 ErrCancelled。
 func EnsureSudo(reason string) error {
@@ -132,7 +136,9 @@ func EnsureSudo(reason string) error {
 		return fmt.Errorf("%s", i18n.T("需要管理员权限，但未找到 sudo，请改用 root 运行"))
 	}
 	Info(reason + i18n.T("需要管理员权限。"))
-	Info(i18n.T("提示：也可以直接用 sudo 启动，避免中途输入密码。"))
+	if SuggestSudoLaunch {
+		Info(i18n.T("提示：也可以直接用 sudo 启动，避免中途输入密码。"))
+	}
 	c := exec.Command("sudo", "-v")
 	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := c.Run(); err != nil {
@@ -140,6 +146,22 @@ func EnsureSudo(reason string) error {
 	}
 	sudoOK = true
 	return nil
+}
+
+// CanElevate 报告此刻能否拿到 root 而不卡在无人应答的密码提示上：已是 root、
+// 本进程已授权过、stdin 是终端（可交互输入密码），或 sudo 凭据已缓存 / NOPASSWD。
+// 定时器等非交互场景据此决定推迟需要提权的步骤，而不是直接失败。
+func CanElevate() bool {
+	if IsRoot() || sudoOK {
+		return true
+	}
+	if !Have("sudo") {
+		return false
+	}
+	if term.IsTerminal(int(os.Stdin.Fd())) {
+		return true
+	}
+	return exec.Command("sudo", "-n", "true").Run() == nil
 }
 
 // RunRoot 以 root 运行命令：已是 root 直接执行，否则自动加 sudo（先 EnsureSudo）。

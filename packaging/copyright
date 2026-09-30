@@ -5,23 +5,25 @@ Source: https://github.com/Trilives/sboxkit
 Files: *
 Copyright: 2026 Trilives
 License: MIT
-Comment: sboxkit 本体（/usr/bin/sboxkit）。完整文本见源仓库 LICENSE。
+Comment: sboxkit 本体（/usr/bin/sboxkit；用户模式安装包中为 sboxkit）。完整文本见源仓库 LICENSE。
+ 同一份第三方资产也随用户模式安装包 sboxkit-user_*.tar.gz 分发，路径见各段 Files，
+ 许可证副本位于该包 licenses/ 目录。
 
-Files: /usr/libexec/sboxkit/sing-box
+Files: /usr/libexec/sboxkit/sing-box core/sing-box
 Copyright: SagerNet and contributors
 License: GPL-3.0
 Comment: sing-box 内核，未作修改的官方 release 二进制。
  源代码与完整许可证：https://github.com/SagerNet/sing-box
  本包附带副本：/usr/share/doc/sboxkit/LICENSE.sing-box
 
-Files: /usr/share/sboxkit/ruleset/geosite-cn.srs
+Files: /usr/share/sboxkit/ruleset/geosite-cn.srs ruleset/geosite-cn.srs
 Copyright: SagerNet and contributors
 License: GPL-3.0
 Comment: 国内域名规则集，取自 SagerNet/sing-geosite rule-set 分支发布。
  源仓库（含构建脚本与完整许可证）：https://github.com/SagerNet/sing-geosite
  应用可在线更新到最新版本（更新 内核/geo 数据）。
 
-Files: /usr/share/sboxkit/ruleset/geoip-cn.srs
+Files: /usr/share/sboxkit/ruleset/geoip-cn.srs ruleset/geoip-cn.srs
 Copyright: SagerNet and contributors
 License: GPL-3.0
 Comment: 国内 IP 规则集，取自 SagerNet/sing-geoip rule-set 分支发布。

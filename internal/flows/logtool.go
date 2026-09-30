@@ -25,7 +25,7 @@ func LogTool(p paths.Paths) error {
 	clearToolScreen()
 	if choice == 0 {
 		execx.Header(i18n.T("sing-box 内核日志"))
-		_, err = execx.Run([]string{"journalctl", "--no-pager", "-n", fmt.Sprint(logTailLines), "-u", sysd.DefaultName + ".service"}, nil)
+		_, err = execx.Run(sysd.JournalCommand(sysd.DefaultName, "--no-pager", "-n", fmt.Sprint(logTailLines)), nil)
 	} else {
 		execx.Header(i18n.T("sboxkit TUI 日志"))
 		err = printFileTail(execx.LogPath(p.State), logTailLines)

@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
+
+	"github.com/Trilives/sboxkit/internal/paths"
 )
 
 const defaultHealthRuntimeDir = "/run/sboxkit"
@@ -63,7 +65,19 @@ func HealthRuntimeDir() string {
 	if value := os.Getenv("SBOXKIT_RUN_DIR"); value != "" {
 		return value
 	}
-	return defaultHealthRuntimeDir
+	return healthRuntimeDirFor(paths.Detect(), os.Getenv("XDG_RUNTIME_DIR"))
+}
+
+// healthRuntimeDirFor 用户级（用户模式）watchdog 无权写 /run/sboxkit，改用会话的
+// XDG_RUNTIME_DIR（同为 tmpfs、重启即清空），缺失时退回状态目录。
+func healthRuntimeDirFor(p paths.Paths, xdgRuntimeDir string) string {
+	if !p.UserMode {
+		return defaultHealthRuntimeDir
+	}
+	if xdgRuntimeDir != "" {
+		return filepath.Join(xdgRuntimeDir, "sboxkit")
+	}
+	return filepath.Join(p.State, "run")
 }
 
 func DefaultWatchdogStatePath() string {

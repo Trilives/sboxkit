@@ -29,9 +29,9 @@ func collectInitPlan(p paths.Paths) (initFormPlan, error) {
 	fields := []tui.FormField{
 		{Key: "download_proxy", Label: i18n.T("下载代理"), Kind: tui.FormText, Value: cfg.DownloadProxy, Placeholder: "http://127.0.0.1:7890"},
 		{Key: "mixed_port", Label: i18n.T("本地代理 mixed 端口"), Kind: tui.FormText, Value: strconv.Itoa(config.EffectiveMixedPort(cfg)), Validate: validateMixedPort},
-		{Key: "enable_tun", Label: i18n.T("启用 TUN"), Kind: tui.FormBool, Value: boolString(cfg.EnableTun)},
+		{Key: "enable_tun", Label: tunFieldLabel(p), Kind: tui.FormBool, Value: boolString(cfg.EnableTun)},
 		{Key: "lan_proxy", Label: i18n.T("局域网代理"), Kind: tui.FormBool, Value: boolString(cfg.LanProxy)},
-		{Key: "allow_firewall", Label: i18n.T("放行代理端口"), Kind: tui.FormBool, Value: "true", Enabled: enabledWhen("lan_proxy", true)},
+		systemModeOnly(p, tui.FormField{Key: "allow_firewall", Label: i18n.T("放行代理端口"), Kind: tui.FormBool, Value: "true", Enabled: enabledWhen("lan_proxy", true)}),
 		{Key: "write_proxy_env", Label: i18n.T("写入 shell 代理变量"), Kind: tui.FormBool, Value: "true", Enabled: enabledWhen("enable_tun", false)},
 		{Key: "tun_uids", Label: i18n.T("TUN 直连 UID"), Kind: tui.FormText, Value: joinInts(cfg.TunExcludeUIDs), Placeholder: "1000, 1001", Enabled: enabledWhen("enable_tun", true), Validate: validateUIDs},
 		{Key: "process_names", Label: i18n.T("TUN 直连进程名"), Kind: tui.FormText, Value: strings.Join(cfg.BypassProcessNames, ", "), Placeholder: "tailscale, tailscaled", Enabled: enabledWhen("enable_tun", true)},
@@ -66,7 +66,7 @@ func collectInitPlan(p paths.Paths) (initFormPlan, error) {
 		return initFormPlan{}, err
 	}
 	return initFormPlan{
-		Original: cfg, Config: updated, AllowFirewall: values.Bool("allow_firewall"),
+		Original: cfg, Config: updated, AllowFirewall: values.Bool("allow_firewall") && !p.UserMode,
 		WriteProxyEnv: values.Bool("write_proxy_env"), Subscription: info,
 	}, nil
 }
@@ -111,7 +111,7 @@ func applyInitDeployment(p paths.Paths, plan initFormPlan) error {
 		}
 		oldPort := config.EffectiveMixedPort(plan.Original)
 		newPort := config.EffectiveMixedPort(plan.Config)
-		if plan.Original.LanProxy && (!plan.Config.LanProxy || oldPort != newPort) {
+		if !p.UserMode && plan.Original.LanProxy && (!plan.Config.LanProxy || oldPort != newPort) {
 			firewall.Revoke(oldPort)
 		}
 		if plan.Config.LanProxy && plan.AllowFirewall {
@@ -127,6 +127,26 @@ func applyInitDeployment(p paths.Paths, plan initFormPlan) error {
 		}
 		return nil
 	})
+}
+
+// tunFieldLabel 用户模式下 TUN 仍可选，但应用时会请求一次 sudo（setcap），标签提前说明。
+func tunFieldLabel(p paths.Paths) string {
+	if p.UserMode {
+		return i18n.T("启用 TUN") + i18n.T("（需 sudo 授权）")
+	}
+	return i18n.T("启用 TUN")
+}
+
+// systemModeOnly 用户模式不修改防火墙（需要 root）：保持字段可见以免用户找不到，
+// 但禁用并在标签上说明原因。
+func systemModeOnly(p paths.Paths, field tui.FormField) tui.FormField {
+	if !p.UserMode {
+		return field
+	}
+	field.Label += i18n.T("（用户模式不可用）")
+	field.Value = "false"
+	field.Enabled = func(tui.FormResult) bool { return false }
+	return field
 }
 
 func initSourceOptions() ([]string, map[string]string) {

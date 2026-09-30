@@ -190,6 +190,12 @@ func ensureStartupResources(p paths.Paths) error {
 // 最新（.deb 种子只带 CN 基础规则集）。整步无人值守：失败不阻断，只提示可稍后在
 // 设置里更新——服务仍按现有资源正常运行。
 func optionalPostStartUpdate(p paths.Paths) {
+	if p.UserMode {
+		// 用户模式安装包已随包附带内核与基础规则集，初始化不再联网下载；需要最新版时
+		// 可在「工具 → 更新」或 sboxkit update（同样无需 sudo）中更新。
+		execx.Info(i18n.T("用户模式安装包已附带内核与基础规则集，跳过初始化后的自动下载；可稍后在「工具 → 更新」中更新。"))
+		return
+	}
 	execx.Info(i18n.T("正在自动下载/更新内核与 geo 数据…"))
 	if _, err := kernel.DownloadAll(p, kernel.Options{Force: true}); err != nil {
 		execx.Warn(fmt.Sprintf(i18n.T("内核/geo 数据下载失败（服务仍按现有资源正常运行），可稍后在主菜单『运行时管理 → 内核更新』里重试：%v"), err))

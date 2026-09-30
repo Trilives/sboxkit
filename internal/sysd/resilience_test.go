@@ -28,7 +28,7 @@ func TestInspectResilienceStatusDetectsMissingAndStaleUnits(t *testing.T) {
 	if err := os.WriteFile(dispatcherFileIn(layout, DefaultName), []byte(dispatcherText(DefaultName, "singbox", 20, "/usr/bin/sboxkit")), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(wdServiceIn(layout), []byte(wdServiceText(DefaultName, "singbox", "/old/bin/sboxkit")), 0o644); err != nil {
+	if err := os.WriteFile(wdServiceIn(layout), []byte(wdServiceText(unitScope{}, DefaultName, "singbox", "/old/bin/sboxkit")), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(wdTimerIn(layout), []byte(wdTimerText("2min")), 0o644); err != nil {
@@ -43,7 +43,7 @@ func TestInspectResilienceStatusDetectsMissingAndStaleUnits(t *testing.T) {
 		t.Fatalf("expected stale executable path to need repair: %#v", st)
 	}
 
-	if err := os.WriteFile(wdServiceIn(layout), []byte(wdServiceText(DefaultName, "singbox", "/usr/bin/sboxkit")), 0o644); err != nil {
+	if err := os.WriteFile(wdServiceIn(layout), []byte(wdServiceText(unitScope{}, DefaultName, "singbox", "/usr/bin/sboxkit")), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	st = inspectResilienceStatus(layout, DefaultName, "2min", "singbox", "/usr/bin/sboxkit", true, false)
@@ -81,7 +81,7 @@ func TestInspectResilienceStatusOnlyRepairsInactiveTimerWhenMainServiceIsActive(
 	}
 	files := map[string]string{
 		dispatcherFileIn(layout, DefaultName): dispatcherText(DefaultName, "singbox", 20, "/usr/bin/sboxkit"),
-		wdServiceIn(layout):                   wdServiceText(DefaultName, "singbox", "/usr/bin/sboxkit"),
+		wdServiceIn(layout):                   wdServiceText(unitScope{}, DefaultName, "singbox", "/usr/bin/sboxkit"),
 		wdTimerIn(layout):                     wdTimerText("2min"),
 	}
 	for path, content := range files {
@@ -179,7 +179,7 @@ func TestStableExecutablePathUsesLookPathForBareCommand(t *testing.T) {
 }
 
 func TestWatchdogServiceQuotesExecutablePath(t *testing.T) {
-	unit := wdServiceText(DefaultName, "singbox", `/opt/sbox kit/%preview/sboxkit`)
+	unit := wdServiceText(unitScope{}, DefaultName, "singbox", `/opt/sbox kit/%preview/sboxkit`)
 	if !strings.Contains(unit, `ExecStart="/opt/sbox kit/%%preview/sboxkit" healthcheck`) {
 		t.Fatalf("unsafe or unescaped ExecStart:\n%s", unit)
 	}

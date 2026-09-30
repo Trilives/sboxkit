@@ -16,10 +16,10 @@ const (
 	defaultDelay      = "30min"
 )
 
-func timerServiceFile() string { return "/etc/systemd/system/" + TimerName + ".service" }
-func timerFile() string        { return "/etc/systemd/system/" + TimerName + ".timer" }
+func timerServiceFile(s unitScope) string { return s.unitFile(TimerName + ".service") }
+func timerFile(s unitScope) string        { return s.unitFile(TimerName + ".timer") }
 
-func timerServiceText(selfExe string) string {
+func timerServiceText(s unitScope, selfExe string) string {
 	return fmt.Sprintf(`[Unit]
 Description=Weekly sing-box core and rule-set update (%s)
 After=network-online.target
@@ -27,8 +27,8 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=%s update
-`, TimerName, selfExe)
+%sExecStart=%s update
+`, TimerName, s.environmentLines(), systemdExecArg(selfExe))
 }
 
 func timerText(onCalendar, delay string) string {
@@ -54,23 +54,26 @@ func InstallTimer(onCalendar string) error {
 	if !execx.Have("systemctl") {
 		return fmt.Errorf("%s", i18n.T("未找到 systemctl，定时器需要 systemd"))
 	}
-	selfExe, err := os.Executable()
+	// 与 watchdog 一致使用稳定调用路径：os.Executable 会解析到版本目录里的真实
+	// 文件，自更新清理旧版本后 ExecStart 就会失效。
+	selfExe, err := StableExecutablePath()
 	if err != nil {
 		return err
 	}
-	if err := execx.EnsureSudo(i18n.T("安装每周更新定时器")); err != nil {
+	s := currentScope()
+	if err := s.ensurePrivilege(i18n.T("安装每周更新定时器")); err != nil {
 		return err
 	}
-	if err := execx.WriteRoot(timerServiceFile(), timerServiceText(selfExe), "0644", i18n.T("写定时器服务")); err != nil {
+	if err := s.write(timerServiceFile(s), timerServiceText(s, selfExe), "0644", i18n.T("写定时器服务")); err != nil {
 		return err
 	}
-	if err := execx.WriteRoot(timerFile(), timerText(onCalendar, defaultDelay), "0644", i18n.T("写定时器")); err != nil {
+	if err := s.write(timerFile(s), timerText(onCalendar, defaultDelay), "0644", i18n.T("写定时器")); err != nil {
 		return err
 	}
-	if _, err := execx.RunRoot([]string{"systemctl", "daemon-reload"}, "", nil); err != nil {
+	if _, err := s.run(s.systemctl("daemon-reload"), "", nil); err != nil {
 		return err
 	}
-	if _, err := execx.RunRoot([]string{"systemctl", "enable", "--now", TimerName + ".timer"}, "", nil); err != nil {
+	if _, err := s.run(s.systemctl("enable", "--now", TimerName+".timer"), "", nil); err != nil {
 		return err
 	}
 	execx.Ok(fmt.Sprintf(i18n.T("每周更新定时器已安装（%s）。"), onCalendar))
@@ -79,21 +82,22 @@ func InstallTimer(onCalendar string) error {
 
 // RemoveTimer 卸载每周更新定时器。
 func RemoveTimer() error {
-	if err := execx.EnsureSudo(i18n.T("卸载每周更新定时器")); err != nil {
+	s := currentScope()
+	if err := s.ensurePrivilege(i18n.T("卸载每周更新定时器")); err != nil {
 		return err
 	}
 	quiet := &execx.Opt{Capture: true}
 	for _, unit := range []string{TimerName + ".timer", TimerName + ".service"} {
-		execx.RunRoot([]string{"systemctl", "stop", unit}, "", quiet)
-		execx.RunRoot([]string{"systemctl", "disable", unit}, "", quiet)
+		s.run(s.systemctl("stop", unit), "", quiet)
+		s.run(s.systemctl("disable", unit), "", quiet)
 	}
-	execx.RunRoot([]string{"rm", "-f", timerFile(), timerServiceFile()}, "", nil)
-	execx.RunRoot([]string{"systemctl", "daemon-reload"}, "", nil)
+	s.run([]string{"rm", "-f", timerFile(s), timerServiceFile(s)}, "", nil)
+	s.run(s.systemctl("daemon-reload"), "", nil)
 	execx.Ok(i18n.T("每周更新定时器已卸载。"))
 	return nil
 }
 
 func TimerInstalled() bool {
-	_, err := os.Stat(timerFile())
+	_, err := os.Stat(timerFile(currentScope()))
 	return err == nil
 }

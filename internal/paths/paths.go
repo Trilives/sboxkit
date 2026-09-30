@@ -3,6 +3,9 @@
 // 运行期所有数据使用**固定工作目录** /var/lib/sboxkit（不随用户/HOME 变化，
 // root 运行的定时器与用户会话看到同一份数据）；环境变量 SBOXKIT_HOME 可覆盖
 // （主要用于测试）。首次使用由 flows.EnsureStateRoot 负责创建并交回调用者属主。
+//
+// 用户模式（可执行文件旁存在 sboxkit.user-mode 标记，见 userMode.go）下状态默认
+// 落在包目录的 .sboxkit/，运行时暂存于状态目录内，服务以 systemd 用户单元运行。
 package paths
 
 import (
@@ -19,6 +22,9 @@ const RuntimeDir = "/var/lib/sboxkit-runtime"
 
 // Paths 全部运行期路径；由 Detect 依据环境变量解析一次后传递使用。
 type Paths struct {
+	UserMode       bool   // 用户模式：systemd 用户单元、无 sudo
+	BundleRoot     string // 用户模式安装包目录（含 sboxkit.user-mode 标记）
+	Runtime        string // 服务实际读取的运行时暂存目录
 	State          string
 	Bin            string
 	SingBoxBin     string
@@ -34,16 +40,24 @@ type Paths struct {
 	GeoIPCN        string
 }
 
-func stateRoot() string {
+func stateRoot(bundleRoot string) string {
 	if v := os.Getenv("SBOXKIT_HOME"); v != "" {
 		return v
+	}
+	if bundleRoot != "" {
+		return filepath.Join(bundleRoot, UserModeStateDir)
 	}
 	return DefaultStateRoot
 }
 
-// Detect 依据环境变量解析全部路径。
+// Detect 依据环境变量与用户模式标记解析全部路径。
 func Detect() Paths {
-	return FromRoot(stateRoot())
+	bundleRoot := detectUserModeRoot(defaultUserModeProbe())
+	state := stateRoot(bundleRoot)
+	if bundleRoot != "" {
+		return FromUserModeRoot(state, bundleRoot)
+	}
+	return FromRoot(state)
 }
 
 // FromRoot 以给定目录为状态根解析全部路径；供测试直接构造隔离的 Paths，
@@ -52,6 +66,7 @@ func FromRoot(s string) Paths {
 	bin := filepath.Join(s, "bin")
 	rs := filepath.Join(s, "ruleset")
 	return Paths{
+		Runtime:        RuntimeDir,
 		State:          s,
 		Bin:            bin,
 		SingBoxBin:     filepath.Join(bin, "sing-box"),

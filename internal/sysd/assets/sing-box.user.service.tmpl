@@ -1,0 +1,15 @@
+[Unit]
+Description=sing-box Service ({{.Name}}, user mode service)
+Documentation=https://sing-box.sagernet.org/
+Requires={{.BootstrapUnit}}
+After={{.BootstrapUnit}}
+
+[Service]
+Type=simple
+WorkingDirectory={{.RuntimeDir}}
+ExecStart={{.Bin}} run -c {{.Config}}
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

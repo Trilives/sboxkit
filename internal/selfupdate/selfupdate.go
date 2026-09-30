@@ -291,11 +291,15 @@ func ensureManagedByCurrentLink(p paths.Paths, currentVersion string) error {
 		return err
 	}
 	execx.Info(fmt.Sprintf(i18n.T("已把当前运行的可执行文件迁移为托管版本 %s。"), baseline))
-	// Portable archives normally live in a user-writable directory, so replace
+	// UserMode archives normally live in a user-writable directory, so replace
 	// the executable atomically without sudo there. Package installs under
 	// /usr/bin naturally fail this direct attempt and retain the existing sudo
 	// fallback.
 	if err := replaceExecutableLink(exe, currentLink(p)); err != nil {
+		if p.UserMode {
+			// 用户模式承诺全程不用 sudo：包目录不可写时直接说明原因。
+			return fmt.Errorf(i18n.T("用户模式无法替换 %s（%v）；请把用户模式安装包放在当前用户可写的位置"), exe, err)
+		}
 		reason := i18n.T("首次自更新需要把 ") + exe + i18n.T(" 接管为指向托管版本的符号链接")
 		if _, rootErr := execx.RunRoot([]string{"ln", "-sfn", currentLink(p), exe}, reason, nil); rootErr != nil {
 			return rootErr

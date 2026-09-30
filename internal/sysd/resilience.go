@@ -12,7 +12,6 @@ package sysd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -28,12 +27,7 @@ const (
 	dispatcherDir = "/etc/NetworkManager/dispatcher.d"
 )
 
-func dispatcherFile(name string) string {
-	return filepath.Join(dispatcherDir, "90-"+name+"-restart")
-}
-
-func wdService() string { return "/etc/systemd/system/" + WatchdogName + ".service" }
-func wdTimer() string   { return "/etc/systemd/system/" + WatchdogName + ".timer" }
+func wdTimer() string { return wdTimerIn(currentLayout()) }
 
 func dispatcherText(name, tunDev string, debounce int, exe string) string {
 	exe = shellQuote(exe)
@@ -66,8 +60,12 @@ func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }
 
-func wdServiceText(name, tunDev, exe string) string {
-	exe = strconv.Quote(strings.ReplaceAll(exe, "%", "%%"))
+func wdServiceText(s unitScope, name, tunDev, exe string) string {
+	if s.User {
+		exe = systemdExecArg(exe)
+	} else {
+		exe = strconv.Quote(strings.ReplaceAll(exe, "%", "%%"))
+	}
 	return fmt.Sprintf(`[Unit]
 Description=Probe %[1]s and restart it if it has soft-died (%[2]s)
 After=%[1]s.service
@@ -76,8 +74,8 @@ After=%[1]s.service
 Type=oneshot
 Environment=SERVICE_NAME=%[1]s
 Environment=TUN_DEV=%[3]s
-ExecStart=%[4]s healthcheck
-`, name, WatchdogName, tunDev, exe)
+%[5]sExecStart=%[4]s healthcheck
+`, name, WatchdogName, tunDev, exe, s.environmentLines())
 }
 
 func wdTimerText(interval string) string {
@@ -141,39 +139,53 @@ func InstallResilience(opts ResilienceOptions) error {
 	if !execx.Have("systemctl") {
 		return fmt.Errorf("%s", i18n.T("未找到 systemctl，自愈需要 systemd"))
 	}
-	if err := execx.EnsureSudo(i18n.T("安装网络自愈")); err != nil {
+	layout := currentLayout()
+	s := layout.scope
+	if err := s.ensurePrivilege(i18n.T("安装网络自愈")); err != nil {
 		return err
 	}
-	if _, err := execx.RunRoot([]string{"mkdir", "-p", paths.RuntimeDir}, "", nil); err != nil {
+	if _, err := s.run([]string{"mkdir", "-p", rtPathsFor(s, opts.Name).Dir}, "", nil); err != nil {
 		return err
 	}
 	exe, err := StableExecutablePath()
 	if err != nil {
 		return fmt.Errorf(i18n.T("定位 sboxkit 可执行文件: %w"), err)
 	}
-
-	if st, err := os.Stat(dispatcherDir); err == nil && st.IsDir() {
-		if err := execx.WriteRoot(dispatcherFile(opts.Name), dispatcherText(opts.Name, opts.TunDev, opts.Debounce, exe), "0755", i18n.T("安装 NM 钩子")); err != nil {
-			return err
-		}
-		execx.Ok(i18n.T("已装 NetworkManager 钩子：") + dispatcherFile(opts.Name))
-	} else {
-		execx.Warn(dispatcherDir + i18n.T(" 不存在，跳过 NM 钩子（watchdog 仍兜底）。"))
-	}
-
-	if err := execx.WriteRoot(wdService(), wdServiceText(opts.Name, opts.TunDev, exe), "0644", i18n.T("写 watchdog 单元")); err != nil {
+	if err := installDispatcher(layout, opts, exe); err != nil {
 		return err
 	}
-	if err := execx.WriteRoot(wdTimer(), wdTimerText(opts.Interval), "0644", i18n.T("写 watchdog 定时器")); err != nil {
+	if err := s.write(wdServiceIn(layout), wdServiceText(s, opts.Name, opts.TunDev, exe), "0644", i18n.T("写 watchdog 单元")); err != nil {
 		return err
 	}
-	if _, err := execx.RunRoot([]string{"systemctl", "daemon-reload"}, "", nil); err != nil {
+	if err := s.write(wdTimerIn(layout), wdTimerText(opts.Interval), "0644", i18n.T("写 watchdog 定时器")); err != nil {
 		return err
 	}
-	if _, err := execx.RunRoot([]string{"systemctl", "enable", "--now", WatchdogName + ".timer"}, "", nil); err != nil {
+	if _, err := s.run(s.systemctl("daemon-reload"), "", nil); err != nil {
+		return err
+	}
+	if _, err := s.run(s.systemctl("enable", "--now", WatchdogName+".timer"), "", nil); err != nil {
 		return err
 	}
 	execx.Ok(fmt.Sprintf(i18n.T("网络自愈已安装（探测间隔 %s）。"), opts.Interval))
+	return nil
+}
+
+// installDispatcher NM 钩子由 root 身份的 NetworkManager 执行，只在系统级安装；
+// 用户级（用户模式）服务由 watchdog 定时器单独兜底。
+func installDispatcher(layout resilienceLayout, opts ResilienceOptions, exe string) error {
+	if layout.scope.User {
+		execx.Info(i18n.T("用户模式用户级服务不安装 NetworkManager 钩子（需要 root），由 watchdog 定时器兜底。"))
+		return nil
+	}
+	if !directoryExists(layout.dispatcherDir) {
+		execx.Warn(layout.dispatcherDir + i18n.T(" 不存在，跳过 NM 钩子（watchdog 仍兜底）。"))
+		return nil
+	}
+	file := dispatcherFileIn(layout, opts.Name)
+	if err := execx.WriteRoot(file, dispatcherText(opts.Name, opts.TunDev, opts.Debounce, exe), "0755", i18n.T("安装 NM 钩子")); err != nil {
+		return err
+	}
+	execx.Ok(i18n.T("已装 NetworkManager 钩子：") + file)
 	return nil
 }
 
@@ -185,17 +197,21 @@ func RemoveResilience(name string) error {
 	if err := validateManagedServiceName(name); err != nil {
 		return err
 	}
-	if err := execx.EnsureSudo(i18n.T("卸载网络自愈")); err != nil {
+	layout := currentLayout()
+	s := layout.scope
+	if err := s.ensurePrivilege(i18n.T("卸载网络自愈")); err != nil {
 		return err
 	}
-	execx.RunRoot([]string{"rm", "-f", dispatcherFile(name)}, "", nil)
+	if !s.User {
+		s.run([]string{"rm", "-f", dispatcherFileIn(layout, name)}, "", nil)
+	}
 	quiet := &execx.Opt{Capture: true}
 	for _, unit := range []string{WatchdogName + ".timer", WatchdogName + ".service"} {
-		execx.RunRoot([]string{"systemctl", "stop", unit}, "", quiet)
-		execx.RunRoot([]string{"systemctl", "disable", unit}, "", quiet)
+		s.run(s.systemctl("stop", unit), "", quiet)
+		s.run(s.systemctl("disable", unit), "", quiet)
 	}
-	execx.RunRoot([]string{"rm", "-f", wdTimer(), wdService()}, "", nil)
-	execx.RunRoot([]string{"systemctl", "daemon-reload"}, "", nil)
+	s.run([]string{"rm", "-f", wdTimerIn(layout), wdServiceIn(layout)}, "", nil)
+	s.run(s.systemctl("daemon-reload"), "", nil)
 	execx.Ok(i18n.T("网络自愈已卸载。"))
 	return nil
 }
@@ -218,10 +234,11 @@ func InspectResilience(name string, userDisabled bool) (ResilienceStatus, error)
 	if err != nil {
 		return ResilienceStatus{}, fmt.Errorf(i18n.T("定位 sboxkit 可执行文件: %w"), err)
 	}
-	enabled := systemdUnitState(WatchdogName+".timer", "enabled")
-	active := systemdUnitState(WatchdogName+".timer", "active")
+	layout := currentLayout()
+	enabled := systemdUnitState(layout.scope, WatchdogName+".timer", "enabled")
+	active := systemdUnitState(layout.scope, WatchdogName+".timer", "active")
 	return inspectResilienceStatus(
-		defaultResilienceLayout, opts.Name, opts.Interval, opts.TunDev, exe,
+		layout, opts.Name, opts.Interval, opts.TunDev, exe,
 		enabled, userDisabled, active,
 	), nil
 }

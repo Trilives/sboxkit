@@ -3,8 +3,9 @@
 // 下载相关设置（github_mirror / github_token）读 customize.json，
 // Token 未配置时回退环境变量（GITHUB_TOKEN/GH_TOKEN）。download_proxy 仅供订阅拉取使用，
 // 不再影响内核 / geo / 自更新资产下载。
-// 另提供 deb 种子接管：/usr/libexec/sboxkit 与 /usr/share/sboxkit/ruleset 里
-// 打包附带的 sing-box 与基础规则文件，在 state 缺失时复制为初始资源，安装后离线即可启动。
+// 另提供种子接管：deb 的 /usr/libexec/sboxkit 与 /usr/share/sboxkit/ruleset，或用户模式安装包
+// 的 core/ 与 ruleset/ 里附带的 sing-box 与基础规则文件，在 state 缺失时复制为初始
+// 资源，安装/解压后离线即可启动。
 //
 // 与 mihomo 版的关键差异：sing-box 官方发行版是 tar.gz 压缩包（内含二进制，
 // 而非单文件 gzip），geo 数据是 sing-geosite/sing-geoip 项目发布的 .srs 规则集
@@ -306,22 +307,34 @@ func UpdateGeodata(p paths.Paths, f *fetchx.Fetcher, s Settings, force bool) err
 // deb 种子接管
 // --------------------------------------------------------------------------
 
-// SeedFromSystem 把 deb 附带的种子资源（sing-box 二进制 + 基础规则文件）复制到
-// state（仅当 state 对应文件缺失时），使 apt 安装后无需联网即可初始化。
+// seedDirs 种子来源：用户模式安装包自带的 core/ 与 ruleset/，否则为 deb 安装位置。
+func seedDirs(p paths.Paths) (binDir, rulesetDir string) {
+	if p.UserMode {
+		return p.SeedBinDir(), p.SeedRulesetDir()
+	}
+	return SeedBinDir, SeedRulesetDir
+}
+
+// SeedFromSystem 把 deb 或用户模式安装包附带的种子资源（sing-box 二进制 + 基础规则文件）
+// 复制到 state（仅当 state 对应文件缺失时），使安装/解压后无需联网即可初始化。
 // 返回实际接管的文件列表。
 func SeedFromSystem(p paths.Paths) ([]string, error) {
 	var seeded []string
 	if err := p.EnsureStateDirs(); err != nil {
 		return nil, err
 	}
-	seedBin := filepath.Join(SeedBinDir, "sing-box")
+	binDir, rulesetDir := seedDirs(p)
+	if binDir == "" {
+		return nil, nil
+	}
+	seedBin := filepath.Join(binDir, "sing-box")
 	if _, err := os.Stat(p.SingBoxBin); os.IsNotExist(err) {
 		if _, err := os.Stat(seedBin); err == nil {
 			if err := copyFile(seedBin, p.SingBoxBin, 0o755); err != nil {
 				return seeded, err
 			}
 			version := "bundled"
-			if data, err := os.ReadFile(filepath.Join(SeedBinDir, "sing-box.version")); err == nil {
+			if data, err := os.ReadFile(filepath.Join(binDir, "sing-box.version")); err == nil {
 				if value := strings.TrimSpace(string(data)); value != "" {
 					version = value
 				}
@@ -336,7 +349,7 @@ func SeedFromSystem(p paths.Paths) ([]string, error) {
 		{"geosite-cn.srs", p.GeositeCN},
 		{"geoip-cn.srs", p.GeoIPCN},
 	} {
-		src := filepath.Join(SeedRulesetDir, item.name)
+		src := filepath.Join(rulesetDir, item.name)
 		if _, err := os.Stat(item.dest); !os.IsNotExist(err) {
 			continue
 		}
@@ -348,7 +361,9 @@ func SeedFromSystem(p paths.Paths) ([]string, error) {
 		}
 		seeded = append(seeded, item.dest)
 	}
-	if len(seeded) > 0 {
+	if len(seeded) > 0 && p.UserMode {
+		execx.Info(fmt.Sprintf(i18n.T("已从用户模式安装包接管 %d 个种子文件（离线可用；后续可在线更新）。"), len(seeded)))
+	} else if len(seeded) > 0 {
 		execx.Info(fmt.Sprintf(i18n.T("已从系统包接管 %d 个种子文件（离线可用；后续可在线更新）。"), len(seeded)))
 	}
 	return seeded, nil

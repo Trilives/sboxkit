@@ -98,6 +98,12 @@ func askNewSubscription() (*newSub, error) {
 // EnsureStateRoot 确保固定数据目录存在且当前用户可写：能直接建则直接建，
 // 无权限（如首次创建 /var/lib/sboxkit）则经 sudo 创建并把属主交回当前用户。
 func EnsureStateRoot(p paths.Paths) error {
+	if err := rejectForeignRoot(p, os.Geteuid()); err != nil {
+		return err
+	}
+	if p.UserMode {
+		return ensureUserModeState(p)
+	}
 	if err := os.MkdirAll(p.State, 0o755); err == nil {
 		probe := filepath.Join(p.State, ".probe")
 		if werr := os.WriteFile(probe, nil, 0o644); werr == nil {
