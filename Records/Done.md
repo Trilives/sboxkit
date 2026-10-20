@@ -10,6 +10,10 @@
   Anthropic 405，境外域名经 DoH over Proxy `NOERROR`。本机 docker 桥接网络不可用，未做容器内干净安装。
 - 发布门禁：`gofmt`、`go vet`、`go test -race ./...`、带随包 sing-box 的 `go test ./...`、脚本 `bash -n`、
   `goreleaser check` 与三架构快照构建（tar.gz / deb / 用户模式包）通过。
+- 发布后复核：release 与 CI 工作流通过；9 个资产与 `checksums.txt` 一致，随包内核刷新为 sing-box v1.14.3；
+  deb 与自更新精简包中的 `sboxkit` 完全相同，版本为 0.3.1 且两个 relay 单元均含 `AF_NETLINK`；稳定渠道
+  `/releases/latest` 返回 v0.3.1。发布产物同样以临时系统单元 relay（`NOERROR`）与旁路实例（Google 204、
+  OpenAI 401、Anthropic 405、DoH over Proxy `NOERROR`、1.14.3 `check` 通过）复验，未触及运行中的服务。
 
 ## 2026-10-20：初始化表单直接输入与下载代理开关
 
