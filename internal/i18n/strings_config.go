@@ -58,5 +58,6 @@ func init() {
 		"GitHub 加速前缀":                       "GitHub mirror prefix",
 		"GitHub Token（提升 API 限额）":           "GitHub token (raises API rate limit)",
 		"下载代理":                              "Download proxy",
+		"下载代理需为 http(s):// 或 socks5(h):// 地址，例如 http://127.0.0.1:7890": "Download proxy must be an http(s):// or socks5(h):// URL, e.g. http://127.0.0.1:7890",
 	})
 }

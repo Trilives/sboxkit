@@ -25,23 +25,7 @@ type initFormPlan struct {
 
 func collectInitPlan(p paths.Paths) (initFormPlan, error) {
 	cfg := config.Load(p)
-	sourceValues, sourceLabels := initSourceOptions()
-	fields := []tui.FormField{
-		{Key: "download_proxy", Label: i18n.T("下载代理"), Kind: tui.FormText, Value: cfg.DownloadProxy, Placeholder: "http://127.0.0.1:7890"},
-		{Key: "mixed_port", Label: i18n.T("本地代理 mixed 端口"), Kind: tui.FormText, Value: strconv.Itoa(config.EffectiveMixedPort(cfg)), Validate: validateMixedPort},
-		{Key: "enable_tun", Label: tunFieldLabel(p), Kind: tui.FormBool, Value: boolString(cfg.EnableTun)},
-		{Key: "lan_proxy", Label: i18n.T("局域网代理"), Kind: tui.FormBool, Value: boolString(cfg.LanProxy)},
-		systemModeOnly(p, tui.FormField{Key: "allow_firewall", Label: i18n.T("放行代理端口"), Kind: tui.FormBool, Value: "true", Enabled: enabledWhen("lan_proxy", true)}),
-		{Key: "write_proxy_env", Label: i18n.T("写入 shell 代理变量"), Kind: tui.FormBool, Value: "true", Enabled: enabledWhen("enable_tun", false)},
-		{Key: "tun_uids", Label: i18n.T("TUN 直连 UID"), Kind: tui.FormText, Value: joinInts(cfg.TunExcludeUIDs), Placeholder: "1000, 1001", Enabled: enabledWhen("enable_tun", true), Validate: validateUIDs},
-		{Key: "process_names", Label: i18n.T("TUN 直连进程名"), Kind: tui.FormText, Value: strings.Join(cfg.BypassProcessNames, ", "), Placeholder: "tailscale, tailscaled", Enabled: enabledWhen("enable_tun", true)},
-		{Key: "sub_name", Label: i18n.T("订阅名称"), Kind: tui.FormText, Value: time.Now().Format("sub-20060102-150405")},
-		{Key: "source", Label: i18n.T("订阅类型"), Kind: tui.FormChoice, Value: sourceValues[0], Options: sourceValues, OptionLabels: sourceLabels},
-		{Key: "sub_url", Label: i18n.T("订阅地址 / 本地路径"), Kind: tui.FormText, Placeholder: "https://example.com/sub"},
-		{Key: "fetch_proxy", Label: i18n.T("使用代理拉取"), Kind: tui.FormBool, Value: "false", Enabled: func(v tui.FormResult) bool { return v["source"] != "local" }},
-		{Key: "customize", Label: i18n.T("按 sboxkit 规则重建"), Kind: tui.FormBool, Value: "true", Enabled: func(v tui.FormResult) bool { return v["source"] == "sing-box" }},
-	}
-	values, err := tui.Form(i18n.T("sboxkit 初始化"), fields, tui.FormOpts{
+	values, err := tui.Form(i18n.T("sboxkit 初始化"), initFormFields(p, cfg), tui.FormOpts{
 		SubmitLabel: i18n.T("开始初始化"),
 		Hint:        i18n.T("详细配置请在初始化完成后通过“配置变更”修改"),
 	})
@@ -50,7 +34,7 @@ func collectInitPlan(p paths.Paths) (initFormPlan, error) {
 	}
 
 	updated := cfg
-	updated.DownloadProxy = strings.TrimSpace(values["download_proxy"])
+	updated.DownloadProxy = downloadProxyFromForm(values)
 	if err := config.SetField(&updated, "mixed_port", values["mixed_port"]); err != nil {
 		return initFormPlan{}, err
 	}
@@ -69,6 +53,43 @@ func collectInitPlan(p paths.Paths) (initFormPlan, error) {
 		Original: cfg, Config: updated, AllowFirewall: values.Bool("allow_firewall") && !p.UserMode,
 		WriteProxyEnv: values.Bool("write_proxy_env"), Subscription: info,
 	}, nil
+}
+
+// initFormFields 下载代理先问「是否使用」，选是才需要填写（且必须填写）代理地址；
+// 订阅「使用代理拉取」同样只在启用下载代理后才有意义。
+func initFormFields(p paths.Paths, cfg config.Config) []tui.FormField {
+	sourceValues, sourceLabels := initSourceOptions()
+	return []tui.FormField{
+		{Key: "use_download_proxy", Label: i18n.T("使用下载代理"), Kind: tui.FormBool, Value: boolString(cfg.DownloadProxy != "")},
+		{
+			Key: "download_proxy", Label: i18n.T("下载代理地址"), Kind: tui.FormText, Value: cfg.DownloadProxy, Placeholder: "http://127.0.0.1:7890",
+			Enabled: enabledWhen("use_download_proxy", true), Required: true, Validate: validateDownloadProxy,
+		},
+		{Key: "mixed_port", Label: i18n.T("本地代理 mixed 端口"), Kind: tui.FormText, Value: strconv.Itoa(config.EffectiveMixedPort(cfg)), Validate: validateMixedPort},
+		{Key: "enable_tun", Label: tunFieldLabel(p), Kind: tui.FormBool, Value: boolString(cfg.EnableTun)},
+		{Key: "lan_proxy", Label: i18n.T("局域网代理"), Kind: tui.FormBool, Value: boolString(cfg.LanProxy)},
+		systemModeOnly(p, tui.FormField{Key: "allow_firewall", Label: i18n.T("放行代理端口"), Kind: tui.FormBool, Value: "true", Enabled: enabledWhen("lan_proxy", true)}),
+		{Key: "write_proxy_env", Label: i18n.T("写入 shell 代理变量"), Kind: tui.FormBool, Value: "true", Enabled: enabledWhen("enable_tun", false)},
+		{Key: "tun_uids", Label: i18n.T("TUN 直连 UID"), Kind: tui.FormText, Value: joinInts(cfg.TunExcludeUIDs), Placeholder: "1000, 1001", Enabled: enabledWhen("enable_tun", true), Validate: validateUIDs},
+		{Key: "process_names", Label: i18n.T("TUN 直连进程名"), Kind: tui.FormText, Value: strings.Join(cfg.BypassProcessNames, ", "), Placeholder: "tailscale, tailscaled", Enabled: enabledWhen("enable_tun", true)},
+		{Key: "sub_name", Label: i18n.T("订阅名称"), Kind: tui.FormText, Value: time.Now().Format("sub-20060102-150405")},
+		{Key: "source", Label: i18n.T("订阅类型"), Kind: tui.FormChoice, Value: sourceValues[0], Options: sourceValues, OptionLabels: sourceLabels},
+		{Key: "sub_url", Label: i18n.T("订阅地址 / 本地路径"), Kind: tui.FormText, Placeholder: "https://example.com/sub"},
+		{Key: "fetch_proxy", Label: i18n.T("使用代理拉取"), Kind: tui.FormBool, Value: "false", Enabled: fetchThroughProxyAvailable},
+		{Key: "customize", Label: i18n.T("按 sboxkit 规则重建"), Kind: tui.FormBool, Value: "true", Enabled: func(v tui.FormResult) bool { return v["source"] == "sing-box" }},
+	}
+}
+
+func fetchThroughProxyAvailable(values tui.FormResult) bool {
+	return values.Bool("use_download_proxy") && values["source"] != "local"
+}
+
+// downloadProxyFromForm 未启用下载代理时清空已保存的地址，避免残留值继续生效。
+func downloadProxyFromForm(values tui.FormResult) string {
+	if !values.Bool("use_download_proxy") {
+		return ""
+	}
+	return strings.TrimSpace(values["download_proxy"])
 }
 
 func initSubscriptionFromForm(values tui.FormResult) (*newSub, error) {
@@ -97,7 +118,7 @@ func initSubscriptionFromForm(values tui.FormResult) (*newSub, error) {
 	}
 	return &newSub{
 		Name: name, URL: rawURL, SourceType: sourceType,
-		ApplyOverlay: rebuild, FetchViaProxy: sourceType != "local" && values.Bool("fetch_proxy"),
+		ApplyOverlay: rebuild, FetchViaProxy: fetchThroughProxyAvailable(values) && values.Bool("fetch_proxy"),
 	}, nil
 }
 
@@ -174,6 +195,11 @@ func enabledWhen(key string, want bool) func(tui.FormResult) bool {
 
 func validateMixedPort(value string) error {
 	_, err := config.ParsePort(value)
+	return err
+}
+
+func validateDownloadProxy(value string) error {
+	_, err := config.ParseDownloadProxy(value)
 	return err
 }
 

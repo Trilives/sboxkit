@@ -1,5 +1,11 @@
 package tui
 
+import (
+	"fmt"
+
+	"github.com/Trilives/sboxkit/internal/execx"
+)
+
 // Plain-mode forms deliberately reuse the existing line-oriented components:
 // scripts can feed one answer per enabled field without terminal control codes.
 func formPlain(fields []FormField) (FormResult, error) {
@@ -9,6 +15,7 @@ func formPlain(fields []FormField) (FormResult, error) {
 		if !fieldEnabled(*field, formValues(fields)) {
 			continue
 		}
+		original := field.Value
 		for {
 			var err error
 			switch field.Kind {
@@ -27,14 +34,22 @@ func formPlain(fields []FormField) (FormResult, error) {
 					field.Value = field.Options[idx]
 				}
 			default:
-				field.Value, err = Ask(field.Label, AskOpts{Default: field.Value, AllowEmpty: true})
+				field.Value, err = Ask(field.Label, AskOpts{Default: field.Value, AllowEmpty: !field.Required})
 			}
 			if err != nil {
 				return nil, err
 			}
-			if field.Validate == nil || field.Validate(field.Value) == nil {
+			if field.Validate == nil {
 				break
 			}
+			invalid := field.Validate(field.Value)
+			if invalid == nil {
+				break
+			}
+			// Explain the rejection and re-ask with the last accepted value as the
+			// default, so pressing Enter cannot resubmit the rejected input.
+			execx.Warn(fmt.Sprintf("%s: %v", field.Label, invalid))
+			field.Value = original
 		}
 	}
 	if err := validateForm(fields); err != nil {

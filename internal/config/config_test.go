@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/Trilives/sboxkit/internal/paths"
@@ -319,4 +320,37 @@ func TestEnsureExistsWritesDefaultsOnce(t *testing.T) {
 		t.Fatalf("expected customize.json to be created: %v", err)
 	}
 	_ = filepath.Base(p.CustomizeFile)
+}
+
+func TestParseDownloadProxyAcceptsProxySchemesAndEmpty(t *testing.T) {
+	for _, value := range []string{"", "  ", "http://127.0.0.1:7890", " https://proxy.lan:8443 ", "socks5://127.0.0.1:1080", "socks5h://user:pass@proxy.lan:1080"} {
+		got, err := ParseDownloadProxy(value)
+		if err != nil {
+			t.Fatalf("ParseDownloadProxy(%q) error = %v", value, err)
+		}
+		if want := strings.TrimSpace(value); got != want {
+			t.Fatalf("ParseDownloadProxy(%q) = %q, want %q", value, got, want)
+		}
+	}
+}
+
+func TestParseDownloadProxyRejectsValuesTheFetcherWouldIgnore(t *testing.T) {
+	for _, value := range []string{"127.0.0.1:7890", "ftp://127.0.0.1:21", "http://", "http://:7890", "http//127.0.0.1:7890"} {
+		if _, err := ParseDownloadProxy(value); err == nil {
+			t.Fatalf("ParseDownloadProxy(%q) should fail", value)
+		}
+	}
+}
+
+func TestSetFieldValidatesDownloadProxyAndAllowsClearing(t *testing.T) {
+	cfg := Defaults()
+	if err := SetField(&cfg, "download_proxy", "127.0.0.1:7890"); err == nil {
+		t.Fatal("scheme-less proxy should be rejected")
+	}
+	if err := SetField(&cfg, "download_proxy", " http://127.0.0.1:7890 "); err != nil || cfg.DownloadProxy != "http://127.0.0.1:7890" {
+		t.Fatalf("valid proxy = %q, %v", cfg.DownloadProxy, err)
+	}
+	if err := SetField(&cfg, "download_proxy", ""); err != nil || cfg.DownloadProxy != "" {
+		t.Fatalf("clearing proxy = %q, %v", cfg.DownloadProxy, err)
+	}
 }

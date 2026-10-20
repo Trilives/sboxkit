@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"net"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -78,6 +79,30 @@ func ParsePort(value string) (int, error) {
 		return 0, fmt.Errorf("%s", i18n.T("端口必须是 1-65535 之间的整数"))
 	}
 	return port, nil
+}
+
+// ParseDownloadProxy validates the optional subscription download proxy and
+// returns it trimmed; an empty value means "no proxy". The fetchers fall back
+// to a direct connection when url.Parse fails, so a malformed value has to be
+// rejected where the user types it instead of being silently ignored later.
+func ParseDownloadProxy(value string) (string, error) {
+	proxy := strings.TrimSpace(value)
+	if proxy == "" {
+		return "", nil
+	}
+	parsed, err := url.Parse(proxy)
+	if err != nil || parsed.Hostname() == "" {
+		return "", errInvalidDownloadProxy()
+	}
+	switch parsed.Scheme {
+	case "http", "https", "socks5", "socks5h":
+		return proxy, nil
+	}
+	return "", errInvalidDownloadProxy()
+}
+
+func errInvalidDownloadProxy() error {
+	return fmt.Errorf("%s", i18n.T("下载代理需为 http(s):// 或 socks5(h):// 地址，例如 http://127.0.0.1:7890"))
 }
 
 // ParseBootstrapDNSType validates and normalizes the modern sing-box DNS

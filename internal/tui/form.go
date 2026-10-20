@@ -33,6 +33,9 @@ type FormField struct {
 	OptionLabels map[string]string
 	Enabled      func(FormResult) bool
 	Validate     func(string) error
+	// Required rejects an empty value on submit while the field is enabled.
+	// Leaving the editor stays possible so the user can fill it in later.
+	Required bool
 }
 
 type FormOpts struct {
@@ -40,8 +43,9 @@ type FormOpts struct {
 	Hint        string
 }
 
-// Form renders a compact single-page editor. Enter opens text fields for
-// editing; booleans use Space and choices use Left/Right. The final row is the
+// Form renders a compact single-page editor. Typing on a text field starts
+// editing right away (replacing the value; Enter or Backspace edit it in
+// place); booleans use Space and choices use Left/Right. The final row is the
 // only row that submits the form.
 func Form(title string, fields []FormField, opts FormOpts) (FormResult, error) {
 	if opts.SubmitLabel == "" {
@@ -98,7 +102,13 @@ func fieldEnabled(field FormField, values FormResult) bool {
 func validateForm(fields []FormField) error {
 	values := formValues(fields)
 	for _, field := range fields {
-		if fieldEnabled(field, values) && field.Validate != nil {
+		if !fieldEnabled(field, values) {
+			continue
+		}
+		if field.Required && strings.TrimSpace(field.Value) == "" {
+			return fmt.Errorf("%s: %s", field.Label, i18n.T("不能为空。"))
+		}
+		if field.Validate != nil {
 			if err := field.Validate(field.Value); err != nil {
 				return fmt.Errorf("%s: %w", field.Label, err)
 			}
@@ -126,7 +136,7 @@ func (m *formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 	case tea.KeyMsg:
-		if m.editing {
+		if m.editing || m.beginTypedEdit(msg) {
 			return m.updateText(msg)
 		}
 		itemCount := len(m.fields) + 1
@@ -142,10 +152,8 @@ func (m *formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "enter":
 			if m.idx < len(m.fields) {
-				field := &m.fields[m.idx]
-				if fieldEnabled(*field, formValues(m.fields)) && field.Kind == FormText {
-					m.editing = true
-					m.editOriginal = field.Value
+				if m.focusedTextField() != nil {
+					m.openTextEdit()
 				}
 				break
 			}
@@ -230,6 +238,45 @@ func (m *formModel) updateText(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// focusedTextField returns the selected field when it is an enabled text field.
+func (m *formModel) focusedTextField() *FormField {
+	if m.idx >= len(m.fields) {
+		return nil
+	}
+	field := &m.fields[m.idx]
+	if field.Kind != FormText || !fieldEnabled(*field, formValues(m.fields)) {
+		return nil
+	}
+	return field
+}
+
+func (m *formModel) openTextEdit() {
+	m.editing = true
+	m.editOriginal = m.fields[m.idx].Value
+}
+
+// beginTypedEdit opens the focused text field without a separate Enter. A
+// printable keystroke or paste replaces the value, as when tabbing into a
+// field selects its text; deletion keys edit the existing value. The caller
+// then feeds the same key to updateText, and Esc restores the original.
+func (m *formModel) beginTypedEdit(msg tea.KeyMsg) bool {
+	field := m.focusedTextField()
+	if field == nil {
+		return false
+	}
+	switch msg.String() {
+	case "backspace", "ctrl+h", "ctrl+u":
+		m.openTextEdit()
+		return true
+	}
+	if msg.Type != tea.KeyRunes || msg.Alt { // Alt+key is a terminal shortcut, not text
+		return false
+	}
+	m.openTextEdit()
+	field.Value = ""
+	return true
+}
+
 func (m *formModel) finishTextEdit() bool {
 	field := &m.fields[m.idx]
 	if field.Validate != nil {
@@ -264,6 +311,7 @@ func buildForm(title string, fields []FormField, idx int, editing bool, opts For
 	maxW := maxBoxWidth(termCols)
 	label := truncate(fmt.Sprintf("─ %s ", title), maxW)
 	values := formValues(fields)
+	labelW := formLabelWidth(fields)
 	texts := make([]string, len(fields))
 	widths := []int{dispWidth(label)}
 	for i, field := range fields {
@@ -272,7 +320,7 @@ func buildForm(title string, fields []FormField, idx int, editing bool, opts For
 		if i == idx {
 			prefix = "❯ "
 		}
-		text := fmt.Sprintf("  %s%-18s %s ", prefix, field.Label, value)
+		text := fmt.Sprintf("  %s%s %s ", prefix, rowPad(field.Label, labelW), value)
 		if !fieldEnabled(field, values) {
 			text += " (—)"
 		}
@@ -283,11 +331,13 @@ func buildForm(title string, fields []FormField, idx int, editing bool, opts For
 	if idx == len(fields) {
 		button = "  ❯ [" + opts.SubmitLabel + "]"
 	}
-	footer := "  " + i18n.T("↑/↓ 切换   Space 勾选   ←/→ 选择   Enter 编辑/执行   Esc 取消")
+	footer := "  " + i18n.T("↑/↓ 切换  输入 改写  Space 勾选  ←/→ 选择  Enter 编辑/执行  Esc 取消")
 	if editing {
 		footer = "  " + i18n.T("输入文字   Backspace 删除   Enter 完成   Esc 放弃修改")
 	}
-	widths = append(widths, dispWidth(button), dispWidth(footer), dispWidth(opts.Hint), dispWidth(note))
+	// The note (usually a validation error) wraps inside the box instead of
+	// widening it, so long messages stay readable on narrow terminals.
+	widths = append(widths, dispWidth(button), dispWidth(footer), dispWidth(opts.Hint))
 	w := min(maxOf(widths)+2, maxW)
 	rows := []string{"┌" + label + strings.Repeat("─", max(0, w-dispWidth(label))) + "┐"}
 	for i, row := range texts {
@@ -310,10 +360,26 @@ func buildForm(title string, fields []FormField, idx int, editing bool, opts For
 		rows = append(rows, "│"+dim(rowPad(truncate("  "+opts.Hint, w), w))+"│")
 	}
 	if note != "" {
-		rows = append(rows, "│"+rowPad(truncate("  "+note, w), w)+"│")
+		for _, line := range wrapText(note, w-2) {
+			rows = append(rows, "│"+rowPad(truncate("  "+line, w), w)+"│")
+		}
 	}
 	rows = append(rows, "│"+dim(rowPad(truncate(footer, w), w))+"│", "└"+strings.Repeat("─", w)+"┘")
 	return rows
+}
+
+// formLabelMaxWidth keeps one long (usually translated) label from pushing
+// every value off narrow terminals; longer labels simply overflow their column.
+const formLabelMaxWidth = 30
+
+// formLabelWidth aligns values by display width: CJK labels take two columns
+// per rune, so byte-based %-Ns padding would leave them misaligned.
+func formLabelWidth(fields []FormField) int {
+	width := 0
+	for _, field := range fields {
+		width = max(width, dispWidth(field.Label))
+	}
+	return min(width, formLabelMaxWidth)
 }
 
 func formDisplayValue(field FormField) string {

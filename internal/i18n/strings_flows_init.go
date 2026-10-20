@@ -22,6 +22,8 @@ func init() {
 		"订阅类型":           "Subscription type",
 		"订阅地址 / 本地路径":    "Subscription URL / local path",
 		"使用代理拉取":         "Fetch through proxy",
+		"使用下载代理":         "Use download proxy",
+		"下载代理地址":         "Download proxy URL",
 		"按 sboxkit 规则重建": "Rebuild using sboxkit rules",
 		"订阅名称不能为空":       "Subscription name cannot be empty",
 		"UID 必须是非负整数：%s": "UID must be a non-negative integer: %s",

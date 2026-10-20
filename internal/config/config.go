@@ -479,7 +479,11 @@ func SetField(cfg *Config, key string, value string) error {
 	case "github_mirror":
 		cfg.GitHubMirror = value
 	case "download_proxy":
-		cfg.DownloadProxy = value
+		proxy, err := ParseDownloadProxy(value)
+		if err != nil {
+			return err
+		}
+		cfg.DownloadProxy = proxy
 	case "github_token":
 		cfg.GitHubToken = value
 	case "language":

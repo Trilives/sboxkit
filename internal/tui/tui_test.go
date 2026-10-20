@@ -130,24 +130,18 @@ func TestWrapText(t *testing.T) {
 	}
 }
 
-func TestFormModelRequiresTextEditModeAndSubmitRow(t *testing.T) {
+func TestFormModelEditsTextDirectlyAndSubmitsOnlyFromSubmitRow(t *testing.T) {
 	fields := []FormField{
 		{Key: "text", Label: "文本", Kind: FormText, Placeholder: "示例"},
 		{Key: "flag", Label: "开关", Kind: FormBool},
 		{Key: "choice", Label: "类型", Kind: FormChoice, Value: "A", Options: []string{"A", "B"}},
 	}
 	m := &formModel{fields: cloneFormFields(fields), width: 80}
-	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
-	if m.fields[0].Value != "" {
-		t.Fatal("text changed before Enter opened edit mode")
+	if _, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")}); cmd != nil || !m.editing {
+		t.Fatal("typing on a text field should open editing without submitting")
 	}
-	if _, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter}); cmd != nil || !m.editing {
-		t.Fatal("Enter on text field should open editing without submitting")
-	}
-	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if m.editing {
-		t.Fatal("Enter should finish text editing")
+	if _, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter}); cmd != nil || m.editing {
+		t.Fatal("Enter should finish text editing without submitting")
 	}
 	m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	m.Update(tea.KeyMsg{Type: tea.KeySpace})
