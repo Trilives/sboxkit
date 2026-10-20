@@ -8,7 +8,7 @@ import (
 	"github.com/Trilives/sboxkit/internal/paths"
 )
 
-func TestGeneratedDNSUsesOneLoopbackRelayWithoutProxyDependency(t *testing.T) {
+func TestGeneratedDNSUsesDirectLoopbackRelayAndProxiedRemoteDoH(t *testing.T) {
 	result := failoverConvert(t, false, false)
 	servers, ok := result.DNS["servers"].([]map[string]any)
 	if !ok {
@@ -47,8 +47,8 @@ func TestGeneratedDNSUsesOneLoopbackRelayWithoutProxyDependency(t *testing.T) {
 	if remote == nil {
 		t.Fatalf("missing %q DNS server: %#v", remoteDNSTag, servers)
 	}
-	if remote["detour"] == "Proxy" {
-		t.Fatalf("remote DoH establishment must not depend on the business proxy: %#v", remote)
+	if remote["detour"] != "Proxy" {
+		t.Fatalf("remote DoH must use Proxy when direct access is blocked: %#v", remote)
 	}
 	if net.ParseIP(asString(remote["server"])) == nil {
 		assertFailoverResolver(t, remote["domain_resolver"], "remote DoH")

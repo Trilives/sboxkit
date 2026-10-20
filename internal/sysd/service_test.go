@@ -212,11 +212,15 @@ func TestBootstrapDNSServiceRunsStableExecutableAndFollowsMainService(t *testing
 		"CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW",
 		"ProtectSystem=strict",
 		"ProtectHome=true",
-		"RestrictAddressFamilies=AF_INET AF_INET6",
+		"RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK",
 	} {
 		if !strings.Contains(unit, want) {
 			t.Fatalf("bootstrap unit missing %q:\n%s", want, unit)
 		}
+	}
+	userUnit := bootstrapUserServiceText(DefaultName, rt, "/usr/bin/sboxkit")
+	if !strings.Contains(userUnit, "RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK") {
+		t.Fatalf("user bootstrap unit does not allow interface discovery via netlink:\n%s", userUnit)
 	}
 }
 

@@ -85,7 +85,7 @@ func buildDNS(cfg config.Config, p paths.Paths, source sourceOptions) map[string
 
 	servers = append(servers,
 		bootstrap,
-		map[string]any{"type": "https", "tag": remoteDNSTag, "server": "dns.google", "server_port": 443, "path": "/dns-query", "tls": map[string]any{"server_name": "dns.google"}, "detour": "DIRECT", "domain_resolver": bootstrapResolver()},
+		map[string]any{"type": "https", "tag": remoteDNSTag, "server": "dns.google", "server_port": 443, "path": "/dns-query", "tls": map[string]any{"server_name": "dns.google"}, "detour": "Proxy", "domain_resolver": bootstrapResolver()},
 	)
 	if source.FakeIP != nil {
 		servers = append(servers, map[string]any{

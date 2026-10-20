@@ -159,6 +159,9 @@ Go 测试和静态检查；任何配置破坏性变更都会在创建 GitHub Rel
   Cloudflare DoH；每次拨号动态选择非 TUN 默认物理接口，并通过
   `SO_BINDTODEVICE` 绕过 TUN/代理循环。失败上游进入短冷却，随后半开恢复。
   sing-box 的 `dns-direct`、节点域名及 route resolver 只依赖该 loopback relay。
+  relay 单元（系统/用户）的 `RestrictAddressFamilies` 必须包含 `AF_NETLINK`：Go 的
+  接口查询走 netlink，缺少时每次转发都在拨号前失败并返回 SERVFAIL；
+  `sysd/bootstrap_sandbox_linux_test.go` 以 seccomp 复现该限制并运行真实发现路径。
 - NetworkManager dispatcher 钩子：真实网卡 up / 连通性变化时防抖触发
   `sboxkit healthcheck --event network-change`（忽略 tun 自身），不再绕过统一限流器直接重启。
 - watchdog 定时器 + `sboxkit healthcheck` 依次判断物理上行、bootstrap DNS、当前运行时

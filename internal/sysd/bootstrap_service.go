@@ -107,7 +107,7 @@ ProtectControlGroups=true
 RestrictSUIDSGID=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
-RestrictAddressFamilies=AF_INET AF_INET6
+RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK
 
 [Install]
 WantedBy=multi-user.target
@@ -134,7 +134,7 @@ NoNewPrivileges=true
 RestrictSUIDSGID=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
-RestrictAddressFamilies=AF_INET AF_INET6
+RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK
 
 [Install]
 WantedBy=%s

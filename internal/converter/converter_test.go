@@ -86,7 +86,7 @@ func TestClashToSingBoxBuildsLocalBootstrapRelayWithoutUnusedFallbackServer(t *t
 	}
 }
 
-func TestClashToSingBoxBuildsRemoteDoHOverDirectWithBootstrapResolver(t *testing.T) {
+func TestClashToSingBoxBuildsRemoteDoHOverProxyWithBootstrapResolver(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.BootstrapDNSType = "https"
 	cfg.BootstrapDNSServer = "1.1.1.1"
@@ -102,7 +102,7 @@ func TestClashToSingBoxBuildsRemoteDoHOverDirectWithBootstrapResolver(t *testing
 		if server["tag"] != remoteDNSTag {
 			continue
 		}
-		if server["type"] != "https" || server["detour"] != "DIRECT" {
+		if server["type"] != "https" || server["detour"] != "Proxy" {
 			t.Fatalf("unexpected remote DoH server: %#v", server)
 		}
 		resolver, ok := server["domain_resolver"].(map[string]any)
