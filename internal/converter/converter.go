@@ -20,6 +20,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// MinSingBoxVersion 生成的配置要求的最低 sing-box 版本：DNS 地址过滤规则依赖 1.14
+// 引入的 evaluate / match_response（见 sections.go 的 responseMatchRules）。
+const MinSingBoxVersion = "1.14.0"
+
 var reservedTags = map[string]bool{
 	"Proxy": true, "AI": true, "Streaming": true, "Direct": true, "Auto": true,
 	"SG-Auto": true, "SG-Fallback": true, "HK-Auto": true, "HK-Fallback": true,

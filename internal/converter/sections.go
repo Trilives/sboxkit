@@ -52,7 +52,7 @@ func buildDNS(cfg config.Config, p paths.Paths, source sourceOptions) map[string
 	hostRules := hostAliasRules(source.HostAliases)
 	if len(source.Hosts) > 0 {
 		servers = append(servers, map[string]any{"type": "hosts", "tag": hostsDNSTag, "predefined": source.Hosts})
-		hostRules = append(hostRules, map[string]any{"ip_accept_any": true, "action": "route", "server": hostsDNSTag})
+		hostRules = append(hostRules, responseMatchRules(hostsDNSTag, "ip_accept_any", true)...)
 	}
 	if len(hostRules) > 0 {
 		rules = append(hostRules, rules...)
@@ -65,10 +65,8 @@ func buildDNS(cfg config.Config, p paths.Paths, source sourceOptions) map[string
 		map[string]any{"domain_suffix": cfg.StreamingDomainSuffixes, "action": "route", "server": remoteDNSTag},
 	)
 	if localRuleSetsReady(p) {
-		rules = append(rules,
-			map[string]any{"rule_set": geositeCNRuleSetTag, "action": "route", "server": bootstrapDNSTag},
-			map[string]any{"rule_set": geoipCNRuleSetTag, "action": "route", "server": bootstrapDNSTag},
-		)
+		rules = append(rules, map[string]any{"rule_set": geositeCNRuleSetTag, "action": "route", "server": bootstrapDNSTag})
+		rules = append(rules, responseMatchRules(bootstrapDNSTag, "rule_set", geoipCNRuleSetTag)...)
 	}
 	if source.FakeIP != nil {
 		rules = append(rules, source.FakeIP.ExclusionRules...)
@@ -96,6 +94,18 @@ func buildDNS(cfg config.Config, p paths.Paths, source sourceOptions) map[string
 	return map[string]any{
 		"servers": servers,
 		"rules":   rules, "final": remoteDNSTag, "strategy": "prefer_ipv4", "cache_capacity": 4096,
+	}
+}
+
+// responseMatchRules 先向 server 查询，仅当应答满足 field=value 时直接返回该应答，
+// 查询失败或不满足则继续匹配后续规则。这是 sing-box 1.14 对旧版地址过滤字段
+// （ip_accept_any、纯 IP 规则集等）的替代写法：只要有规则使用 query_type（hosts
+// CNAME、FakeIP），1.14 就会在启动时拒绝旧写法。预查询只针对 A/AAAA/HTTPS，与旧写法
+// 的生效范围一致，其它查询类型不多打一次上游。
+func responseMatchRules(server, field string, value any) []map[string]any {
+	return []map[string]any{
+		{"query_type": []string{"A", "AAAA", "HTTPS"}, "action": "evaluate", "server": server},
+		{field: value, "match_response": true, "action": "respond"},
 	}
 }
 

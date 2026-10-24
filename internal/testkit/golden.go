@@ -11,11 +11,18 @@ import (
 func ReadFixture(t *testing.T, rel string) string {
 	t.Helper()
 
-	data, err := os.ReadFile(filepath.Join(repoRoot(t), rel))
+	data, err := os.ReadFile(RepoPath(t, rel))
 	if err != nil {
 		t.Fatalf("read fixture %s: %v", rel, err)
 	}
 	return string(data)
+}
+
+// RepoPath resolves a repository-relative path such as packaging/deps/rules.
+func RepoPath(t *testing.T, rel string) string {
+	t.Helper()
+
+	return filepath.Join(repoRoot(t), rel)
 }
 
 func AssertJSONEqual(t *testing.T, want string, got string) {

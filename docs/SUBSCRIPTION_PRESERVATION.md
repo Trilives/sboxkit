@@ -45,6 +45,18 @@ relay 使用安全的双直连默认值；保存配置后旧标量会与实际�
 无法构造成合法 IP 或单一 CNAME 的 hosts 条目会按域名明确告警并跳过，保证生成
 结果仍能通过 `sing-box check`；不会因为一个异常 hosts 值使整份订阅无法启用。
 
+DNS 规则里按应答地址判断的两处——hosts 是否命中、国内域名兜底的 `geoip-cn`——使用
+sing-box 1.14 的响应匹配：先以 `evaluate` 向 `dns-hosts` / `dns-direct` 查询 A/AAAA/HTTPS，
+再由带 `match_response` 的规则判断应答，命中则 `respond` 直接返回该应答，查询失败或不命中
+则继续匹配后续规则（FakeIP 排除、FakeIP catch-all、`dns-proxy`）。其它查询类型不做这次
+预查询，与旧写法的生效范围一致。与旧写法的一处差异：旧写法在 `dns-direct` 查询出错时直接
+向客户端返回失败，现在会继续交给后续规则，因此引导 relay 整体不可用时，未列入 geosite-cn
+的国内域名改由 FakeIP / `dns-proxy` 应答而不是 SERVFAIL。
+
+旧版 `ip_accept_any` / 纯 IP 规则集写法在 1.14 已弃用，且只要任一 DNS 规则使用
+`query_type`（hosts CNAME、FakeIP catch-all），sing-box 就会在启动时以
+`Legacy Address Filter Fields` 拒绝整份配置。
+
 ## sing-box 原生来源
 
 ### passthrough（`customize=false`）
@@ -81,9 +93,12 @@ relay 使用安全的双直连默认值；保存配置后旧标量会与实际�
 3. 用户 `customize.json` 中的 DNS/分流设置；`fake_ip_filter` 与源排除规则取并集并去重。
 4. sboxkit 默认值。
 
-生成配置必须通过随包 sing-box 的 `check`。当前使用 sing-box 1.12 引入的现代
-FakeIP DNS server 格式；旧的 `dns.fakeip` 已在 1.14 移除，不能重新生成。
+生成配置必须通过随包 sing-box 的 `check`，发布门禁在有、无 geo 规则集两种状态下各查
+一遍：缺少规则集文件时生成器不输出 geosite/geoip 规则，只查空目录会漏掉这部分 DNS 规则。
+当前使用 sing-box 1.12 引入的现代 FakeIP DNS server 格式；旧的 `dns.fakeip` 已在 1.14
+移除，不能重新生成。
 
 参考：[FakeIP DNS server](https://sing-box.sagernet.org/configuration/dns/server/fakeip/)、
 [1.12 迁移指南](https://sing-box.sagernet.org/migration/)、
+[1.14 地址过滤迁移](https://sing-box.sagernet.org/migration/#migrate-address-filter-fields-to-response-matching)、
 [DNS rule action](https://sing-box.sagernet.org/configuration/dns/rule_action/)。

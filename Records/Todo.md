@@ -41,3 +41,4 @@
   - 待完成：刷新时订阅源直连返回 HTTP 403（3 次重试，原文未变），需在可拉取的网络下复验；TUN 下 Codex/Claude 实测需在 ares 升级并刷新配置后进行（会重启主服务）。
 - [ ] 发布并升级 ares 后移除临时的 `50-remote-dns-detour.conf` 和 `/usr/local/libexec/sboxkit-remote-dns-detour`，重启复验；失败时恢复临时修正。与此同时处理上面的 `AF_NETLINK` 临时 override。
   - 注意：任何更新路径都不会从订阅原文重建 `config.json`；须先在「订阅管理」刷新或重新生成订阅，`dns-proxy` 才会变为 `Proxy`，否则移除临时修正后会回到直连 DoH。
+  - 注意（2026-10-24）：须升级到含 DNS 响应匹配迁移的版本（见 [`Done.md`](Done.md)）后再重新生成订阅。v0.3.1 生成的 Hua 配置（hosts CNAME + FakeIP + `geoip-cn`）在 sing-box 1.14.3 下 `check` 即报 `Legacy Address Filter Fields` 并拒绝启动；ares 已以本地热修版从 Hua 原文重建并恢复服务，正式发布及移除临时 override 仍待完成。

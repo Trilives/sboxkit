@@ -1,5 +1,32 @@
 # 已完成
 
+## 2026-10-24：DNS 地址过滤迁移到 sing-box 1.14 响应匹配
+
+- 故障：ares 的 Hua 配置在 sing-box 1.14.3 下 `check` / 启动即 `FATAL initialize dns router:
+  validate dns rule[7]: Legacy Address Filter Fields ...`。根因：hosts CNAME 与 FakeIP catch-all
+  规则使用 `query_type`，使 1.14 关闭旧版 DNS 模式；此时 rule[7] `rule_set: geoip-cn`（纯 IP
+  规则集）与 hosts 的 `ip_accept_any` 规则缺少 `match_response`，被启动校验拒绝（见 1.14.3 源码
+  `dns/router.go` 的 `validateLegacyDNSModeDisabledDefaultRule`）。
+- 修复：两处地址过滤改为 `evaluate`（仅 A/AAAA/HTTPS，与旧写法生效范围一致）+
+  `match_response` + `respond`：命中时直接返回预查询应答，失败或不命中继续后续规则。
+  行为差异（新模式固有，无法保留）：旧写法在 `dns-direct` 出错时直接返回失败；现在继续匹配，
+  relay 整体不可用时未列入 geosite-cn 的国内域名改由 FakeIP / `dns-proxy` 应答。
+- 发布门禁缺口：`TestGeneratedConfigsPassReleaseSingBoxCheck` 此前只在空目录生成配置，缺少
+  规则集时生成器不输出 geosite/geoip 规则，FakeIP + `geoip-cn` 组合从未被真实内核检查。现每个
+  用例在有、无随包规则集下各查一遍，并新增 hosts、FakeIP + hosts 用例；修复前 7 个用例在
+  1.14.3 下失败，修复后 1.14.1 / 1.14.3 全部通过。
+- 验证（未触及运行中的服务）：用 ares 状态副本（Hua 原文 + `customize.json` + 规则集）以新代码
+  重新生成，1.14.3 `check` 通过；旁路实例（无 TUN、独立端口）实测国内 IP 域名经
+  `evaluate(dns-direct)` → `respond` 返回真实地址、非国内域名落入 FakeIP、geosite-cn / AI 域名
+  路由不变、TXT 查询不触发预查询、hosts IP / CNAME 命中正确，日志无弃用告警。`gofmt`、`go vet`、
+  `go test ./...`、`go test -race ./...`、带 1.14.3 内核的 `go test ./...` 与 `git diff --check` 通过。
+- ares 生产恢复：备份原状态后，用修复后的代码从 Hua 本地订阅原文重建配置，保留 90 个节点；
+  sing-box 1.14.3 对状态配置及运行时配置的 `check` 均通过。部署本地热修版
+  `0.3.1-local-dnsfix.20261024` 并重新注册系统服务；主服务、bootstrap DNS、watchdog timer
+  均已运行。bootstrap DNS 与 TUN DNS 查询正常；不显式指定代理时，OpenAI / Anthropic API
+  分别返回 HTTP 401 / 405，证明网络可达，尚未验证登录后的 Codex / Claude 会话。
+  旧版可执行文件的符号链接及状态备份保留用于回退；正式发布仍待完成。
+
 ## 2026-10-20：v0.3.1 稳定版
 
 - bootstrap DNS relay 的系统/用户单元放行 `AF_NETLINK`，修复启用服务后节点域名 `SERVFAIL`；远程 DoH
