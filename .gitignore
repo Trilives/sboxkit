@@ -46,3 +46,6 @@ tmp/
 
 # 环境
 .env
+
+# 验证机器的信息
+machine.md
