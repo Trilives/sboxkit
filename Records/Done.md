@@ -1,5 +1,14 @@
 # 已完成
 
+## 2026-10-24：v0.3.3 稳定版
+
+- sboxkit 版本变化（自更新、回退、apt 升级或换包）后首次交互运行，整体同步一次全部运行时资源（服务单元、
+  bootstrap DNS relay、Web 面板、内核与规则集、运行时配置）；版本未变时不读 root 专属运行时目录、不请求
+  授权，修复系统模式下每次运行都提示「检测到内置 Web 面板有更新」并要求 sudo。验收记录见下一节。
+- 发布门禁：`gofmt`、`go vet`、`go test ./...`、`go test -race ./...`、带 sing-box v1.14.4 的真实内核用例、
+  `git diff --check`、i18n 覆盖检查在 `machine.md` 主机通过；自 v0.3.2 起 `.goreleaser.yaml`、工作流、打包脚本
+  与依赖未变，构建由 release 工作流完成。
+
 ## 2026-10-24：版本变化后整体同步运行时资源（修复每次运行都提示更新 Web 面板）
 
 - 根因：系统模式运行时目录 `/var/lib/sboxkit-runtime` 为 `root:root 0700`，交互启动时以普通用户比对
