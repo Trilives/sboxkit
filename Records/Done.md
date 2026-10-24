@@ -8,6 +8,10 @@
 - 发布门禁：`gofmt`、`go vet`、`go test ./...`、`go test -race ./...`、带 sing-box v1.14.4 的真实内核用例、
   `git diff --check`、i18n 覆盖检查在 `machine.md` 主机通过；自 v0.3.2 起 `.goreleaser.yaml`、工作流、打包脚本
   与依赖未变，构建由 release 工作流完成。
+- 发布验证：推送 `v0.3.3` 标签后 release 与 CI 工作流成功（CI 随包 sing-box v1.14.4，带真实内核跑全部测试）；
+  9 个资产均与 `checksums.txt` 一致；`/releases/latest` 与预览渠道（`/releases` 首项）都指向 v0.3.3。在
+  `machine.md` 主机解包（未安装）发布的 amd64 deb：`sboxkit version` 为 0.3.3、随包内核 1.14.4，二进制含版本
+  变化同步提示、不再含旧的面板过期提示；临时目录已清理。
 
 ## 2026-10-24：版本变化后整体同步运行时资源（修复每次运行都提示更新 Web 面板）
 
