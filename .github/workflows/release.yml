@@ -28,8 +28,12 @@ jobs:
         run: |
           go test ./...
           go vet ./...
+      # checkout 最后以 +<sha>:refs/tags/<tag> 取回触发的标签，把附注标签换成了轻量标签，
+      # %(contents) 因此读到的是提交信息；先强制取回标签对象本身。
       - name: Use annotated tag message as release notes
-        run: git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > /tmp/release-notes.md
+        run: |
+          git fetch --no-tags --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+          git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > /tmp/release-notes.md
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
