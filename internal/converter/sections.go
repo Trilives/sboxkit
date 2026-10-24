@@ -124,7 +124,6 @@ func hostAliasRules(aliases []hostAlias) []map[string]any {
 
 func buildRoute(final string, cfg config.Config, p paths.Paths) Route {
 	rules := []map[string]any{
-		{"process_name": cfg.BypassProcessNames, "action": "route", "outbound": "DIRECT"},
 		{"domain": cfg.LocalBypassDomains, "action": "route", "outbound": "DIRECT"},
 		// sniff + hijack-dns 必须排在 route_exclude_ip_cidrs 的 ip_cidr 直连规则之前：
 		// sing-box auto_route 会把系统 DNS 指向 TUN 自身子网内的一个合成地址
@@ -138,6 +137,12 @@ func buildRoute(final string, cfg config.Config, p paths.Paths) Route {
 		{"protocol": "dns", "action": "hijack-dns"},
 		{"ip_cidr": cfg.RouteExcludeIPCidrs, "action": "route", "outbound": "DIRECT"},
 		{"ip_is_private": true, "action": "route", "outbound": "DIRECT"},
+	}
+	// 按进程直连只为 TUN 服务（初始化表单同样只在启用 TUN 时开放该字段）；识别其他用户的
+	// 进程需要 root，不生成时系统服务可以非特权身份运行（见 sysd/identity.go）。
+	if cfg.EnableTun && len(cfg.BypassProcessNames) > 0 {
+		bypass := map[string]any{"process_name": cfg.BypassProcessNames, "action": "route", "outbound": "DIRECT"}
+		rules = append([]map[string]any{bypass}, rules...)
 	}
 	if len(cfg.DirectDomainSuffixes) > 0 {
 		rules = append(rules, map[string]any{"domain_suffix": cfg.DirectDomainSuffixes, "action": "route", "outbound": directGroupTag})

@@ -12,7 +12,10 @@ func init() {
 
 		// internal/proxyenv
 		"已写入代理环境变量到 %s（新开终端生效；当前终端可 `source %s`）。": "Proxy environment variables written to %s (effective in new terminals; run `source %s` in the current one).",
-		"已从 %s 移除代理环境变量。":                          "Proxy environment variables removed from %s.",
+		"无法解析用户 %s 的 uid/gid":      "cannot parse the uid/gid of user %s",
+		"拒绝写入 %s（不是普通文件或是符号链接）：%w": "refusing to write %s (not a regular file, or a symlink): %w",
+		"拒绝写入 %s：它不是该用户自己的普通文件":    "refusing to write %s: it is not a regular file owned by that user",
+		"已从 %s 移除代理环境变量。":          "Proxy environment variables removed from %s.",
 
 		// internal/fetchx
 		"直连可达，跳过代理。":                            "Direct connection reachable, skipping proxy.",

@@ -6,9 +6,7 @@
 package flows
 
 import (
-	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/Trilives/sboxkit/internal/config"
@@ -95,8 +93,8 @@ func askNewSubscription() (*newSub, error) {
 	return &newSub{Name: name, URL: subURL, SourceType: sourceType, ApplyOverlay: rebuild, FetchViaProxy: fetchViaProxy}, nil
 }
 
-// EnsureStateRoot 确保固定数据目录存在且当前用户可写：能直接建则直接建，
-// 无权限（如首次创建 /var/lib/sboxkit）则经 sudo 创建并把属主交回当前用户。
+// EnsureStateRoot 确保数据目录存在且可写：用户模式收紧为属主独占；系统模式要求
+// root（main 在启动时经 sudo 提权），目录只归 root，旧版本交给用户的目录在此收归。
 func EnsureStateRoot(p paths.Paths) error {
 	if err := rejectForeignRoot(p, os.Geteuid()); err != nil {
 		return err
@@ -104,17 +102,10 @@ func EnsureStateRoot(p paths.Paths) error {
 	if p.UserMode {
 		return ensureUserModeState(p)
 	}
-	if err := os.MkdirAll(p.State, 0o755); err == nil {
-		probe := filepath.Join(p.State, ".probe")
-		if werr := os.WriteFile(probe, nil, 0o644); werr == nil {
-			os.Remove(probe)
-			return nil
-		}
+	if err := rejectForeignSystemRoot(p, os.Geteuid()); err != nil {
+		return err
 	}
-	uid, gid := fmt.Sprint(os.Getuid()), fmt.Sprint(os.Getgid())
-	_, err := execx.RunRoot([]string{"install", "-d", "-m", "0755", "-o", uid, "-g", gid, p.State},
-		i18n.T("创建数据目录 ")+p.State, nil)
-	return err
+	return ensureSystemState(p, os.Geteuid())
 }
 
 // ensureGithubToken 未配置 GitHub Token 时交互式询问是否补充，输入后写回 customize.json

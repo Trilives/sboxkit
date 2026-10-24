@@ -15,10 +15,12 @@ func init() {
 
 		"geo 数据已更新": "geo data updated",
 
-		"不支持的压缩格式: %s": "Unsupported archive format: %s",
 		"非法压缩条目路径: %s": "Illegal archive entry path: %s",
 
-		"下载代理（直连不可用时回退）: ":                "Download proxy (fallback when direct connection is unavailable): ",
 		"已从系统包接管 %d 个种子文件（离线可用；后续可在线更新）。": "Took over %d seed file(s) from the system package (usable offline; can be updated online later).",
+
+		"%s 完整性校验失败：期望 %s，实际 %s":                  "%s failed the integrity check: expected %s, got %s",
+		"无法从 GitHub API 取得 %s 的摘要，拒绝经镜像下载未经校验的文件": "Cannot get the digest of %s from the GitHub API; refusing to download an unverified file through the mirror",
+		"查询 %s 的摘要失败：%v":                          "Failed to look up the digest of %s: %v",
 	})
 }

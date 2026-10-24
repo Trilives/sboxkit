@@ -1,5 +1,115 @@
 # 已完成
 
+## 2026-10-25：按需提权、dpkg 自更新、下载摘要校验、sing-box 非 root 运行与一键安装脚本（v0.4.0）
+
+- 按需提权（用户选定「Only when changing」）：系统模式下交互菜单先以当前用户打开，查看状态、信息、日志、
+  诊断、网络测试与实时切换节点无需密码；第一次选择改动操作时先 `sudo -v`，再以
+  `sudo -- /usr/bin/sboxkit --resume=<入口>` 重新执行并直接进入该操作，此后整个会话保持 root；授权失败或
+  取消时留在原菜单。状态缺失、不归 root、不可读、服务未安装、版本变化需同步运行时资源或自愈需修复时，启动即
+  提权并说明原因。改动状态的子命令启动即提权，`nettest` / `diagnose` / `version` 以当前用户运行。状态目录
+  归 `root:<管理员组>`（sudo / wheel / admin），目录 setgid，凭据文件 0640、目录 0750，TUI 日志裁剪后保持
+  0640；状态目录没能收归 root 时 `healthcheck` 直接失败退出，不以 root 读取其中文件；系统模式下拒绝以 root
+  使用指向普通用户属主目录的非默认 `SBOXKIT_HOME`。
+- dpkg 自更新（`internal/selfupdate/debpkg.go`）：dpkg 安装的 `/usr/bin/sboxkit` 不再改写成指向版本库的
+  符号链接。下载同版本 .deb 并按 API 摘要校验，以纯 Go 的 ar + data.tar.gz 解析解出包内二进制（体积上限
+  256 MiB）试跑并做兼容自检，再 `dpkg -i`（dpkg 锁被占用时重试）；撤销更新与回退稳定版即重新安装缓存的
+  .deb，缓存每次使用前重新比对 API 摘要，不符即删除并重新下载；清理时按语义版本保留当前、上一个与
+  `last-stable`。旧版自更新留下的符号链接与版本库在第一次经 dpkg 安装后清理。apt 仓库经评估暂不提供
+  （理由见 `docs/ARCHITECTURE.md` §8）。
+- 下载摘要校验（`internal/kernel/integrity.go`）：内核与 sboxkit 发行包比对 release API 的 `digest`，
+  geo 规则集比对 contents API 的 git blob 对象名；期望摘要只向 `api.github.com` 查询、从不经镜像。缓存同样
+  校验；拿不到摘要时经镜像下载直接拒绝，直连只依赖 TLS。强制更新遇到与摘要相符的缓存直接复用（此前会
+  重新下载且误报「丢弃无效缓存」）。
+- sing-box 非 root 运行（`internal/sysd/identity.go`）：系统单元默认 `DynamicUser=yes`，配置经
+  `LoadCredential` 交付，`ProtectSystem=strict`，唯一可写目录为 `StateDirectory=sboxkit-cache`，只保留
+  `CAP_NET_ADMIN` / `CAP_NET_BIND_SERVICE` / `CAP_NET_RAW`；系统模式丢弃 `log.output`。配置含按进程分流、
+  systemd 早于 247，或非 root 身份起不来而 root 可以时保留 root 并说明原因（后者在
+  `state/runtime.identity-fallback` 记下版本）；两种身份都起不来时报错并回退到原配置。生成器只在启用 TUN
+  时生成按进程直连规则（此前默认配置因 tailscale 规则总是以 root 运行）。sboxkit 重启主服务前先对主服务与
+  relay `reset-failed`。
+- 一键安装脚本 `scripts/install.sh`（随发行版发布并列入 `checksums.txt`）：检测架构、按 API 摘要校验（只在
+  直连时退回 `checksums.txt`），把 .deb 复制到 root 独占的临时目录再次校验后交给 `dpkg -i`；`--user` 解压到
+  `~/.local/share/sboxkit` 并在 `~/.local/bin` 建链接；支持 `--version`、`--mirror`（仅 https）、`--dir`、
+  `SBOXKIT_MIRROR`，`GITHUB_TOKEN` 只发给 `api.github.com`；下载中断续传。CI 运行 `scripts/test-install.sh`。
+- 清理：删除 31 条代码中已不存在的翻译条目；`.gitignore` 去掉 Python 时代的条目；README 预览图按当前中文
+  界面重新截取（运行时管理不再含「更新」，工具新增故障诊断与更新）。
+- 测试：新增 `selfupdate/debpkg_test.go`、`kernel/integrity_test.go`、`sysd/identity_test.go`、
+  `flows/elevation_test.go`、`converter` 进程直连用例、`execx/log_test.go` 权限用例、`scripts/test-install.sh`
+  等；`gofmt`、`go vet`、`go test ./...`、`go test -race ./...`、带 sing-box 1.14.4 的真实内核用例、安装脚本
+  测试、i18n 覆盖（缺失 0、无效条目 0）在 `machine.md` 主机通过（源码与本机工作区逐文件哈希一致）；
+  `goreleaser check` 与快照构建通过，`install.sh` 列入 `checksums.txt`，deb 的数据段为 `data.tar.gz`。
+  主机未安装 shellcheck。
+- 远程验收（`machine.md` 主机，系统模式，0.4.0 快照 deb）：
+  - 安装脚本：系统模式装 v0.3.3 成功；sudo 等待密码期间替换下载文件被拒绝（「验证后包被改动，未安装」），无
+    残留。`--user` 经主机代理 51 秒装好并校验 SHA-256，重复执行拒绝覆盖，随后移除。
+  - 从 v0.3.3 升级：旧的用户属主状态由 root watchdog 收归为 `root:sudo`（setgid，凭据 0640）。首次运行说明
+    「sboxkit 版本已变化」后提权并同步；再次运行免密进入浏览模式，普通用户实时切换节点成功。「固定节点」连续
+    输错 3 次密码留在原菜单，输对后以 `--resume=runtime/pin` 直接进入固定节点。
+  - 重新生成订阅后按进程规则消失，单元改为 `DynamicUser`（uid 61915，配置来自
+    `/run/credentials/sing-box.service/config.json`），NRestarts 0，面板 200，节点选择保留，缓存迁到
+    `/var/lib/private/sboxkit-cache`。
+  - 摘要校验：直连 `assets-update` 26 分钟后摘要一致；本地真实镜像成功；镜像篡改内核被拒绝（期望与实际摘要
+    均列出），只篡改 geosite 同样被拒绝，两次运行时内核与规则集都未改变、服务保持运行。
+  - dpkg 自更新：按旧版自更新布局（`/usr/bin/sboxkit` → 版本库）从「工具 → 更新」进入（提权后直达
+    `tools/update`），稳定渠道下载 v0.3.3 .deb 并校验 SHA-256、兼容自检后经 dpkg 安装；`/usr/bin/sboxkit`
+    恢复为普通文件，版本库删除，.deb 缓存于 `downloads/packages/`，`last-stable` 为 0.3.3。重装快照后「回退
+    到稳定版」直接使用校验通过的缓存；篡改缓存后改为重新下载（确认后中止：快照版保持、篡改的缓存已删除）。
+  - TUN 非 root：原生配置直通（含 `log.output`）以动态用户运行，进程能力仅上述三项，`sbktest0`、策略路由与
+    2022 路由表生效，访问 198.18.250.10 经 `inbound/tun` 进入，mixed 端口 204；`log.output` 被丢弃并提示，
+    未创建日志文件。含 `process_name` 的配置保持 root 并说明原因。
+  - 验收中发现并修复：systemd 255 在服务等待自动重启时 `systemctl restart` 不清零 `NRestarts`（实测 17 次后
+    重启仍为 17），旧的健康判断要求为 0，使 root 回退被误判为同样失败；两种身份都失败时仍提示同步成功；连续
+    重启使 relay 触发 `start-limit-hit`，回退后的同步报「A dependency job failed」。修复后复验：mixed 监听
+    已被 sshd 占用的 22 端口（两种身份都失败）→ 报错并整体回退到原配置，主服务与 relay 运行、不记录回退；规则集
+    只有 root 可读 → 非 root 失败、root 成功并记下 `0.4.0-rc4`；有记录时切换保持 root 并说明；删除记录后
+    重新以动态用户运行，NRestarts 0。
+  - 普通用户（清空 sudo 缓存）：信息、日志（journal 与 0640 的 TUI 日志）、故障诊断、网络测试、
+    `diagnose --json` 均无需密码。非 TTY：管道浏览正常；管道选择改动操作时 sudo 无终端可读密码，留在菜单并正常
+    退出；`sboxkit pause` 无终端时退出码 1、服务不变。
+  - 卸载（全选）后 purge：状态、运行时、缓存目录（含 `/var/lib/private` 下的实体）、单元与 NM 钩子均删除，
+    TUN 消失；仅 tmpfs 上的 `/run/sboxkit` 残留（与 v0.3.3 观察一致），手动删除。
+  - 恢复：停止 tmux 与回环 HTTP 服务，删除测试目录、root 下的测试规则集与 Go 遥测目录；与验证前快照比对一致。
+  - 未覆盖：篡改缓存后重新下载的完整过程（经验证的下载与 dpkg 安装已由首次自更新覆盖）；arm64 / armv7
+    仅构建；用户模式服务本身（本轮只验证安装脚本的 `--user` 安装）。
+- 已知限制：启用 TUN 且保留默认 `bypass_process_names`（tailscale）时仍以 root 运行；从 sudo 打开的 root
+  shell 里 `su` 回普通用户时残留的 `SUDO_UID` 会干扰按需提权。见 [`Todo.md`](Todo.md)。
+
+## 2026-10-24：系统模式特权边界收口——root 只执行、只信任 root 属主的文件（v0.4.0）
+
+- 问题：`/var/lib/sboxkit` 经 sudo 创建后交回调用者属主，而 root 运行的 watchdog（每 2 分钟）与周更定时器
+  执行经其中版本库解析的 `/usr/bin/sboxkit`、读取其中的设置并写日志（不带 `O_NOFOLLOW`）；该用户身份下的
+  任意进程都能免密拿到 root。订阅原文与生成配置以 0644 存于 0755 目录，其他本地用户可读节点凭据。
+- 方案（用户选定「启动时整体提权」）：系统模式下交互菜单与读写状态的子命令启动时经
+  `sudo [SBOXKIT_*=…] -- <调用路径> 参数…` 以 root 重新执行（`cmd/sboxkit/privilege.go`、
+  `execx.ReexecAsRoot`）；`version` / `help` / `diagnose` 保持普通用户，后者只读 `/run/sboxkit`，
+  语言仅取 `SBOXKIT_LANG`。状态目录只归 root（0755；订阅 0700，生效配置 / `customize.json` / 日志 0600）。
+- 迁移：每个 root 入口（含 watchdog 的 `healthcheck`）在读取状态前调用 `paths.SecureTree`：目录先改属主再列
+  内容；非 root 属主、组/其他可写或多硬链接的文件以新 inode 重建（旧写句柄失效）；指向树外的符号链接与
+  FIFO 等删除；已合规时只做一遍 lstat。收归失败的那次运行不读 `customize.json`、不写日志。日志以
+  `O_NOFOLLOW` 打开、裁剪经临时文件改名。root 代 `SUDO_USER` 改写 `~/.bashrc` 时拒绝符号链接、硬链接与
+  非本人文件（`proxyenv.writeOwnedFile`），`~/` 展开指向 `SUDO_USER`。移除「也可以直接用 sudo 启动」提示。
+- 测试：新增 27 个用例（`paths/secure_test.go`、`execx/elevate_test.go`、`execx/log_test.go`、
+  `proxyenv`、`flows/system_state_test.go`、`cmd/sboxkit/privilege_test.go`）；`gofmt`、`go vet`、
+  `go test ./...`、`go test -race ./...`、带 sing-box 1.14.4 的真实内核用例、i18n 覆盖检查（缺失 0）在
+  `machine.md` 主机通过（源码与本机工作区逐文件哈希一致）；本机只做编译与 `git diff --check`。
+- 远程验收（`machine.md` 主机，系统模式，TUN 关闭，本地 Clash 订阅文件）：
+  - v0.3.3 复现（发布 deb）：普通用户开启 `enable_file_log` 并把 `sboxkit.log` 换成指向 `/etc` 下新文件的链接，
+    同一次 watchdog 运行由 root 在 `/etc` 创建该文件并写入日志；按自更新布局让 `/usr/bin/sboxkit` 解析进版本库
+    （`ln` 一步按旧版自更新经 sudo 执行）后替换版本库二进制，watchdog 以 `uid=0(root)` 执行了用户的脚本。
+  - 自更新升级路径：普通用户按旧版自更新写入新构建并切换 `current`，并预埋日志链接、FIFO 与持有
+    `config.json` 写句柄的进程；新二进制的首次 watchdog 运行即把整棵树收归 root，链接与 FIFO 删除、
+    `/etc` 目标未创建，`config.json` 换为新 inode（旧句柄写入落在 `(deleted)` 孤立 inode，生效配置不含注入
+    内容）。此后普通用户改日志 / `current` / 版本库二进制 / `customize.json`、读订阅与配置、建 FIFO 均被拒绝。
+  - `.deb` 升级路径：状态改回用户属主并预埋日志链接后 `dpkg -i` 快照包，下一次 watchdog 完成同样的收归。
+  - 交互：tmux 真实 TTY 下普通用户运行 `sboxkit` 提示后请求一次 sudo，菜单以 root 运行，版本变化同步、
+    工具 → 信息正常；管道非 TTY 运行正常退出；`NO_COLOR=1 SBOXKIT_LANG=zh` 经 sudo 透传（首轮把变量放在
+    `--` 之后导致 sudo 将其当作命令，已修正并复验）；全新安装创建 `root:root` 状态目录。
+  - 恢复：卸载（全选）并 purge，删除状态 / 运行时 / `/run/sboxkit`、测试目录、复现产物、tmux 会话与 Go 遥测
+    目录，与验证前快照逐项比对一致。
+- 已知限制（当时）：自更新升级窗口、收归前已被篡改的内容会被保留、内核下载未校验——均在同一版本中处理，
+  见上一节。发布前又按用户选择改为「按需提权」，状态目录改为 root 属主、管理员组可读（0640 / 0750），
+  本节的「启动时整体提权」与 0600 / 0700 权限已被取代。
+
 ## 2026-10-24：v0.3.3 稳定版
 
 - sboxkit 版本变化（自更新、回退、apt 升级或换包）后首次交互运行，整体同步一次全部运行时资源（服务单元、

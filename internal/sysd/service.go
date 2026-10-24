@@ -35,22 +35,22 @@ var singBoxUnitTmpl string
 var singBoxUserUnitTmpl string
 
 const (
-	DefaultName          = "sing-box"
-	conflictingName      = "mihomo"
-	runtimeDirectoryMode = "0700"
-	runtimeConfigMode    = "0600"
+	DefaultName       = "sing-box"
+	conflictingName   = "mihomo"
+	runtimeConfigMode = "0600"
 )
 
 type runtimePaths struct {
-	Dir     string
-	Bin     string
-	Config  string
-	UI      string
-	Geosite string
-	GeoIP   string
-	CacheDB string
-	Unit    string
-	Scope   unitScope
+	Dir      string
+	Bin      string
+	Config   string
+	UI       string
+	Geosite  string
+	GeoIP    string
+	CacheDB  string
+	Unit     string
+	Scope    unitScope
+	Identity serviceIdentity // 系统单元的运行身份（见 identity.go），由 prepareRuntime 决定
 }
 
 func rtPaths(name string) runtimePaths {
@@ -62,6 +62,10 @@ func rtPathsFor(s unitScope, name string) runtimePaths {
 	if d == "" {
 		d = paths.RuntimeDir
 	}
+	cache := filepath.Join(d, "cache.db")
+	if !s.User {
+		cache = serviceCacheDB()
+	}
 	return runtimePaths{
 		Scope:   s,
 		Dir:     d,
@@ -70,9 +74,18 @@ func rtPathsFor(s unitScope, name string) runtimePaths {
 		UI:      filepath.Join(d, "ui"),
 		Geosite: filepath.Join(d, "geosite-cn.srs"),
 		GeoIP:   filepath.Join(d, "geoip-cn.srs"),
-		CacheDB: filepath.Join(d, "cache.db"),
+		CacheDB: cache,
 		Unit:    s.unitFile(name + ".service"),
 	}
+}
+
+// runtimeDirMode 系统运行时目录 root 所有、他人只读：非特权的 sing-box 要执行其中的内核、
+// 读取面板，运行时配置本身仍是 0600，经 LoadCredential 交付。用户模式只有本人可访问。
+func (s unitScope) runtimeDirMode() string {
+	if s.User {
+		return "0700"
+	}
+	return "0755"
 }
 
 // stageRuntimeConfig 读 state/config.json，把 external_ui / cache_file.path 改写为
@@ -89,6 +102,9 @@ func stageRuntimeConfig(p paths.Paths, rt runtimePaths) (string, error) {
 	// The panel is embedded in every sboxkit binary, so runtime staging does
 	// not depend on a mutable state/ui copy being present or user-writable.
 	rewriteRuntimePaths(data, rt, true)
+	if !rt.Scope.User && dropLogOutput(data) {
+		execx.Warn(i18n.T("配置中的 log.output 已忽略：系统服务的日志统一写入 journal（journalctl -u sing-box）。"))
+	}
 	out, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		return "", err
@@ -131,6 +147,20 @@ func rewriteRuntimePaths(doc map[string]any, rt runtimePaths, hasUI bool) {
 	}
 }
 
+// dropLogOutput 去掉 log.output：系统服务不允许配置决定写入哪个文件（非特权身份下
+// 文件系统只读，写日志文件只会让服务启动失败）。返回是否改动。
+func dropLogOutput(doc map[string]any) bool {
+	log, ok := doc["log"].(map[string]any)
+	if !ok {
+		return false
+	}
+	if _, ok := log["output"]; !ok {
+		return false
+	}
+	delete(log, "output")
+	return true
+}
+
 type rootCommandRunner func([]string, string, *execx.Opt) (execx.Result, error)
 
 // syncUIRuntimeWith materializes the embedded panel in a caller-owned temporary
@@ -150,6 +180,10 @@ func syncUIRuntimeWith(rt runtimePaths, runRoot rootCommandRunner) error {
 		return err
 	}
 	if _, err := runRoot([]string{"cp", "-a", staged, rt.UI}, "", nil); err != nil {
+		return err
+	}
+	// 临时目录是 0700：非特权的 sing-box 需要能读取面板。
+	if _, err := runRoot([]string{"chmod", "0755", rt.UI}, "", nil); err != nil {
 		return err
 	}
 	return nil
@@ -217,8 +251,13 @@ func Install(p paths.Paths, name string, start bool) error {
 	}
 	s.ensureLinger()
 	if start {
-		if _, err := s.run(s.systemctl("restart", name+".service"), "", nil); err != nil {
+		if err := restartMain(s, name, ""); err != nil {
 			return err
+		}
+		if rt.Identity == identityDynamic {
+			if err := verifyIdentitySwitch(p, name, rt); err != nil {
+				return err
+			}
 		}
 		execx.Ok(i18n.T("服务已启动: ") + name + ".service")
 	} else {
@@ -244,8 +283,12 @@ func renderUnit(name string, rt runtimePaths) (string, error) {
 		dir, bin, cfg = systemdEscape(dir), systemdExecArg(bin), systemdExecArg(cfg)
 	}
 	var sb strings.Builder
-	err = t.Execute(&sb, struct{ Name, RuntimeDir, Bin, Config, BootstrapUnit string }{
-		name, dir, bin, cfg, bootstrapServiceName(name) + ".service",
+	err = t.Execute(&sb, struct {
+		Name, RuntimeDir, Bin, Config, BootstrapUnit, StateDir string
+		Dynamic                                                bool
+	}{
+		name, dir, bin, cfg, bootstrapServiceName(name) + ".service", serviceStateDirName,
+		rt.Identity == identityDynamic,
 	})
 	return sb.String(), err
 }
@@ -276,11 +319,17 @@ func SyncAndRestart(p paths.Paths, name string) error {
 	if err := installBootstrapDNS(p, name, rt); err != nil {
 		return err
 	}
+	switching := rt.Identity == identityDynamic && !runsDynamic(rt.Unit)
 	if err := writeMainUnit(name, rt); err != nil {
 		return err
 	}
-	if _, err := s.run(s.systemctl("restart", name+".service"), "", nil); err != nil {
+	if err := restartMain(s, name, ""); err != nil {
 		return err
+	}
+	if switching {
+		if err := verifyIdentitySwitch(p, name, rt); err != nil {
+			return err
+		}
 	}
 	execx.Ok(i18n.T("已同步配置并重启: ") + name + ".service")
 	recordRuntimeVersionBestEffort(p)
@@ -316,6 +365,11 @@ func Remove(p paths.Paths, name string, purgeRuntime bool) error {
 			"", &execx.Opt{Capture: true})
 		if findErr == nil && strings.TrimSpace(remaining.Stdout) == "" {
 			s.run([]string{"rm", "-rf", rt.Dir}, "", nil)
+		}
+		if !s.User {
+			// StateDirectory 不随单元删除；DynamicUser 时实际目录在 /var/lib/private 下。
+			s.run([]string{"rm", "-rf", filepath.Dir(serviceCacheDB()),
+				filepath.Join("/var/lib/private", serviceStateDirName)}, "", nil)
 		}
 	}
 	if wasInstalled { // 安装失败的回退也会走到这里，未装过就不报「已删除」

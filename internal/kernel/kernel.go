@@ -92,11 +92,16 @@ func archName() string {
 	}
 }
 
+// releaseAsset 发行资产；Digest 为 GitHub 计算的 "sha256:<hex>"（见 integrity.go）。
+type releaseAsset struct {
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
+	Digest             string `json:"digest"`
+}
+
 type release struct {
-	TagName string `json:"tag_name"`
-	Assets  []struct {
-		BrowserDownloadURL string `json:"browser_download_url"`
-	} `json:"assets"`
+	TagName string         `json:"tag_name"`
+	Assets  []releaseAsset `json:"assets"`
 }
 
 func latestRelease(f *fetchx.Fetcher, repo string) (release, error) {
@@ -105,37 +110,29 @@ func latestRelease(f *fetchx.Fetcher, repo string) (release, error) {
 	return rel, err
 }
 
-func assetURLs(rel release) []string {
-	urls := make([]string, 0, len(rel.Assets))
-	for _, a := range rel.Assets {
-		urls = append(urls, a.BrowserDownloadURL)
-	}
-	return urls
-}
-
-func pickAsset(urls []string, pattern string) string {
+func pickAsset(assets []releaseAsset, pattern string) (releaseAsset, bool) {
 	rx := regexp.MustCompile("(?i)" + pattern)
-	for _, u := range urls {
-		if rx.MatchString(u) {
-			return u
+	for _, a := range assets {
+		if rx.MatchString(a.BrowserDownloadURL) {
+			return a, true
 		}
 	}
-	return ""
+	return releaseAsset{}, false
 }
 
 // pickSingBoxAsset 选 sing-box Linux 内核 tar.gz 资产。
-func pickSingBoxAsset(urls []string, arch, version string) string {
+func pickSingBoxAsset(assets []releaseAsset, arch, version string) (releaseAsset, bool) {
 	v := regexp.QuoteMeta(strings.TrimPrefix(version, "v"))
 	order := []string{
 		fmt.Sprintf(`sing-box-%s-linux-%s\.tar\.gz$`, v, arch),
 		fmt.Sprintf(`linux-%s.*\.tar\.gz$`, arch),
 	}
 	for _, pat := range order {
-		if u := pickAsset(urls, pat); u != "" {
-			return u
+		if a, ok := pickAsset(assets, pat); ok {
+			return a, true
 		}
 	}
-	return ""
+	return releaseAsset{}, false
 }
 
 // --------------------------------------------------------------------------
@@ -170,14 +167,19 @@ func cacheValid(path string) bool {
 	return true
 }
 
-func downloadTo(f *fetchx.Fetcher, rawURL, out string, force bool) error {
+// downloadTo 下载 rawURL 到 out；want 非零时缓存与新下载的内容都必须与之相符。
+// 有摘要时，相符的缓存就是这次要下载的内容，force 也直接复用；没有摘要才按 force 重新下载。
+func downloadTo(f *fetchx.Fetcher, rawURL, out string, force bool, want Digest) error {
 	part := out + ".part"
-	if !force && cacheValid(out) {
+	checkCache := !force || !want.IsZero()
+	if checkCache && cacheValid(out) && want.Verify(out) == nil {
 		execx.Info(i18n.T("使用缓存: ") + filepath.Base(out))
 		return nil
 	}
 	if _, err := os.Stat(out); err == nil {
-		execx.Info(i18n.T("丢弃无效缓存: ") + filepath.Base(out))
+		if checkCache {
+			execx.Info(i18n.T("丢弃无效缓存: ") + filepath.Base(out))
+		}
 		os.Remove(out)
 		os.Remove(part)
 	}
@@ -196,11 +198,19 @@ func downloadTo(f *fetchx.Fetcher, rawURL, out string, force bool) error {
 			os.Remove(tmp)
 			return fmt.Errorf(i18n.T("下载文件完整性校验失败: %s"), filepath.Base(out))
 		}
+		if err := want.Verify(tmp); err != nil {
+			os.Remove(tmp)
+			return err
+		}
 		return os.Rename(tmp, out)
 	}
 	if st, err := os.Stat(part); err != nil || st.Size() == 0 {
 		os.Remove(part)
 		return fmt.Errorf(i18n.T("下载文件为空: %s"), filepath.Base(out))
+	}
+	if err := want.Verify(part); err != nil {
+		os.Remove(part)
+		return err
 	}
 	return os.Rename(part, out)
 }
@@ -233,12 +243,17 @@ func fetchCore(p paths.Paths, f *fetchx.Fetcher, s Settings, force bool, dst str
 		return "", err
 	}
 	version := strings.TrimSpace(rel.TagName)
-	u := pickSingBoxAsset(assetURLs(rel), archName(), version)
-	if u == "" {
+	asset, ok := pickSingBoxAsset(rel.Assets, archName(), version)
+	if !ok {
 		return "", fmt.Errorf(i18n.T("未找到架构 %s 的 Linux sing-box 资源"), archName())
 	}
-	archive := filepath.Join(p.Downloads, filepath.Base(u))
-	if err := downloadTo(f, Mirror(u, s.GithubMirror), archive, force); err != nil {
+	parsed, hasDigest := ParseAssetDigest(asset.Digest)
+	want, err := RequireDigest(parsed, hasDigest, s.GithubMirror, asset.Name)
+	if err != nil {
+		return "", err
+	}
+	archive := filepath.Join(p.Downloads, filepath.Base(asset.BrowserDownloadURL))
+	if err := downloadTo(f, Mirror(asset.BrowserDownloadURL, s.GithubMirror), archive, force, want); err != nil {
 		return "", err
 	}
 	if err := extractSingBoxBinary(archive, dst); err != nil {
@@ -307,8 +322,16 @@ func fetchGeo(p paths.Paths, f *fetchx.Fetcher, s Settings, force bool, geosite,
 		{GeositeCNURL, geosite},
 		{GeoIPCNURL, geoip},
 	} {
+		parsed, err := rawDigest(f, item.url)
+		if err != nil {
+			execx.Warn(fmt.Sprintf(i18n.T("查询 %s 的摘要失败：%v"), filepath.Base(item.url), err))
+		}
+		want, err := RequireDigest(parsed, err == nil, s.GithubMirror, filepath.Base(item.url))
+		if err != nil {
+			return err
+		}
 		cache := filepath.Join(p.Downloads, filepath.Base(item.url))
-		if err := downloadTo(f, Mirror(item.url, s.GithubMirror), cache, force); err != nil {
+		if err := downloadTo(f, Mirror(item.url, s.GithubMirror), cache, force, want); err != nil {
 			return err
 		}
 		if err := copyFile(cache, item.dest, 0o644); err != nil {

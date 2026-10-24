@@ -43,8 +43,9 @@ clashdock 的生效配置 `config.yaml` 内容其实是 JSON（利用"JSON 是�
 
 | 位置 | 内容 |
 |---|---|
-| `/var/lib/sboxkit`（固定工作目录，`SBOXKIT_HOME` 可覆盖） | 状态数据：内核、geo 规则集、`subscriptions/<name>/{meta.json,raw.*,config.json}`、`active` 指针、`customize.json`、记录运行时资源部署版本的 `runtime.version`。首次使用经 sudo 创建并交回调用者属主，root 定时器与用户会话共享同一份数据；旧版留下的 `ui/` 不再作为运行来源 |
-| `/var/lib/sboxkit-runtime` | root 态自包含运行时：内核 + 配置 + geo 规则集 + 面板资源，以及仅含 IP 字面量上游的 `bootstrap-dns.json`（服务与用户目录解耦） |
+| `/var/lib/sboxkit`（固定工作目录，`SBOXKIT_HOME` 可覆盖） | 状态数据：内核、geo 规则集、`subscriptions/<name>/{meta.json,raw.*,config.json}`、`active` 指针、`customize.json`、记录运行时资源部署版本的 `runtime.version`、系统模式 .deb 缓存 `downloads/packages/`（非 dpkg 安装时为自更新版本库 `sboxkit-versions/`）。属主 root、属组为管理员组，目录 setgid（0755 / 订阅目录 0750），生效配置、`customize.json`、日志 0640：只有 root 可写，管理员组可读，root 定时器与管理会话共享同一份数据（权限模型见下文）；旧版留下的 `ui/` 不再作为运行来源 |
+| `/var/lib/sboxkit-runtime` | root 态自包含运行时（0755，配置 0600）：内核 + 配置 + geo 规则集 + 面板资源，以及仅含 IP 字面量上游的 `bootstrap-dns.json`（服务与用户目录解耦） |
+| `/var/lib/sboxkit-cache` | 主服务的 `StateDirectory`（`cache.db`）；`DynamicUser` 时 systemd 把它放在 `/var/lib/private/` 下并交给动态用户 |
 | `/run/sboxkit` | watchdog 跨 invocation 状态与当前 incident 的首份脱敏诊断快照；原子写入并由文件锁串行化 |
 | `/etc/systemd/system` | `sing-box` 主服务、bootstrap DNS relay、watchdog 与自动更新单元 |
 
@@ -57,8 +58,8 @@ clashdock 的生效配置 `config.yaml` 内容其实是 JSON（利用"JSON 是�
 | `/var/lib/sboxkit` | `<包目录>/.sboxkit` |
 | `/var/lib/sboxkit-runtime` | `<state>/runtime` |
 | `/run/sboxkit` | `$XDG_RUNTIME_DIR/sboxkit`（缺失时 `<state>/run`） |
-| `/etc/systemd/system` + `systemctl` + sudo | `~/.config/systemd/user` + `systemctl --user`，仅 TUN 时 sudo |
-| unit 的 `AmbientCapabilities` | 运行时内核的文件能力（`setcap`） |
+| 管理界面以调用用户打开，首个改动操作经 sudo 整体提权；`/etc/systemd/system` + `systemctl` | 普通用户运行，`~/.config/systemd/user` + `systemctl --user`，仅 TUN 时 sudo |
+| unit 的 `AmbientCapabilities`，默认 `DynamicUser` | 运行时内核的文件能力（`setcap`） |
 
 用户单元显式写入 `SBOXKIT_USER_MODE=1` 与 `SBOXKIT_HOME`，watchdog / 更新定时器 /
 relay 与交互会话看到同一份数据。用户服务本身没有 CAP_NET_ADMIN：暂存的运行时配置
@@ -88,13 +89,52 @@ sboxkit 自己写了一个极简面板（`internal/uiassets`，go:embed 打进�
 
 **运行时资源随版本同步**：服务单元、bootstrap DNS relay、面板、内核与规则集、运行时
 配置都由部署它们的 sboxkit 版本生成。每次 `SyncAndRestart` / `Install` 成功后把当前版本
-记入 `state/runtime.version`（0644，root 定时更新写入后普通用户仍可读）。交互启动时
-`sysd.ReconcileRuntime` 只比较这条记录与当前版本：不同（自更新、apt 升级或换包后的首次
-运行，或尚无记录的旧部署）就整体 `SyncAndRestart` 一次；相同则什么都不做——不读 root
-专属（0700）的运行时目录，也不请求授权。服务未安装或已暂停时不同步（避免顺带拉起暂停
-的服务）；同步失败不记版本，下次启动重试。
+记入 `state/runtime.version`（0644）。交互启动时
+`sysd.RuntimeNeedsReconcile` 只比较这条记录与当前版本：不同（自更新、apt 升级或换包后的首次
+运行，或尚无记录的旧部署）时系统模式启动即提权，由 `sysd.ReconcileRuntime` 整体
+`SyncAndRestart` 一次；相同则什么都不做，也不请求授权。服务未安装或已暂停时不同步（避免
+顺带拉起暂停的服务）；同步失败不记版本，下次启动重试。
 
-普通用户运行，特权操作全部经 `sudo` 子进程（`internal/execx`），凭证会话内缓存。
+**系统模式权限模型**：root 运行的服务与定时器只执行、只读取 root 属主的文件。旧版本把
+`/var/lib/sboxkit` 交给调用用户，而 watchdog（每 2 分钟）与周更定时器以 root 执行经其中
+版本库解析的 `/usr/bin/sboxkit`、读取其中的设置与日志——该用户身份下的任意进程都能借此
+免密拿到 root。现在：
+
+- 改动状态或服务的子命令（`init` / `modify` / `update` / `pause` / `uninstall` 等，见
+  `cmd/sboxkit/privilege.go`）在系统模式下启动时经 `execx.ReexecAsRoot` 以
+  `sudo [SBOXKIT_*=…] -- <调用路径> 参数…` 整体重新执行；之后的特权操作直接执行，
+  不再中途逐条 sudo。`nettest` / `diagnose` / `version` 以调用用户运行。
+- 交互菜单先以调用用户打开（只读状态、不写日志、不做事务快照）：状态、连接信息、节点热切换
+  （Clash API）、网络测试、诊断与日志不需要密码。改动入口调用 `flows.RequireRoot(entry)`：
+  先 `sudo -v`（失败或取消时留在原菜单），再以 `--resume=<入口>` 经 sudo 重新执行；root
+  进程把入口拆成菜单键路径，由 `flows.MenuSelect` 逐层消费，直达该操作，本次会话随后保持
+  root。`flows.LaunchNeedsRoot` 决定哪些情形启动即提权：状态缺失（首次使用）、状态不归 root
+  （旧版本）、当前用户读不到状态（不在管理员组）、服务未安装、运行时版本待同步、网络自愈待修复。
+- 状态树属主 root、属组为管理员组（`paths.AdminGroup`：`sudo` → `wheel` → `admin`，都没有时
+  为 root 组），目录 setgid 使新文件继承属组；含凭据的文件 0640、订阅目录 0750
+  （`Paths.SecretFileMode` / `SecretDirMode`，用户模式为 0600 / 0700）。管理员组本可 sudo，
+  组读权限不扩大可见范围，却让日常浏览免去密码。
+- root 入口（含 watchdog 的 `healthcheck`）先调用 `paths.SecureTree` 把整棵状态树收归
+  root：目录先改属主再列内容；非 root 属主、组/其他可写或多硬链接的文件以新 inode 重建，
+  旧写句柄随之失效；只差属组的 root 文件原地改组；指向树外的符号链接与 FIFO 等特殊文件删除。
+  已合规时只做一遍 lstat。收归失败时该次运行不写日志；日志以 `O_NOFOLLOW` 打开、裁剪经
+  临时文件改名，不经路径重写。
+- 主服务默认以 `DynamicUser=yes` 运行（`sysd/identity.go`）：配置经
+  `LoadCredential=config.json:<运行时配置>` 由 systemd 以 root 读取后交付，`ExecStart` 读
+  `${CREDENTIALS_DIRECTORY}/config.json`；`ProtectSystem=strict` 等加固下唯一可写的是
+  `StateDirectory=sboxkit-cache`，只保留 `CAP_NET_ADMIN` / `CAP_NET_BIND_SERVICE` /
+  `CAP_NET_RAW`。订阅或原生配置里的文件路径因此无法借 root 读写任意文件；系统模式还会丢弃
+  `log.output`（日志统一进 journal）。以下情形保留 `User=root` 并提示原因：配置含
+  `process_name` / `process_path` / `process_path_regex`（识别其他用户的进程要读其 `/proc`）、
+  systemd 早于 247（无 `LoadCredential`）、本版本切换后服务 4 秒内未保持 active 或期间发生
+  自动重启（只比较重启后这段时间的 `NRestarts`：等待自动重启时 `systemctl restart` 不清零它），
+  而改用 root 后能稳定运行（`verifyIdentitySwitch` 在 `state/runtime.identity-fallback` 记下
+  版本，版本变化后再试）。root 同样起不来说明故障与身份无关：恢复非特权单元、不记录，并报错让
+  这次部署回退到原配置。
+  bootstrap DNS relay 仍以 root 运行并自带沙箱。
+- root 代 `SUDO_USER` 写入其家目录（`~/.bashrc` 代理变量）时不跟随符号链接，只改写该用户
+  自己的普通文件（`proxyenv.writeOwnedFile`）；`~/` 展开同样指向 `SUDO_USER`。
+
 运行时目录、bootstrap relay 端口及 watchdog 单元是共享单例，因此服务变更入口只接受
 主服务名 `sing-box`；不会伪装支持多个名称后让实例互相覆盖配置或争抢端口。
 
@@ -171,6 +211,16 @@ sing-box 内核与规则集执行 `sing-box check`，通过后才写入状态目
 （避免下载被静默隧道进本地 sing-box → 机场节点）；不可达才走配置的 `download_proxy`。
 支持重试、Range 续传、gzip/tar 完整性校验、GitHub 镜像前缀与 API Token。
 
+**下载完整性**（`kernel/integrity.go`）：期望摘要一律直接向 `api.github.com` 查询，从不经
+镜像——镜像只负责传输。发行资产（sing-box 内核、sboxkit 发行包）比对 release API 的
+`digest`（`sha256:<hex>`）；`raw.githubusercontent.com` 上的 geo 规则集比对 contents API
+给出的 git blob 对象名（`sha1("blob <len>\0" + 内容)`）。命中的缓存同样校验，不符即重新下载；
+与摘要相符的缓存就是这次要下载的内容，强制更新（`assets-update`）也直接复用。
+拿不到摘要时：经镜像下载直接拒绝；直连 GitHub 时只依赖 TLS 继续（sboxkit 发行包再退回同一
+发行版的 `checksums.txt`）。系统模式缓存的 .deb（回滚、撤销更新时使用）每次使用前同样比对
+API 摘要。一键安装脚本 `scripts/install.sh` 遵循同一规则，并把 .deb 复制到 root 独占的临时
+目录再次校验后才交给 dpkg（下载目录属于调用用户，sudo 等待密码期间文件可能被替换）。
+
 ## 6. 离线种子（.deb / 用户模式安装包）
 
 .deb 与用户模式安装包内置同一份 sing-box 内核与基础 geo 规则集（`geosite-cn.srs` +
@@ -197,6 +247,9 @@ GitHub Release 前阻断流水线。
   relay 单元（系统/用户）的 `RestrictAddressFamilies` 必须包含 `AF_NETLINK`：Go 的
   接口查询走 netlink，缺少时每次转发都在拨号前失败并返回 SERVFAIL；
   `sysd/bootstrap_sandbox_linux_test.go` 以 seccomp 复现该限制并运行真实发现路径。
+  relay 以 `PartOf` 跟随主服务启停：身份回退、事务回退这类连续重启会让它撞上 systemd 的
+  启动频率限制，主服务随之因 `Requires` 起不来；sboxkit 重启主服务前因此先对两者
+  `reset-failed`（watchdog 的重启仍受自身冷却 / 熔断约束，不做此清理）。
 - NetworkManager dispatcher 钩子：真实网卡 up / 连通性变化时防抖触发
   `sboxkit healthcheck --event network-change`（忽略 tun 自身），不再绕过统一限流器直接重启。
 - watchdog 定时器 + `sboxkit healthcheck` 依次判断物理上行、bootstrap DNS、当前运行时
@@ -217,10 +270,20 @@ GitHub Release 前阻断流水线。
 
 ## 8. sboxkit 自更新
 
-`internal/selfupdate`：版本化目录 `<state>/sboxkit-versions/<version>/sboxkit` +
+**系统模式（dpkg 安装的 `/usr/bin/sboxkit`，`selfupdate/debpkg.go`）**：不再改写 dpkg 管理的
+文件，而是下载同版本的 `sboxkit_<version>_linux_<arch>.deb`（按 release API 摘要校验），用
+纯 Go 解析 ar + `data.tar.gz` 取出 `usr/bin/sboxkit` 试跑并做兼容性校验（同下），再经
+`dpkg -i` 安装（dpkg 锁被占用时重试）；回滚即重新安装上一版本的 .deb（缓存优先，否则下载并
+校验）。.deb 缓存在 `downloads/packages/`，只保留当前、上一个与 `last-stable` 记录的版本。
+旧版本把 `/usr/bin/sboxkit` 接管成指向版本库的符号链接，dpkg 安装后它重新成为普通文件，
+此时旧的 `sboxkit-versions/` 随之删除。包管理器的记录因此始终与实际文件一致，`apt remove`
+/ 后续 `.deb` 升级照常工作。暂不提供 apt 仓库：签名仓库需要在 CI 中长期保管签名私钥并托管
+索引，而 dpkg 自更新加 API 摘要已给出同等的完整性保证。
+
+**其余情形（用户模式、非 dpkg 安装）**：版本化目录 `<state>/sboxkit-versions/<version>/sboxkit` +
 `current` 符号链接方案，与 `internal/kernel` 更新 sing-box 内核/geo 数据完全独立
 （更新的是 sboxkit 自身这个程序）。流程：查询最新 GitHub release → 下载对应架构的
-`sboxkit_<version>_linux_<arch>.tar.gz` → 按 `checksums.txt` 校验 SHA-256 → 解压到
+`sboxkit_<version>_linux_<arch>.tar.gz` → 按 release API 摘要校验 SHA-256（见第 5 节）→ 解压到
 独立版本目录 → 试跑新二进制（`sboxkit version`）确认能执行 → 兼容性校验 → 原子重写
 `current` 符号链接 → 再次试跑确认成功；启动校验失败则回退 `current` 指向。兼容性校验由
 旧版本调用新版本的内部子命令 `compat-check` 完成：新生成器为生效订阅重新生成配置，并以
@@ -260,7 +323,7 @@ internal/tui          Bubble Tea 四类提示 + 非 TTY 回退
 internal/fetchx       HTTP 下载通道
 internal/kernel       sing-box 内核 / geo 规则集下载、暂存后原子换入 + deb 种子接管
 internal/uiassets     内置 Web 面板静态资源（go:embed，无需联网下载）
-internal/selfupdate   sboxkit 自更新：版本化目录 + 原子符号链接切换
+internal/selfupdate   sboxkit 自更新：系统模式经 dpkg 安装 .deb；其余为版本化目录 + 原子符号链接切换
 internal/subscription 订阅域：fetch / detect（三态）/ b64（分享链接解析）/ manager
 internal/sysd         主服务/relay/watchdog/更新单元，分层健康探测与持久熔断状态
 internal/clashapi     Clash API：切组 / 并发测延迟（协议与 mihomo 版共用）

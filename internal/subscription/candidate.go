@@ -76,27 +76,27 @@ func (c *candidate) write(p paths.Paths, activate bool) error {
 	if !activate {
 		return nil
 	}
-	if err := writeAtomic(p.ConfigFile, c.config); err != nil {
+	if err := writeAtomic(p, p.ConfigFile, c.config); err != nil {
 		return err
 	}
-	return writeAtomic(p.ActiveFile, []byte(c.sub.Name+"\n"))
+	return writeAtomic(p, p.ActiveFile, []byte(c.sub.Name+"\n"))
 }
 
 func (c *candidate) writeSubscription(p paths.Paths) error {
 	if err := os.MkdirAll(p.SubscriptionDir(c.sub.Name), 0o755); err != nil {
 		return err
 	}
-	if err := writeAtomic(rawFile(p, c.sub), c.raw); err != nil {
+	if err := writeAtomic(p, rawFile(p, c.sub), c.raw); err != nil {
 		return err
 	}
-	if err := writeAtomic(configFile(p, c.sub.Name), c.config); err != nil {
+	if err := writeAtomic(p, configFile(p, c.sub.Name), c.config); err != nil {
 		return err
 	}
 	metaJSON, err := jsonx.MarshalPretty(c.sub)
 	if err != nil {
 		return err
 	}
-	return writeAtomic(metaFile(p, c.sub.Name), metaJSON)
+	return writeAtomic(p, metaFile(p, c.sub.Name), metaJSON)
 }
 
 // Generate 用当前生成器从本地已存原文重新生成订阅配置（不写盘、不校验），供更新
@@ -115,10 +115,10 @@ func Generate(p paths.Paths, name string) ([]byte, error) {
 
 // StoreGenerated 把已校验的重新生成结果写为订阅配置与生效配置；事务与服务同步由调用方负责。
 func StoreGenerated(p paths.Paths, name string, cfgJSON []byte) error {
-	if err := writeAtomic(configFile(p, name), cfgJSON); err != nil {
+	if err := writeAtomic(p, configFile(p, name), cfgJSON); err != nil {
 		return err
 	}
-	return writeAtomic(p.ConfigFile, cfgJSON)
+	return writeAtomic(p, p.ConfigFile, cfgJSON)
 }
 
 // fetchRaw 拉取（或读本地文件）订阅原文；cfg.DownloadProxy 决定本次拉取是否走下载代理
@@ -208,7 +208,8 @@ func convertSource(p paths.Paths, sub *Subscription, raw []byte, cfg config.Conf
 }
 
 // writeAtomic 同目录临时文件 + 改名：中途中断不会留下截断的状态文件。
-func writeAtomic(path string, data []byte) error {
+// 订阅原文与生成配置都含节点凭据，按模式限制读取（见 Paths.SecretFileMode）。
+func writeAtomic(p paths.Paths, path string, data []byte) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
 	if err != nil {
 		return err
@@ -221,7 +222,7 @@ func writeAtomic(path string, data []byte) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
+	if err := os.Chmod(tmp.Name(), p.SecretFileMode()); err != nil {
 		return err
 	}
 	return os.Rename(tmp.Name(), path)

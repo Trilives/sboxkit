@@ -68,6 +68,8 @@ archives:
         strip_parent: true
 
 nfpms:
+  # 系统模式自更新从 deb 的 data.tar.gz 中取出 usr/bin/sboxkit（internal/selfupdate/debpkg.go），
+  # 依赖 nfpm 默认的 gzip 压缩。
   - id: deb
     package_name: sboxkit
     formats: [deb]
@@ -101,6 +103,8 @@ nfpms:
 
 checksum:
   name_template: checksums.txt
+  extra_files:
+    - glob: ./scripts/install.sh
 
 # prerelease: auto 让打了 semver 预发布后缀的 tag（如 v0.1.7-beta.1）自动标记
 # 为 GitHub prerelease：不会顶替"Latest release"，也不会被 /releases/latest
@@ -108,6 +112,10 @@ checksum:
 # 列表读取最新一项（见 internal/selfupdate）。
 release:
   prerelease: auto
+  # 一键安装脚本随发行版发布：README 经 releases/latest/download/install.sh 取用，
+  # 脚本与所装版本同源，并有 API 资产摘要。
+  extra_files:
+    - glob: ./scripts/install.sh
 
 changelog:
   sort: asc

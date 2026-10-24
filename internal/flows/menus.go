@@ -108,9 +108,9 @@ func ServiceToggleFlow(p paths.Paths) error {
 }
 
 func serviceSettings(p paths.Paths) error {
-	act, err := tui.Select(i18n.T("服务设置"), []string{
+	act, err := MenuSelect(i18n.T("服务设置"), []string{
 		i18n.T("查看状态"), i18n.T("重启服务"), i18n.T("重载服务（重建订阅与服务）"),
-	}, tui.SelectOpts{})
+	}, serviceMenuKeys, tui.SelectOpts{})
 	if err != nil {
 		return nil
 	}
@@ -118,8 +118,14 @@ func serviceSettings(p paths.Paths) error {
 	case 0:
 		sysd.Status(sysd.DefaultName)
 	case 1:
+		if err := RequireRoot(p, EntryServiceRestart); err != nil {
+			return err
+		}
 		return sysd.Restart(sysd.DefaultName)
 	default:
+		if err := RequireRoot(p, EntryServiceReload); err != nil {
+			return err
+		}
 		return reloadService(p)
 	}
 	return nil

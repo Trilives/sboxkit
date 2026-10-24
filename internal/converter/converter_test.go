@@ -475,3 +475,29 @@ func outboundTags(outbounds []map[string]any) map[string]bool {
 	}
 	return tags
 }
+
+func routeRules(t *testing.T, cfg config.Config) string {
+	t.Helper()
+	route := buildRoute("Proxy", cfg, paths.FromRoot(t.TempDir()))
+	raw, err := json.Marshal(route.Rules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+func TestProcessBypassOnlyWithTUN(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.EnableTun = true
+	if !strings.Contains(routeRules(t, cfg), `"process_name":["tailscale","tailscaled"]`) {
+		t.Fatal("TUN mode lost the process bypass")
+	}
+	cfg.EnableTun = false
+	if strings.Contains(routeRules(t, cfg), "process_name") {
+		t.Fatal("mixed-only mode needs no process rules, and they force sing-box to run as root")
+	}
+	cfg.EnableTun, cfg.BypassProcessNames = true, nil
+	if strings.Contains(routeRules(t, cfg), "process_name") {
+		t.Fatal("an emptied bypass list must not leave a process rule behind")
+	}
+}

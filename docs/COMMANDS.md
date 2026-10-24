@@ -4,7 +4,10 @@ sboxkit 的**推荐用法是直接运行 `sboxkit` 进入交互式终端**（TUI
 所有功能都能在菜单里完成，无需记忆任何子命令。
 
 以下子命令用于**脚本化 / 无人值守**场景（定时器、CI、远程批量运维），
-效果与交互式菜单中的对应项一致。
+效果与交互式菜单中的对应项一致。系统模式下状态目录只有 root 可写（管理员组可读）：改动
+状态或服务的子命令（`init` / `modify` / `pause` / `resume` / `update` / `assets-update` /
+`uninstall`）启动时自动经 `sudo` 以 root 重新执行；`nettest` / `diagnose` / `version` 以
+当前用户运行。交互菜单同样先以当前用户打开，第一次选择改动操作时才提权（见 README「使用」）。
 
 ## 子命令
 
@@ -18,7 +21,7 @@ sboxkit 的**推荐用法是直接运行 `sboxkit` 进入交互式终端**（TUI
 | `sboxkit pause` | 暂停主服务及全部伴生单元（watchdog / 定时器一并停止，保持开机自启） |
 | `sboxkit resume` | 启动主服务及全部伴生单元 |
 | `sboxkit update` | 非交互全量更新：内核 + geo 数据最新版先暂存，与当前生成器、生效订阅和生效配置的组合通过 `sing-box check` 后才换入并同步重启服务（每周定时器的执行目标）；不兼容时放弃更新、保持原组合运行并以非零状态退出 |
-| `sboxkit assets-update` | 只更新当前状态目录中的 sing-box 内核与 geo 数据，绝不操作 systemd、不提权（旧名 `portable-update` 仍可用；用户模式下 `sboxkit update` 也会重启用户服务）；与 `update` 相同的兼容性校验不通过时放弃更新 |
+| `sboxkit assets-update` | 只更新当前状态目录中的 sing-box 内核与 geo 数据，绝不操作 systemd（旧名 `portable-update` 仍可用；用户模式下 `sboxkit update` 也会重启用户服务）；与 `update` 相同的兼容性校验不通过时放弃更新 |
 | `sboxkit uninstall` | 勾选式卸载：服务 / 自愈 / 定时器 / 产物 / 全部状态 |
 | `sboxkit version` | 显示版本 |
 
@@ -90,8 +93,8 @@ licenses/               第三方许可
 sboxkit 单独请求）。状态目录 `.sboxkit/` 为 0700（含订阅原文与节点凭据）。系统模式的
 `sing-box.service` 正在运行时拒绝注册用户服务（两者争抢相同端口），仅安装未运行时提示。
 
-sboxkit 自身更新位于「工具 → 更新」，当二进制所在目录可写时会直接使用原子
-符号链接切换，不请求 sudo；系统包安装在 `/usr/bin` 时才回退到 sudo 接管。
+sboxkit 自身更新位于「工具 → 更新」：用户模式直接在包目录内原子切换符号链接，不请求
+sudo；系统模式（dpkg 安装的 `/usr/bin/sboxkit`）下载同版本 .deb，校验后经 `dpkg -i` 安装。
 
 ## systemd 单元一览
 

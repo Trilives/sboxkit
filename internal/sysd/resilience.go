@@ -243,6 +243,24 @@ func InspectResilience(name string, userDisabled bool) (ResilienceStatus, error)
 	), nil
 }
 
+// ResilienceNeedsRepair reports, without changing anything, whether
+// ReconcileResilience would reinstall the watchdog. The system-mode menu uses it
+// to decide whether it has to start as root.
+func ResilienceNeedsRepair(p paths.Paths, name string) (bool, error) {
+	if err := validateManagedServiceName(name); err != nil {
+		return false, err
+	}
+	cfg := config.Load(p)
+	if !cfg.EnableResilience || !IsInstalled(name) {
+		return false, nil
+	}
+	status, err := InspectResilience(name, false)
+	if err != nil {
+		return false, err
+	}
+	return status.NeedsRuntimeRepair(IsActive(name)), nil
+}
+
 // ReconcileResilience repairs missing, partial, stale, disabled, or inactive
 // watchdog installations. It is intentionally a no-op for an explicitly
 // disabled preference and when the primary service has not been installed.
@@ -250,19 +268,9 @@ func ReconcileResilience(p paths.Paths, name string) error {
 	if name == "" {
 		name = DefaultName
 	}
-	if err := validateManagedServiceName(name); err != nil {
+	needed, err := ResilienceNeedsRepair(p, name)
+	if err != nil || !needed {
 		return err
-	}
-	cfg := config.Load(p)
-	if !cfg.EnableResilience || !IsInstalled(name) {
-		return nil
-	}
-	status, err := InspectResilience(name, false)
-	if err != nil {
-		return err
-	}
-	if !status.NeedsRuntimeRepair(IsActive(name)) {
-		return nil
 	}
 	execx.Info(i18n.T("检测到网络自愈组件缺失或过期，正在修复…"))
 	return InstallResilience(ResilienceOptions{Name: name, Interval: installedWatchdogInterval(wdTimer())})

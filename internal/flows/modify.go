@@ -46,7 +46,7 @@ var modifyRuntimeOptions = []string{
 // ModifyConfig 配置变更会话（需重启生效）：订阅管理 + 定制层字段分组编辑。
 // 改动缓冲在事务里，esc 保存并退出才提交，^R 回退并退出则整体撤销。
 func ModifyConfig(p paths.Paths) error {
-	return modifySession(p, "配置变更", modifyConfigOptions, []func() error{
+	return modifySession(p, "配置变更", modifyConfigOptions, nil, []func() error{
 		func() error { return subscriptionsMenu(p) },
 		func() error {
 			return editFieldGroupFlow(p, "部署设置（TUN / 面板 / 下载）", config.DeploymentFields)
@@ -59,22 +59,42 @@ func ModifyConfig(p paths.Paths) error {
 }
 
 // ModifyRuntime 运行时管理会话（即时生效）：节点切换 / 内核更新 / sboxkit 自
-// 更新 / 服务设置 / 网络自愈 / 更新定时器，均为即时生效的系统操作。
+// 更新 / 服务设置 / 网络自愈 / 更新定时器，均为即时生效的系统操作。系统模式下
+// 实时切换与查看状态不需要 root，其余操作先经 RequireRoot 提权。
 func ModifyRuntime(p paths.Paths) error {
-	return modifySession(p, "运行时管理", modifyRuntimeOptions, []func() error{
+	return modifySession(p, "运行时管理", modifyRuntimeOptions, runtimeMenuKeys, []func() error{
 		func() error { return NodeSwitchLive(p, p.ConfigFile, "") },
-		func() error { return NodeSelect(p, p.ConfigFile, "") },
+		func() error {
+			if err := RequireRoot(p, EntryPinNode); err != nil {
+				return err
+			}
+			return NodeSelect(p, p.ConfigFile, "")
+		},
 		func() error { return serviceSettings(p) },
-		func() error { return resilienceMenuFlow() },
-		func() error { return timerMenuFlow() },
+		func() error {
+			if err := RequireRoot(p, EntryResilience); err != nil {
+				return err
+			}
+			return resilienceMenuFlow()
+		},
+		func() error {
+			if err := RequireRoot(p, EntryTimer); err != nil {
+				return err
+			}
+			return timerMenuFlow()
+		},
 	})
 }
 
-// modifySession 更改配置的公共会话骨架：快照 + 回退钩子 + 菜单循环。
-func modifySession(p paths.Paths, title string, options []string, handlers []func() error) error {
+// modifySession 更改配置的公共会话骨架：快照 + 回退钩子 + 菜单循环。keys 为各选项的
+// 菜单路径名（见 MenuSelect），nil 表示本菜单不是提权恢复的目标。不能改动状态的会话
+// （系统模式下以普通用户运行）不做快照：其中的写操作都会先提权重启。
+func modifySession(p paths.Paths, title string, options, keys []string, handlers []func() error) error {
 	return txn.Run(i18n.T(title), func(session *txn.Transaction) error {
-		if err := guardSession(session, p); err != nil {
-			return err
+		if canManage(p) {
+			if err := guardSession(session, p); err != nil {
+				return err
+			}
 		}
 
 		translated := make([]string, len(options))
@@ -83,7 +103,7 @@ func modifySession(p paths.Paths, title string, options []string, handlers []fun
 		}
 		idx := 0
 		for {
-			i, err := tui.Select(i18n.T(title), translated,
+			i, err := MenuSelect(i18n.T(title), translated, keys,
 				tui.SelectOpts{BackLabel: i18n.T("回退并退出"), SaveLabel: i18n.T("保存并退出"), Initial: idx})
 			if err != nil {
 				if errors.Is(err, errs.ErrSaveExit) {

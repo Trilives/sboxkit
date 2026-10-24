@@ -43,3 +43,19 @@
 - [ ] 发布并升级 ares 后移除临时的 `50-remote-dns-detour.conf` 和 `/usr/local/libexec/sboxkit-remote-dns-detour`，重启复验；失败时恢复临时修正。与此同时处理上面的 `AF_NETLINK` 临时 override。
   - 注意：任何更新路径都不会从订阅原文重建 `config.json`；须先在「订阅管理」刷新或重新生成订阅，`dns-proxy` 才会变为 `Proxy`，否则移除临时修正后会回到直连 DoH。
   - 注意（2026-10-24）：须升级到含 DNS 响应匹配迁移的版本（见 [`Done.md`](Done.md)）后再重新生成订阅。v0.3.1 生成的 Hua 配置（hosts CNAME + FakeIP + `geoip-cn`）在 sing-box 1.14.3 下 `check` 即报 `Legacy Address Filter Fields` 并拒绝启动；ares 已以本地热修版从 Hua 原文重建并恢复服务，正式发布及移除临时 override 仍待完成。
+
+### P2：TUN 部署默认按进程直连导致 sing-box 仍以 root 运行
+
+v0.4.0 起系统服务默认以 `DynamicUser` 运行；但生成配置含按进程直连规则时识别其他用户的进程需要 root，
+而 `bypass_process_names` 默认为 `tailscale`、`tailscaled`，所以启用 TUN 的默认部署仍以 root 运行
+（不启用 TUN 不生成该规则）。
+
+- [ ] 决定是否改为默认空列表（或改用 `route_exclude_address` 按 Tailscale 网段 / 接口直连），并说明旧部署迁移。
+
+### P3：小问题
+
+- [ ] 从 sudo 打开的 root shell 里 `su` 回普通用户时，残留的 `SUDO_UID` 会让按需提权误判（安全审查 LOW，
+      未修复；正常登录会话不受影响）。
+- [ ] 初始化表单「订阅地址 / 本地路径」只有来源选「本地文件」时才接受路径；选 Clash 等类型填本地路径会报
+      `unsupported protocol scheme`。应按输入自动识别或在标签中说明。
+- [ ] 预览版切换到稳定渠道时，即使稳定版更旧也提示「发现新版本」，应改为「切换到稳定版」。

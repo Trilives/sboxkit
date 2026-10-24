@@ -12,24 +12,43 @@
   （`geosite-cn.srs` + `geoip-cn.srs`），安装/解压后**离线即可启动**；可稍后在线更新到最新版本。
 - **单文件零依赖**：Go 编译的静态二进制，不需要 python3 / curl / 任何运行时；
   内置 Web 面板资源直接 go:embed 进二进制，也不需要联网下载。
-- **自更新**：主菜单一键把 sboxkit 自身更新到最新发行版（校验 SHA-256、原子
-  切换版本、失败自动回滚），无需重新走一遍 .deb 安装；稳定版 / 预览版双渠道可选，
+- **自更新**：「工具 → 更新」一键把 sboxkit 自身更新到最新发行版：下载内容与 GitHub API
+  给出的 SHA-256 比对（镜像只负责传输）、试跑通过才切换、失败自动回滚；系统模式经 dpkg
+  安装同版本 .deb，包管理器的记录始终与实际文件一致。稳定版 / 预览版双渠道可选，
   切到预览版后可一键回退到上一个稳定版。
 - **TUI 交互**：方向键导航、反显高亮、长提示语自动换行；非 TTY（管道/脚本）
   自动回退编号菜单。
 - **随时可中止可回退**：配置类改动包在事务里，**esc 保存退出、^R 回退退出**，
   已应用的改动自动回滚。
-- **按需提权**：普通用户启动，需要 root 时自动 `sudo`。
+- **权限收口**：系统模式由 root 管理，但不必每次输密码——查看状态、切换节点、网络测试、
+  诊断与日志以当前用户进行，第一次改动配置或服务时才经 `sudo` 提权（本次会话随后保持 root）。
+  数据目录只有 root 可写、管理员组可读；sing-box 以 systemd 动态分配的非特权用户运行，只保留
+  TUN 所需的网络能力。用户模式全程以普通用户运行。
 
 ## 安装
 
-两种主流用法按需二选一：
+### 一键安装
+
+```bash
+# 系统模式（.deb，只在 dpkg 安装那一步请求 sudo）
+curl -fsSL https://github.com/Trilives/sboxkit/releases/latest/download/install.sh | bash
+# 用户模式（装到 ~/.local/share/sboxkit，链接 ~/.local/bin/sboxkit，全程不用 sudo）
+curl -fsSL https://github.com/Trilives/sboxkit/releases/latest/download/install.sh | bash -s -- --user
+```
+
+脚本识别架构（amd64 / arm64 / armv7），下载对应发行包并与 GitHub API 给出的 SHA-256
+比对后才安装，不做任何配置——装好后运行 `sboxkit`。`--version X.Y.Z` 安装指定版本；
+GitHub 下载慢时可加 `--mirror https://<镜像>`：镜像只负责传输，摘要仍直接向
+`api.github.com` 查询，被篡改的内容会被拒绝。注意：经镜像取得的**脚本本身**无法这样校验，
+等于信任该镜像；介意时先直连下载脚本、阅读后再执行。
+
+两种主流用法按需二选一（以下为手动安装）：
 
 | | 系统模式（.deb） | 用户模式（tar.gz） |
 |---|---|---|
 | 服务 | `/etc/systemd/system` 系统服务 | `systemctl --user` 用户服务 |
 | 数据 | `/var/lib/sboxkit` | 解压目录 `.sboxkit/` |
-| sudo | 注册/变更服务时 | 仅启用 TUN 时（一次 `setcap`） |
+| sudo | 改动配置 / 服务时（每次会话一次）；浏览、切节点、测速无需密码 | 仅启用 TUN 时（一次 `setcap`） |
 | TUN / 防火墙 / NM 钩子 | 全部支持 | TUN 支持；防火墙与 NM 钩子不处理 |
 
 ### 方式一：系统模式（.deb）
@@ -85,9 +104,13 @@ make build && ./sboxkit
 sboxkit
 ```
 
-脚本化 / 无人值守场景另有一组子命令（`init` / `modify` / `nettest` /
-`pause` / `resume` / `update` / `uninstall` 等），详见
-[docs/COMMANDS.md](docs/COMMANDS.md)。
+系统模式下 `sboxkit` 以当前用户打开菜单：查看状态与连接信息、节点热切换、网络测试、诊断与
+日志都不需要密码。第一次选择会改动系统的操作（订阅与设置、固定节点、服务重启 / 重载、
+网络自愈、定时器、更新、语言、暂停启动、卸载）时，sboxkit 先请求 `sudo` 授权，再以 root
+重新启动并直接进入该操作；本次会话之后不再询问。授权失败或取消时留在原菜单。首次使用、
+服务未安装、升级后需要同步运行时资源或当前用户不在管理员组时，启动即提权。脚本化 /
+无人值守场景另有一组子命令（`init` / `modify` / `pause` / `resume` / `update` /
+`uninstall` 等，系统模式下启动即提权），详见 [docs/COMMANDS.md](docs/COMMANDS.md)。
 
 ## 预览
 
@@ -99,8 +122,8 @@ sboxkit
 「配置变更」子菜单包含订阅管理（增/删/改名/切换/刷新，且切换/刷新会自动同步并重启服务）、
 部署设置（TUN / 面板 / 下载）与分流增强（AI / 流媒体 / 地区自动测速组）——两个定制层字段
 分组直接是本菜单下的平级项，不再经过多余的中间层；「运行时管理」里的操作均为即时生效的
-系统操作，各自按需处理重启（无需你事后再单独重启一次）。「工具」聚合网络测试、内核/TUI
-日志、主要文件位置、连接信息、全部更新入口与使用说明。菜单选项按常用
+系统操作，各自按需处理重启（无需你事后再单独重启一次）。「工具」聚合网络测试、只读故障诊断、
+内核/TUI 日志、主要文件位置、连接信息、全部更新入口与使用说明。菜单选项按常用
 程度排列（日常操作在前，卸载这类低频/破坏性操作放最后）。
 
 方向键上下移动、⏎ 确认、esc 保存返回、^R 回退返回；每层菜单重入时光标停在上次选中项；
@@ -115,7 +138,7 @@ sboxkit
 | 节点切换 | 运行时管理提供「节点切换」与「固定节点」两个独立操作：前者仅 Clash API 热切换不写盘，后者写入配置并可选重启；均支持两级菜单（地区→节点）+ 并发实测延迟 |
 | 地区自动测速组 | 可选生成 SG-Auto / HK-Auto url-test 组，由 converter 现场生成并插入主选择组直接选用 |
 | AI / 流媒体分流 | AI / 流媒体域名后缀分流组由 converter 每次现场生成（不再是可选叠加层） |
-| sboxkit 自更新 | 稳定版 / 预览版双渠道；下载发行版、校验 SHA-256、原子切换版本、试跑校验，失败自动回滚；切到预览版后可一键回退到上一个稳定版 |
+| sboxkit 自更新 | 稳定版 / 预览版双渠道；下载发行版并比对 GitHub API 给出的 SHA-256，试跑校验后切换（系统模式经 dpkg 安装 .deb），失败自动回滚；切到预览版后可一键回退到上一个稳定版 |
 | systemd 集成 | 主服务 + 网络自愈 watchdog + 每周更新定时器，统一暂停/启动；Web 控制台走 sing-box 内置的 `:9090/ui/` 路径，支持分组三列视图、折叠、按组测速与节点热切换 |
 | 网络自愈 | NetworkManager 钩子 + watchdog：断网/漫游后自动恢复，防重启风暴 |
 | 工具 | 网络测试、内核/TUI 日志、主要文件位置、连接信息、内核/geo/sboxkit 更新和双语使用说明 |
@@ -128,10 +151,19 @@ sboxkit
 `~/.config/systemd/user/` 下的同名用户单元。）
 
 运行期所有数据使用**固定工作目录 `/var/lib/sboxkit`**（不随用户 / HOME 变化，
-root 运行的定时器与用户会话看到同一份数据；首次使用自动经 sudo 创建并交回属主）。
+root 运行的定时器与管理会话看到同一份数据）。该目录归 root、属组为管理员组（`sudo` /
+`wheel` / `admin` 中第一个存在的组）：只有 root 可写；订阅、生效配置、`customize.json`
+与日志为 0640，管理员组成员（本来就能 sudo）不经 sudo 即可浏览，其他用户无权读取。旧版本
+交给普通用户的目录会在升级后首次以 root 运行时（交互启动、watchdog 或定时更新）自动收归 root。
 环境变量 `SBOXKIT_HOME` 可覆盖（主要用于测试）。运行时自包含暂存于
-`/var/lib/sboxkit-runtime`，systemd 单元名为 `sing-box.service` /
+`/var/lib/sboxkit-runtime`（生效配置 0600），sing-box 的缓存在 systemd 管理的
+`/var/lib/sboxkit-cache`，systemd 单元名为 `sing-box.service` /
 `sing-box-watchdog.timer` / `sing-box-update.timer`。
+
+sing-box 默认以 systemd `DynamicUser` 运行：配置经 `LoadCredential` 由 systemd 交付，
+文件系统整体只读，可写的只有缓存目录，只保留 `CAP_NET_ADMIN` / `CAP_NET_BIND_SERVICE` /
+`CAP_NET_RAW`。配置按进程名 / 路径分流（需要读取其他用户的进程信息）、systemd 早于 247，
+或非 root 身份起不来而 root 可以时，自动改回 root 运行并说明原因。
 
 ## 目录结构
 
@@ -146,9 +178,10 @@ sboxkit/
 │   ├── subscription/       # 订阅：拉取 / 识别（三态）/ 分享链接解析 / manager
 │   ├── kernel/  fetchx/    # sing-box 内核·geo 规则集下载（直连优先→代理兜底）与 deb 种子接管
 │   ├── uiassets/           # 内置 Web 面板静态资源（go:embed）
-│   ├── selfupdate/         # sboxkit 自更新：版本化目录 + 原子符号链接切换
+│   ├── selfupdate/         # sboxkit 自更新：系统模式经 dpkg 安装 .deb，其余为版本化目录 + 原子符号链接
 │   ├── sysd/               # systemd 三组单元（服务/自愈/定时器，模板内嵌）
 │   ├── config/  txn/  …    # 定制层存取、事务回滚、路径、防火墙、代理环境变量
+├── scripts/install.sh      # 一键安装（随发行版发布，校验 API 摘要）
 ├── scripts/fetch-deb-deps.sh  # 打包前强制刷新并校验 sing-box 内核与 geo 规则集种子
 ├── packaging/copyright     # .deb 第三方资产许可与归属
 └── .goreleaser.yaml        # tar.gz + .deb（amd64/arm64/armv7）发布流水线

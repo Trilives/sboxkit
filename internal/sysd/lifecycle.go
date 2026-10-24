@@ -42,7 +42,20 @@ func Restart(name string) error {
 	if err := s.ensurePrivilege(i18n.T("重启服务")); err != nil {
 		return err
 	}
-	_, err := s.run(s.systemctl("restart", name+".service"), i18n.T("重启服务"), nil)
+	return restartMain(s, name, i18n.T("重启服务"))
+}
+
+// restartMain 重启主服务。relay 以 PartOf 跟随主服务启停，身份回退、事务回退这类连续重启会让它
+// 撞上 systemd 的启动频率限制（默认 10 秒 5 次），主服务随之因 Requires 起不来；重启前先对两者
+// reset-failed，清零启动频率计数与 NRestarts。
+func restartMain(s unitScope, name, reason string) error {
+	return restartMainWith(s, name, reason, s.run)
+}
+
+func restartMainWith(s unitScope, name, reason string, run func([]string, string, *execx.Opt) (execx.Result, error)) error {
+	// 尽力而为：单元尚未加载时 reset-failed 报错，不影响随后的重启。
+	run(s.systemctl("reset-failed", name+".service", bootstrapServiceName(name)+".service"), reason, &execx.Opt{Capture: true})
+	_, err := run(s.systemctl("restart", name+".service"), reason, nil)
 	return err
 }
 

@@ -48,7 +48,8 @@ func resolveLocalPath(sourcePath string) (string, error) {
 		return "", fmt.Errorf("%s", i18n.T("本地文件路径不能为空"))
 	}
 	if strings.HasPrefix(sourcePath, "~/") {
-		if home, err := os.UserHomeDir(); err == nil {
+		// 系统模式经 sudo 运行，~ 应指向发起操作的用户而不是 root。
+		if home := execx.InvokingUserHome(); home != "" {
 			sourcePath = filepath.Join(home, strings.TrimPrefix(sourcePath, "~/"))
 		}
 	}
@@ -100,7 +101,7 @@ func applyImportConfig(p paths.Paths, raw []byte, sync bool) error {
 		Snapshot: []string{p.ConfigFile, p.ActiveFile},
 		Sync:     sync,
 		Commit: func(*txn.Transaction) error {
-			if err := writeFileAtomic(p.ConfigFile, raw, 0o644); err != nil {
+			if err := writeFileAtomic(p.ConfigFile, raw, p.SecretFileMode()); err != nil {
 				return err
 			}
 			if err := os.Remove(p.ActiveFile); err != nil && !os.IsNotExist(err) {

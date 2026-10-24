@@ -30,13 +30,10 @@ func ReconcileRuntime(p paths.Paths, name string) {
 	if name == "" {
 		name = DefaultName
 	}
-	if !runtimeInstalled(name) || !runtimeActive(name) {
+	if !RuntimeNeedsReconcile(p, name) {
 		return
 	}
 	deployed := deployedRuntimeVersion(p)
-	if deployed == Version {
-		return
-	}
 	if deployed == "" {
 		deployed = "?"
 	}
@@ -44,6 +41,15 @@ func ReconcileRuntime(p paths.Paths, name string) {
 	if err := runtimeSync(p, name); err != nil {
 		execx.Warn(fmt.Sprintf(i18n.T("同步运行时资源失败，下次启动时重试：%v"), err))
 	}
+}
+
+// RuntimeNeedsReconcile 报告 ReconcileRuntime 此刻是否会重新同步（只读）：系统模式的
+// 管理界面据此决定启动时是否需要提权。
+func RuntimeNeedsReconcile(p paths.Paths, name string) bool {
+	if name == "" {
+		name = DefaultName
+	}
+	return runtimeInstalled(name) && runtimeActive(name) && deployedRuntimeVersion(p) != Version
 }
 
 func deployedRuntimeVersion(p paths.Paths) string {

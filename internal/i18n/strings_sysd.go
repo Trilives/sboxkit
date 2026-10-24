@@ -8,10 +8,9 @@ func init() {
 		"未找到 geo 规则集 geosite-cn.srs，请先执行『下载内核/geo 数据』": "geo rule-set geosite-cn.srs not found; please run 'Update core/geo data' first",
 		"未找到 geo 规则集 geoip-cn.srs，请先执行『下载内核/geo 数据』":   "geo rule-set geoip-cn.srs not found; please run 'Update core/geo data' first",
 		"未找到 systemctl，注册服务需要 systemd":                 "systemctl not found; registering the service requires systemd",
-		"注册系统服务": "Register system service",
-		"部署运行时":  "Deploy runtime",
-		"未找到内置 Web 面板资源，面板将不可用。": "Built-in web panel assets not found; the panel will be unavailable.",
-		"刷新内置 Web 面板资源失败：":       "Failed to refresh built-in web panel assets: ",
+		"注册系统服务":           "Register system service",
+		"部署运行时":            "Deploy runtime",
+		"刷新内置 Web 面板资源失败：": "Failed to refresh built-in web panel assets: ",
 		"sboxkit 版本已变化（%s → %s），同步全部运行时资源（服务单元、Web 面板、内核与规则集、运行时配置）…": "sboxkit version changed (%s → %s); syncing all runtime resources (service units, web panel, kernel and rule sets, runtime config)…",
 		"同步运行时资源失败，下次启动时重试：%v":                                        "Failed to sync runtime resources; will retry on next start: %v",
 		"记录运行时资源版本失败：%v":                                              "Failed to record the runtime resource version: %v",
@@ -55,5 +54,13 @@ func init() {
 		"每周更新定时器已安装（%s）。":             "Weekly update timer installed (%s).",
 		"卸载每周更新定时器":                   "Uninstall weekly update timer",
 		"每周更新定时器已卸载。":                 "Weekly update timer uninstalled.",
+
+		"sing-box 以非 root 身份未能稳定运行，改回 root 运行（原因见 journalctl -u sing-box）。": "sing-box did not run stably without root; switched back to root (see journalctl -u sing-box for the cause).",
+		"systemd %d 不支持 LoadCredential（需要 %d+），sing-box 继续以 root 运行":        "systemd %d does not support LoadCredential (needs %d+); sing-box keeps running as root",
+		"此前以非 root 身份启动失败，本版本内 sing-box 继续以 root 运行":                        "Starting without root failed earlier; sing-box keeps running as root for this version",
+		"记录运行身份失败：%v": "Failed to record the service identity: %v",
+		"配置中的 log.output 已忽略：系统服务的日志统一写入 journal（journalctl -u sing-box）。": "log.output in the config is ignored: the system service logs to the journal (journalctl -u sing-box).",
+		"配置按进程名分流，识别其他用户的进程需要 root，sing-box 继续以 root 运行":                   "The config routes by process name; identifying other users' processes needs root, so sing-box keeps running as root",
+		"sing-box 以 root 运行同样失败，故障与运行身份无关（原因见 journalctl -u sing-box）":     "sing-box fails as root too, so the problem is unrelated to the service identity (see journalctl -u sing-box)",
 	})
 }

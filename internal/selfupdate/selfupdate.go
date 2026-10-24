@@ -61,13 +61,17 @@ const (
 	Preview Channel = "preview"
 )
 
+// ghAsset 发行资产；Digest 为 GitHub 计算的 "sha256:<hex>"，与下载走不走镜像无关。
+type ghAsset struct {
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
+	Digest             string `json:"digest"`
+}
+
 type ghRelease struct {
-	TagName    string `json:"tag_name"`
-	Prerelease bool   `json:"prerelease"`
-	Assets     []struct {
-		Name               string `json:"name"`
-		BrowserDownloadURL string `json:"browser_download_url"`
-	} `json:"assets"`
+	TagName    string    `json:"tag_name"`
+	Prerelease bool      `json:"prerelease"`
+	Assets     []ghAsset `json:"assets"`
 }
 
 func fetchRelease(f *fetchx.Fetcher, channel Channel) (ghRelease, error) {
@@ -86,17 +90,32 @@ func fetchRelease(f *fetchx.Fetcher, channel Channel) (ghRelease, error) {
 	return rel, err
 }
 
-func assetName(version string) string {
-	return fmt.Sprintf("sboxkit_%s_linux_%s.tar.gz", version, runtime.GOARCH)
+// fetchReleaseByTag 指定版本的发行版（回退到某个已知版本时用）。
+func fetchReleaseByTag(f *fetchx.Fetcher, version string) (ghRelease, error) {
+	var rel ghRelease
+	err := f.ReadJSON("https://api.github.com/repos/"+Repo+"/releases/tags/v"+strings.TrimPrefix(version, "v"), &rel)
+	return rel, err
 }
 
-func findAssetURL(rel ghRelease, name string) string {
+// releaseArch 发行资产名里的架构（.goreleaser.yaml：Arch 加 GOARM 后缀，如 armv7）。
+func releaseArch() string {
+	if runtime.GOARCH == "arm" {
+		return "armv7"
+	}
+	return runtime.GOARCH
+}
+
+func assetName(version string) string {
+	return fmt.Sprintf("sboxkit_%s_linux_%s.tar.gz", version, releaseArch())
+}
+
+func findAsset(rel ghRelease, name string) (ghAsset, bool) {
 	for _, a := range rel.Assets {
 		if a.Name == name {
-			return a.BrowserDownloadURL
+			return a, true
 		}
 	}
-	return ""
+	return ghAsset{}, false
 }
 
 func versionsDir(p paths.Paths) string    { return filepath.Join(p.State, "sboxkit-versions") }
@@ -119,6 +138,9 @@ func LatestVersion(p paths.Paths, channel Channel) (string, error) {
 // LastStableVersion 返回记录的"上一个稳定版"版本号（每次稳定渠道更新成功后都会
 // 刷新）；尚未记录过（从未在这台机器上完成过一次稳定渠道更新）则 ok=false。
 func LastStableVersion(p paths.Paths) (string, bool) {
+	if packageManaged(p) {
+		return lastStableDebVersion(p)
+	}
 	target, err := os.Readlink(lastStableLink(p))
 	if err != nil {
 		return "", false
@@ -200,8 +222,8 @@ func replaceExecutableLink(exe, target string) error {
 	return nil
 }
 
-// swapCurrentLink 原子重写 current 符号链接指向 target（versionsDir 属当前
-// 用户所有，不需要 root）。
+// swapCurrentLink 原子重写 current 符号链接指向 target（versionsDir 与运行中的
+// sboxkit 同属主：系统模式下都是 root，用户模式下都是本人，无需另行提权）。
 func swapCurrentLink(p paths.Paths, target string) error {
 	return atomicSymlink(target, currentLink(p))
 }

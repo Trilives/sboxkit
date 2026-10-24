@@ -15,7 +15,8 @@ func init() {
 		"按 sboxkit 统一规则重建该订阅（TUN / DNS / AI / 流媒体 / 地区自动测速组）？否则仅信任你的原生配置，只补齐面板/控制器设置。": "Rebuild this subscription using sboxkit's unified rules (TUN / DNS / AI / streaming / region auto-test groups)? Otherwise trust your native config as-is, only filling in panel/controller settings.",
 		"使用下载代理拉取此订阅？默认否＝直连": "Use the download proxy to fetch this subscription? Default no = direct connection",
 
-		"创建数据目录 ": "Create data directory ",
+		"系统模式的数据目录 %s 只能由 root 管理，请用 sudo 运行": "the system mode data directory %s is managed by root only; run with sudo",
+		"收归数据目录 %s 为 root 属主失败：%w":            "failed to hand data directory %s over to root: %w",
 
 		"未配置 GitHub Token，匿名 API 限额较低（60 次/小时），高频操作易被限流。": "No GitHub token configured; the anonymous API rate limit is low (60 requests/hour) and frequent operations may get throttled.",
 		"现在添加 GitHub Token？":                "Add a GitHub token now?",
@@ -29,5 +30,14 @@ func init() {
 		"读取本地文件: %w":               "Failed to read the local file: %w",
 		"请输入文件路径，而不是目录: %s":        "Please provide a file path, not a directory: %s",
 		"解析 YAML 配置文件: %w":         "Failed to parse the YAML config file: %w",
+
+		"此操作会改动系统服务或配置，":                 "This action changes the system service or config and",
+		"首次使用需要初始化":                      "First run needs initialization",
+		"需要把旧版本的数据目录收归 root":             "The data directory from an older version must be handed back to root",
+		"当前用户不在管理员组 %s 中，读不到 root 管理的数据": "The current user is not in the admin group %s and cannot read the root-managed data",
+		"服务尚未安装，需要初始化":                   "The service is not installed yet and needs initialization",
+		"sboxkit 版本已变化，需要同步运行时资源":        "The sboxkit version changed; runtime resources need syncing",
+		"网络自愈组件需要修复":                     "The network self-healing components need repair",
+		"SBOXKIT_HOME 指向的 %s 属于 UID %d：系统模式只接管 root 属主的目录，请改用默认的 %s 或 root 属主的目录": "SBOXKIT_HOME points to %s, owned by UID %d: system mode only takes over root-owned directories; use the default %s or a root-owned directory",
 	})
 }

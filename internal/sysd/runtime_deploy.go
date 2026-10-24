@@ -11,6 +11,7 @@ import (
 	"crypto/sha256"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/Trilives/sboxkit/internal/execx"
 	"github.com/Trilives/sboxkit/internal/i18n"
@@ -47,10 +48,15 @@ func planCoreDeploy(p paths.Paths, rt runtimePaths, needCaps bool) coreAction {
 func deployRuntimeAssets(p paths.Paths, rt runtimePaths, staged string) error {
 	s := rt.Scope
 	reason := i18n.T("部署运行时")
-	for _, cmd := range [][]string{
+	cmds := [][]string{
 		{"mkdir", "-p", rt.Dir},
-		{"chmod", runtimeDirectoryMode, rt.Dir},
-	} {
+		{"chmod", s.runtimeDirMode(), rt.Dir},
+	}
+	if !s.User {
+		// 旧版本把缓存放在运行时目录；系统单元现在只写 StateDirectory。
+		cmds = append(cmds, []string{"rm", "-f", filepath.Join(rt.Dir, "cache.db")})
+	}
+	for _, cmd := range cmds {
 		if _, err := s.run(cmd, reason, nil); err != nil {
 			return err
 		}

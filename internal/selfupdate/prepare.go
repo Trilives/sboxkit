@@ -12,7 +12,7 @@ import (
 	"github.com/Trilives/sboxkit/internal/paths"
 )
 
-// Prepared 已下载、校验并试跑通过，但尚未切换 current 的 sboxkit 版本。
+// Prepared 已下载、校验并试跑通过，但尚未切换（或安装）的 sboxkit 版本。
 type Prepared struct {
 	Version   string
 	Bin       string
@@ -20,10 +20,13 @@ type Prepared struct {
 	current   string  // 当前运行版本（首次自更新迁移的基线名）
 	created   bool    // 版本目录由本次 Prepare 新建：放弃时删除
 	activated bool
+	deb       string // 系统模式：经 dpkg 安装的 .deb
+	debFresh  bool   // deb 由本次下载（而非取自缓存）：放弃时删除
+	scratch   string // 系统模式：解出 Bin 的临时目录
 }
 
 // Prepare 下载并校验 channel 上的最新版本，不切换 current；latest=true 表示当前已是
-// 最新版本（返回的 Prepared 为 nil）。
+// 最新版本（返回的 Prepared 为 nil）。系统模式下由 dpkg 安装的 sboxkit 改为准备同版本 .deb。
 func Prepare(p paths.Paths, currentVersion string, channel Channel) (*Prepared, bool, error) {
 	f, s := kernel.NewFetcher(p)
 	rel, err := fetchRelease(f, channel)
@@ -37,16 +40,12 @@ func Prepare(p paths.Paths, currentVersion string, channel Channel) (*Prepared, 
 	if version == strings.TrimPrefix(currentVersion, "v") {
 		return nil, true, nil
 	}
+	if packageManaged(p) {
+		t, err := prepareDeb(p, f, s, rel, version, channel)
+		return t, false, err
+	}
 	name := assetName(version)
-	assetURL := findAssetURL(rel, name)
-	if assetURL == "" {
-		return nil, false, fmt.Errorf(i18n.T("未找到本机架构的发行包: %s"), name)
-	}
-	sumsURL := findAssetURL(rel, "checksums.txt")
-	if sumsURL == "" {
-		return nil, false, fmt.Errorf("%s", i18n.T("发行版缺少 checksums.txt，无法校验完整性"))
-	}
-	archive, err := downloadVerified(p, f, s, name, assetURL, sumsURL)
+	archive, err := downloadVerified(p, f, s, rel, name)
 	if err != nil {
 		return nil, false, err
 	}
@@ -61,27 +60,52 @@ func Prepare(p paths.Paths, currentVersion string, channel Channel) (*Prepared, 
 	return t, false, nil
 }
 
-func downloadVerified(p paths.Paths, f fetcher, s kernel.Settings, name, assetURL, sumsURL string) (string, error) {
+// downloadVerified 下载发行资产 name 并校验：优先比对 release API 给出的 SHA-256（不经
+// 镜像，镜像只负责传输）；没有摘要时，仅在直连 GitHub 下载时退回 checksums.txt。
+func downloadVerified(p paths.Paths, f fetcher, s kernel.Settings, rel ghRelease, name string) (string, error) {
+	asset, ok := findAsset(rel, name)
+	if !ok {
+		return "", fmt.Errorf(i18n.T("未找到本机架构的发行包: %s"), name)
+	}
+	parsed, hasDigest := kernel.ParseAssetDigest(asset.Digest)
+	digest, err := kernel.RequireDigest(parsed, hasDigest, s.GithubMirror, name)
+	if err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(p.Downloads, 0o755); err != nil {
 		return "", err
 	}
 	archivePath := filepath.Join(p.Downloads, name)
-	sumsPath := filepath.Join(p.Downloads, name+".sha256")
-	defer os.Remove(sumsPath)
-	execx.Info(i18n.T("下载 sboxkit: ") + assetURL)
-	if err := f.FetchFile(kernel.Mirror(assetURL, s.GithubMirror), archivePath); err != nil {
+	os.Remove(archivePath) // 残留文件会被当成断点续传的前半段
+	execx.Info(i18n.T("下载 sboxkit: ") + asset.BrowserDownloadURL)
+	if err := f.FetchFile(kernel.Mirror(asset.BrowserDownloadURL, s.GithubMirror), archivePath); err != nil {
 		return "", err
 	}
-	if err := f.FetchFile(kernel.Mirror(sumsURL, s.GithubMirror), sumsPath); err != nil {
-		os.Remove(archivePath)
-		return "", err
+	if digest.IsZero() {
+		err = verifyWithChecksums(f, rel, archivePath, name)
+	} else {
+		err = digest.Verify(archivePath)
 	}
-	if err := verifySHA256(archivePath, sumsPath, name); err != nil {
+	if err != nil {
 		os.Remove(archivePath)
 		return "", err
 	}
 	execx.Ok(i18n.T("SHA-256 校验通过。"))
 	return archivePath, nil
+}
+
+// verifyWithChecksums 发行版缺少资产摘要且直连 GitHub 时，按同一发行版的 checksums.txt 校验。
+func verifyWithChecksums(f fetcher, rel ghRelease, archivePath, name string) error {
+	sums, ok := findAsset(rel, "checksums.txt")
+	if !ok {
+		return fmt.Errorf("%s", i18n.T("发行版缺少 checksums.txt，无法校验完整性"))
+	}
+	sumsPath := archivePath + ".sha256"
+	defer os.Remove(sumsPath)
+	if err := f.FetchFile(sums.BrowserDownloadURL, sumsPath); err != nil {
+		return err
+	}
+	return verifySHA256(archivePath, sumsPath, name)
 }
 
 type fetcher interface {
@@ -143,6 +167,9 @@ func replaceDir(src, dst string) error {
 
 // PrepareStable 以 last-stable 记录的稳定版为目标（试跑通过，不切换）。
 func PrepareStable(p paths.Paths) (*Prepared, error) {
+	if packageManaged(p) {
+		return prepareStableDeb(p)
+	}
 	target, err := os.Readlink(lastStableLink(p))
 	if err != nil {
 		return nil, fmt.Errorf("%s", i18n.T("尚未记录过稳定版，无法回退"))
@@ -153,8 +180,11 @@ func PrepareStable(p paths.Paths) (*Prepared, error) {
 	return &Prepared{Version: filepath.Base(filepath.Dir(target)), Bin: target}, nil
 }
 
-// Activate 把 current 切换到该版本并试跑；返回切回原版本的回退函数。
+// Activate 把 current 切换到该版本（系统模式下经 dpkg 安装）并试跑；返回切回原版本的回退函数。
 func (t *Prepared) Activate(p paths.Paths) (func() error, error) {
+	if t.deb != "" {
+		return t.activateDeb(p)
+	}
 	if t.channel != "" {
 		if err := ensureManagedByCurrentLink(p, t.current); err != nil {
 			return nil, err
@@ -190,8 +220,12 @@ func (t *Prepared) Activate(p paths.Paths) (func() error, error) {
 	return undo, nil
 }
 
-// Finish 激活并提交后：稳定渠道记录 last-stable，清理旧版本目录。
+// Finish 激活并提交后：稳定渠道记录 last-stable，清理旧版本目录（系统模式下清理 deb 缓存）。
 func (t *Prepared) Finish(p paths.Paths) {
+	if t.deb != "" {
+		t.finishDeb(p)
+		return
+	}
 	if t.channel == Stable {
 		// 记录本次稳定版，供之后切到预览版的用户一键回退；失败不影响本次更新
 		// 结果本身，下次稳定渠道更新时会自然覆盖重试。
@@ -202,9 +236,21 @@ func (t *Prepared) Finish(p paths.Paths) {
 	}
 }
 
-// Discard 未激活时删除本次新建的版本目录。
+// Discard 清理临时文件；未激活时删除本次新建的版本目录或下载的 deb。
 func (t *Prepared) Discard() {
-	if t != nil && t.created && !t.activated {
+	if t == nil {
+		return
+	}
+	if t.scratch != "" {
+		os.RemoveAll(t.scratch)
+	}
+	if t.activated {
+		return
+	}
+	if t.created {
 		os.RemoveAll(filepath.Dir(t.Bin))
+	}
+	if t.deb != "" && t.debFresh {
+		os.Remove(t.deb)
 	}
 }

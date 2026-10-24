@@ -122,10 +122,6 @@ func Have(name string) bool {
 
 var sudoOK bool
 
-// SuggestSudoLaunch 提权时是否提示「直接用 sudo 启动」。用户模式必须以普通用户运行，
-// 由 main 关闭此提示。
-var SuggestSudoLaunch = true
-
 // EnsureSudo 确保后续 root 操作可执行：已是 root 直接返回；
 // 否则用 `sudo -v` 交互式预热（会话内缓存），失败返回 ErrCancelled。
 func EnsureSudo(reason string) error {
@@ -136,9 +132,6 @@ func EnsureSudo(reason string) error {
 		return fmt.Errorf("%s", i18n.T("需要管理员权限，但未找到 sudo，请改用 root 运行"))
 	}
 	Info(reason + i18n.T("需要管理员权限。"))
-	if SuggestSudoLaunch {
-		Info(i18n.T("提示：也可以直接用 sudo 启动，避免中途输入密码。"))
-	}
 	c := exec.Command("sudo", "-v")
 	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := c.Run(); err != nil {

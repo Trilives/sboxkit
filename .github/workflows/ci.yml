@@ -26,3 +26,6 @@ jobs:
 
       - name: Build
         run: go build ./cmd/sboxkit
+
+      - name: Install script
+        run: bash scripts/test-install.sh

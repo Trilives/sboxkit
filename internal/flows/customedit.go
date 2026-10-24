@@ -113,7 +113,7 @@ func syncLogging(p paths.Paths, cfg config.Config) {
 		execx.DisableLog()
 		return
 	}
-	if err := execx.EnableLog(execx.LogPath(p.State), int64(cfg.LogMaxMB)*1024*1024); err != nil {
+	if err := execx.EnableLog(execx.LogPath(p.State), int64(cfg.LogMaxMB)*1024*1024, p.SecretFileMode()); err != nil {
 		execx.Warn(i18n.T("日志启用失败：") + err.Error())
 	}
 }

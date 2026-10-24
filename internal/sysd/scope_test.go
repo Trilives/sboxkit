@@ -289,3 +289,24 @@ func TestScopeConflictBlocksOnlyRunningSystemService(t *testing.T) {
 		t.Fatalf("installed but stopped system service should only warn: %v", err)
 	}
 }
+
+func TestRestartMainClearsStartLimitsBeforeRestarting(t *testing.T) {
+	var commands []string
+	run := func(cmd []string, _ string, _ *execx.Opt) (execx.Result, error) {
+		commands = append(commands, strings.Join(cmd, " "))
+		return execx.Result{}, nil
+	}
+
+	if err := restartMainWith(unitScope{}, DefaultName, "", run); err != nil {
+		t.Fatal(err)
+	}
+
+	// relay 以 PartOf 跟随主服务：连续重启后它可能撞上启动频率限制，主服务随之因 Requires 起不来。
+	want := []string{
+		"systemctl reset-failed sing-box.service sing-box-bootstrap-dns.service",
+		"systemctl restart sing-box.service",
+	}
+	if strings.Join(commands, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("commands = %q, want %q", commands, want)
+	}
+}

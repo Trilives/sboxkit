@@ -5,12 +5,13 @@
 package proxyenv
 
 import (
+	"errors"
 	"fmt"
 	"os"
-	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/Trilives/sboxkit/internal/execx"
 	"github.com/Trilives/sboxkit/internal/i18n"
@@ -21,6 +22,8 @@ const (
 
 	beginMark = "# >>> sboxkit proxy env >>>"
 	endMark   = "# <<< sboxkit proxy env <<<"
+
+	bashrcMode = 0o644
 )
 
 func block(port int) string {
@@ -42,16 +45,7 @@ func block(port int) string {
 
 // TargetBashrc 目标 bashrc：sudo 运行时落到真实调用用户，否则当前用户。
 func TargetBashrc() string {
-	home := ""
-	if sudoUser := os.Getenv("SUDO_USER"); sudoUser != "" && sudoUser != "root" {
-		if u, err := user.Lookup(sudoUser); err == nil {
-			home = u.HomeDir
-		}
-	}
-	if home == "" {
-		home, _ = os.UserHomeDir()
-	}
-	return filepath.Join(home, ".bashrc")
+	return filepath.Join(execx.InvokingUserHome(), ".bashrc")
 }
 
 // IsConfigured reports whether sboxkit's managed proxy block already exists.
@@ -83,21 +77,16 @@ func stripBlock(text string) string {
 func Write(port int) (string, error) {
 	path := TargetBashrc()
 	old := ""
-	existed := false
 	if raw, err := os.ReadFile(path); err == nil {
 		old = string(raw)
-		existed = true
 	}
 	body := strings.TrimRight(stripBlock(old), "\n")
 	content := block(port) + "\n"
 	if body != "" {
 		content = body + "\n\n" + content
 	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := writeBashrc(path, []byte(content)); err != nil {
 		return "", err
-	}
-	if !existed {
-		chownToSudoUser(path)
 	}
 	execx.Ok(fmt.Sprintf(i18n.T("已写入代理环境变量到 %s（新开终端生效；当前终端可 `source %s`）。"), path, path))
 	return path, nil
@@ -115,26 +104,60 @@ func Remove() error {
 		return nil
 	}
 	content := strings.TrimRight(stripBlock(old), "\n") + "\n"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := writeBashrc(path, []byte(content)); err != nil {
 		return err
 	}
 	execx.Ok(fmt.Sprintf(i18n.T("已从 %s 移除代理环境变量。"), path))
 	return nil
 }
 
-// chownToSudoUser 新建文件时若在 sudo 下，把属主还给真实用户，避免 root 占用。
-func chownToSudoUser(path string) {
-	sudoUser := os.Getenv("SUDO_USER")
-	if sudoUser == "" || sudoUser == "root" || os.Geteuid() != 0 {
-		return
+// writeBashrc 写入 bashrc。root 代 SUDO_USER 写入时，路径完全由该用户控制，
+// 交给 writeOwnedFile 防止被引向系统文件。
+func writeBashrc(path string, data []byte) error {
+	owner := execx.InvokingSudoUser()
+	if owner == nil {
+		return os.WriteFile(path, data, bashrcMode)
 	}
-	u, err := user.Lookup(sudoUser)
+	uid, err1 := strconv.Atoi(owner.Uid)
+	gid, err2 := strconv.Atoi(owner.Gid)
+	if err1 != nil || err2 != nil {
+		return fmt.Errorf(i18n.T("无法解析用户 %s 的 uid/gid"), owner.Username)
+	}
+	return writeOwnedFile(path, data, uid, gid)
+}
+
+// writeOwnedFile 以 root 改写 uid 家目录中的文件：不跟随符号链接（~/.bashrc →
+// /etc/shadow 会让 root 覆写系统文件），只改写属于 uid 的普通文件；新建的文件交还 uid。
+// 属主校验基于已打开的句柄，校验后无法再被替换。
+func writeOwnedFile(path string, data []byte, uid, gid int) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, bashrcMode)
+	if err == nil {
+		defer f.Close()
+		if err := f.Chown(uid, gid); err != nil {
+			return err
+		}
+		_, err = f.Write(data)
+		return err
+	}
+	if !errors.Is(err, os.ErrExist) {
+		return err
+	}
+	f, err = os.OpenFile(path, os.O_WRONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
-		return
+		return fmt.Errorf(i18n.T("拒绝写入 %s（不是普通文件或是符号链接）：%w"), path, err)
 	}
-	uid, err1 := strconv.Atoi(u.Uid)
-	gid, err2 := strconv.Atoi(u.Gid)
-	if err1 == nil && err2 == nil {
-		os.Chown(path, uid, gid)
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return err
 	}
+	sys, ok := st.Sys().(*syscall.Stat_t)
+	if !st.Mode().IsRegular() || !ok || int(sys.Uid) != uid || sys.Nlink != 1 {
+		return fmt.Errorf(i18n.T("拒绝写入 %s：它不是该用户自己的普通文件"), path)
+	}
+	if err := f.Truncate(0); err != nil {
+		return err
+	}
+	_, err = f.WriteAt(data, 0)
+	return err
 }

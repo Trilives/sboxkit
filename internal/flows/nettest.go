@@ -6,6 +6,7 @@
 package flows
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/Trilives/sboxkit/internal/config"
 	"github.com/Trilives/sboxkit/internal/configfile"
+	"github.com/Trilives/sboxkit/internal/errs"
 	"github.com/Trilives/sboxkit/internal/execx"
 	"github.com/Trilives/sboxkit/internal/i18n"
 	"github.com/Trilives/sboxkit/internal/paths"
@@ -215,7 +217,7 @@ func toolMenuOptions() []string {
 func ToolsMenu(p paths.Paths, currentVersion string) error {
 	idx := 0
 	for {
-		i, err := tui.Select(i18n.T("工具"), toolMenuOptions(), tui.SelectOpts{BackLabel: i18n.T("返回上层"), Initial: idx})
+		i, err := MenuSelect(i18n.T("工具"), toolMenuOptions(), toolMenuKeys, tui.SelectOpts{BackLabel: i18n.T("返回上层"), Initial: idx})
 		if err != nil {
 			return nil
 		}
@@ -236,11 +238,13 @@ func ToolsMenu(p paths.Paths, currentVersion string) error {
 		case 4:
 			terr = InfoTool(p)
 		case 5:
-			terr = updateMenuFlow(p, currentVersion)
+			if terr = RequireRoot(p, EntryUpdate); terr == nil {
+				terr = updateMenuFlow(p, currentVersion)
+			}
 		case 6:
 			terr = UsageTool()
 		}
-		if terr != nil {
+		if terr != nil && !errors.Is(terr, errs.ErrCancelled) {
 			execx.Error(terr.Error())
 		}
 	}

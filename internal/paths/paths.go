@@ -1,8 +1,9 @@
 // Package paths 统一路径常量。
 //
 // 运行期所有数据使用**固定工作目录** /var/lib/sboxkit（不随用户/HOME 变化，
-// root 运行的定时器与用户会话看到同一份数据）；环境变量 SBOXKIT_HOME 可覆盖
-// （主要用于测试）。首次使用由 flows.EnsureStateRoot 负责创建并交回调用者属主。
+// root 运行的定时器与管理会话看到同一份数据）；环境变量 SBOXKIT_HOME 可覆盖
+// （主要用于测试）。系统模式下该目录只有 root 能写、管理员组可读（见 SecureTree）：
+// 由 root 运行的 flows.EnsureStateRoot 创建，并把旧版本交给调用用户的目录收归 root。
 //
 // 用户模式（可执行文件旁存在 sboxkit.user-mode 标记，见 userMode.go）下状态默认
 // 落在包目录的 .sboxkit/，运行时暂存于状态目录内，服务以 systemd 用户单元运行。
@@ -85,12 +86,25 @@ func FromRoot(s string) Paths {
 	}
 }
 
-// EnsureStateDirs 创建所有运行期目录（幂等）。
+// EnsureStateDirs 创建所有运行期目录（幂等）；订阅目录含节点凭据，
+// 旧版本留下的 0755 也在此收紧。系统模式下新目录经父目录的 setgid 继承管理员组。
 func (p Paths) EnsureStateDirs() error {
-	for _, d := range []string{p.State, p.Bin, p.UI, p.Ruleset, p.Downloads, p.Subscriptions} {
+	for _, d := range []string{p.State, p.Bin, p.UI, p.Ruleset, p.Downloads} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return err
 		}
+	}
+	if err := os.MkdirAll(p.Subscriptions, p.SecretDirMode()); err != nil {
+		return err
+	}
+	st, err := os.Stat(p.Subscriptions)
+	if err != nil {
+		return err
+	}
+	// 只调整权限位，保留 setgid（chmod 不带该位会把它清掉）。
+	mode := st.Mode() & (os.ModePerm | os.ModeSetgid)
+	if want := mode&os.ModeSetgid | p.SecretDirMode(); want != mode {
+		return os.Chmod(p.Subscriptions, want)
 	}
 	return nil
 }

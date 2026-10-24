@@ -4,6 +4,7 @@
 package sysd
 
 import (
+	"encoding/json"
 	"os"
 
 	"github.com/Trilives/sboxkit/internal/compat"
@@ -42,7 +43,28 @@ func prepareRuntime(p paths.Paths, name, reason string, checkConflict bool) (run
 		os.Remove(staged)
 		return runtimePaths{}, "", precheckFailed(err)
 	}
+	if rt.Identity, err = runtimeIdentity(p, rt, staged); err != nil {
+		os.Remove(staged)
+		return runtimePaths{}, "", precheckFailed(err)
+	}
 	return rt, staged, nil
+}
+
+// runtimeIdentity 按暂存配置决定系统单元的运行身份；仍以 root 运行时说明原因。
+func runtimeIdentity(p paths.Paths, rt runtimePaths, staged string) (serviceIdentity, error) {
+	raw, err := os.ReadFile(staged)
+	if err != nil {
+		return identityRoot, err
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return identityRoot, err
+	}
+	identity, reason := chooseIdentity(p, rt.Scope, doc)
+	if reason != "" {
+		execx.Info(reason)
+	}
+	return identity, nil
 }
 
 func admitRuntime(p paths.Paths, rt runtimePaths, name, reason, staged string, checkConflict bool) error {

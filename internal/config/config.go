@@ -596,6 +596,11 @@ func Save(p paths.Paths, cfg Config) error {
 		os.Remove(tmpName)
 		return err
 	}
+	// 含 GitHub Token 与面板密钥：权限按模式限制（CreateTemp 默认 0600，系统模式还需管理员组可读）。
+	if err := os.Chmod(tmpName, p.SecretFileMode()); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
 	return os.Rename(tmpName, p.CustomizeFile)
 }
 

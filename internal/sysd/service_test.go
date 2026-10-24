@@ -51,8 +51,15 @@ func TestStageRuntimeConfigRewritesExternalUIAndCachePath(t *testing.T) {
 }
 
 func TestRuntimeSecretsUsePrivateDeploymentModes(t *testing.T) {
-	if runtimeDirectoryMode != "0700" || runtimeConfigMode != "0600" {
-		t.Fatalf("runtime modes expose node credentials: directory=%s config=%s", runtimeDirectoryMode, runtimeConfigMode)
+	if runtimeConfigMode != "0600" {
+		t.Fatalf("runtime config mode %s exposes node credentials", runtimeConfigMode)
+	}
+	// 系统运行时目录要让非特权 sing-box 执行内核、读取面板；配置经 LoadCredential 交付。
+	if got := (unitScope{}).runtimeDirMode(); got != "0755" {
+		t.Fatalf("system runtime dir mode = %s, want 0755", got)
+	}
+	if got := (unitScope{User: true}).runtimeDirMode(); got != "0700" {
+		t.Fatalf("user runtime dir mode = %s, want 0700", got)
 	}
 }
 
@@ -105,8 +112,11 @@ func TestSyncUIRuntimeStagesEmbeddedAssetsWithoutTouchingStateUI(t *testing.T) {
 	if !stagedHasIndex {
 		t.Fatal("embedded UI was not materialized before the privileged copy")
 	}
-	if len(commands) != 2 {
-		t.Fatalf("root commands = %v, want remove and copy of runtime UI only", commands)
+	if len(commands) != 3 {
+		t.Fatalf("root commands = %v, want remove, copy and chmod of runtime UI only", commands)
+	}
+	if got := strings.Join(commands[2], " "); got != "chmod 0755 "+rt.UI {
+		t.Fatalf("third root command = %q, the unprivileged service must be able to read the panel", got)
 	}
 	if got := strings.Join(commands[0], " "); got != "rm -rf "+rt.UI {
 		t.Fatalf("first root command = %q", got)
@@ -123,7 +133,7 @@ func TestSyncUIRuntimeStagesEmbeddedAssetsWithoutTouchingStateUI(t *testing.T) {
 
 func TestSyncUIRuntimeReturnsPrivilegedReplacementErrors(t *testing.T) {
 	wantErr := errors.New("root operation failed")
-	for _, failAt := range []int{1, 2} {
+	for _, failAt := range []int{1, 2, 3} {
 		t.Run(fmt.Sprintf("command_%d", failAt), func(t *testing.T) {
 			calls := 0
 			runRoot := func(_ []string, _ string, _ *execx.Opt) (execx.Result, error) {

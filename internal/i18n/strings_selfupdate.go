@@ -32,5 +32,10 @@ func init() {
 		"仓库还没有任何发行版":         "The repository has no releases yet",
 		"尚未记录过稳定版，无法回退":      "No stable version recorded yet; cannot roll back",
 		"记录的稳定版二进制无法正常运行：%w": "The recorded stable binary failed to run: %w",
+
+		"dpkg 安装 %s 失败：%v\n%s":                   "dpkg failed to install %s: %v\n%s",
+		"dpkg 正被其他程序占用，等待其完成…":                   "dpkg is in use by another program; waiting for it to finish…",
+		"安装包中没有 %s":                              "%s not found in the package",
+		"无法自动重新安装原版本 %q 的 sboxkit，请手动安装对应的 .deb": "Cannot reinstall the previous sboxkit version %q automatically; please install its .deb manually",
 	})
 }

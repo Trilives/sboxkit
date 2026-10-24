@@ -179,7 +179,7 @@ func fmtDelay(results map[string]int, name string) string {
 }
 
 // persistFirst 把选中节点提为目标分组首成员，双写生效配置与订阅配置（跨重启兜底）。
-func persistFirst(cfg map[string]any, groupTag, node string, files []string) error {
+func persistFirst(cfg map[string]any, groupTag, node string, files []string, mode os.FileMode) error {
 	for _, g := range groupsOf(cfg) {
 		if t, _ := g["type"].(string); t == "selector" && g["tag"] == groupTag {
 			members := outboundsOf(g["outbounds"])
@@ -200,7 +200,10 @@ func persistFirst(cfg map[string]any, groupTag, node string, files []string) err
 	}
 	for _, f := range files {
 		tmp := f + ".tmp"
-		if err := os.WriteFile(tmp, payload, 0o644); err != nil {
+		if err := os.WriteFile(tmp, payload, mode); err != nil {
+			return err
+		}
+		if err := os.Chmod(tmp, mode); err != nil { // WriteFile 不改已存在文件的权限
 			return err
 		}
 		if err := os.Rename(tmp, f); err != nil {
@@ -355,7 +358,7 @@ func NodeSelect(p paths.Paths, configPath, group string) error {
 			targets = append(targets, subCfg)
 		}
 	}
-	if err := persistFirst(r.cfg, r.groupName, r.node, targets); err != nil {
+	if err := persistFirst(r.cfg, r.groupName, r.node, targets, p.SecretFileMode()); err != nil {
 		return err
 	}
 	execx.Ok(fmt.Sprintf(i18n.T("已固定 %s 首选 = %s"), r.groupName, r.node))

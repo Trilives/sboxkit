@@ -7,9 +7,27 @@ After=network-online.target {{.BootstrapUnit}}
 
 [Service]
 Type=simple
+{{- if .Dynamic}}
+DynamicUser=yes
+LoadCredential=config.json:{{.Config}}
+ExecStart={{.Bin}} run -c ${CREDENTIALS_DIRECTORY}/config.json
+ProtectSystem=strict
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+{{- else}}
 User=root
-WorkingDirectory={{.RuntimeDir}}
 ExecStart={{.Bin}} run -c {{.Config}}
+{{- end}}
+StateDirectory={{.StateDir}}
+StateDirectoryMode=0700
+WorkingDirectory={{.RuntimeDir}}
 Restart=on-failure
 RestartSec=3
 LimitNOFILE=1048576

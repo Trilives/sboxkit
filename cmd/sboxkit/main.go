@@ -29,17 +29,26 @@ func main() {
 	flows.Version = version
 	sysd.Version = version
 	p := paths.Detect()
-	setupLanguage(p)
-	setupLogging(p)
-	execx.SuggestSudoLaunch = !p.UserMode
-	args := os.Args[1:]
-	if len(args) == 0 {
-		exitIfErr(flows.EnsureStateRoot(p))
-		os.Exit(interactive(p))
+	args, err := parseResume(os.Args[1:])
+	exitIfErr(err)
+	cmd := ""
+	if len(args) > 0 {
+		cmd = args[0]
 	}
-	switch args[0] {
-	case "init", "modify", "uninstall", "update", "assets-update", "portable-update", "pause", "resume":
-		exitIfErr(flows.EnsureStateRoot(p))
+	isRoot := execx.IsRoot()
+	// 普通用户读状态不构成提权风险；root 要等状态目录收归之后才读其中的 customize.json：
+	// 收归前它可能是普通用户埋下的 FIFO 或符号链接。
+	setupLanguage(p, p.UserMode || !isRoot)
+	if reason, ok := elevationReason(p, cmd, isRoot); ok {
+		exitIfErr(elevate(reason, args))
+	}
+	trusted := prepareState(p, cmd, isRoot)
+	if !p.UserMode && isRoot && trusted {
+		setupLanguage(p, true)
+	}
+	setupLogging(p, trusted)
+	if len(args) == 0 {
+		os.Exit(interactive(p))
 	}
 	switch args[0] {
 	case "version", "--version", "-v":
@@ -68,6 +77,9 @@ func main() {
 	case "resume":
 		exitFlow(sysd.Resume(sysd.DefaultName))
 	case "healthcheck":
+		if !p.UserMode && isRoot && !trusted {
+			os.Exit(1) // 状态目录没能收归 root（原因已提示）：不以 root 读取其中的文件
+		}
 		os.Exit(sysd.RunHealthcheck(args[1:]))
 	case "bootstrap-dns":
 		os.Exit(bootstrapdns.Run(args[1:]))
@@ -80,13 +92,17 @@ func main() {
 }
 
 // setupLanguage 确定界面语言：SBOXKIT_LANG 环境变量 > customize.json 里的
-// language 字段 > 默认英文。config.Load 在状态目录不存在时安全返回默认值。
-func setupLanguage(p paths.Paths) {
+// language 字段 > 默认英文。readConfig=false 时只看环境变量。config.Load 在状态
+// 目录不存在时安全返回默认值。
+func setupLanguage(p paths.Paths, readConfig bool) {
 	if v := os.Getenv("SBOXKIT_LANG"); v == "zh" {
 		i18n.SetLang(i18n.ZH)
 		return
 	} else if v == "en" {
 		i18n.SetLang(i18n.EN)
+		return
+	}
+	if !readConfig {
 		return
 	}
 	if config.Str(config.Load(p), "language") == "zh" {
@@ -95,13 +111,17 @@ func setupLanguage(p paths.Paths) {
 }
 
 // setupLogging customize.json 的 enable_log=true 时，把 execx 的输出额外写入
-// 日志文件（超限自动裁剪旧内容，见 internal/execx/log.go）。
-func setupLogging(p paths.Paths) {
+// 日志文件（超限自动裁剪旧内容，见 internal/execx/log.go）。trusted=false 表示
+// 状态目录未确认可安全写入（见 prepareState），不写日志。
+func setupLogging(p paths.Paths, trusted bool) {
+	if !trusted {
+		return
+	}
 	cfg := config.Load(p)
 	if !cfg.EnableFileLog {
 		return
 	}
-	if err := execx.EnableLog(execx.LogPath(p.State), int64(cfg.LogMaxMB)*1024*1024); err != nil {
+	if err := execx.EnableLog(execx.LogPath(p.State), int64(cfg.LogMaxMB)*1024*1024, p.SecretFileMode()); err != nil {
 		execx.Warn(i18n.T("日志启用失败：") + err.Error())
 	}
 }
@@ -182,6 +202,9 @@ func interactive(p paths.Paths) int {
 		execx.Warn(fmt.Sprintf(i18n.T("修复网络自愈失败（主服务不受影响）：%v"), err))
 	}
 	maybeOfferFirstRunInit(p, defaultFirstRunDeps())
+	if !p.UserMode && !execx.IsRoot() {
+		execx.Info(i18n.T("以当前用户浏览：查看状态、切换节点和网络测试无需密码，改动配置或服务时会请求一次 sudo。"))
+	}
 	idx := 0
 	for {
 		// 顺序按常用程度排列：运行时管理/配置变更/网络测试等日常操作在前，
@@ -194,7 +217,7 @@ func interactive(p paths.Paths) int {
 			i18n.T("语言 / Language"),
 			i18n.T("卸载"),
 		}
-		i, err := tui.Select(i18n.T("sing-box 部署系统"), options, tui.SelectOpts{BackLabel: i18n.T("退出"), Initial: idx})
+		i, err := flows.MenuSelect(i18n.T("sing-box 部署系统"), options, flows.MainMenuKeys, tui.SelectOpts{BackLabel: i18n.T("退出"), Initial: idx})
 		if err != nil {
 			fmt.Println(i18n.T("再见。"))
 			return 0
@@ -205,20 +228,28 @@ func interactive(p paths.Paths) int {
 		case 0:
 			aerr = flows.ModifyRuntime(p)
 		case 1:
-			aerr = flows.ModifyConfig(p)
+			aerr = gated(p, flows.EntryConfig, func() error { return flows.ModifyConfig(p) })
 		case 2:
 			aerr = flows.ToolsMenu(p, version)
 		case 3:
-			aerr = flows.ServiceToggleFlow(p)
+			aerr = gated(p, flows.EntryToggle, func() error { return flows.ServiceToggleFlow(p) })
 		case 4:
-			aerr = flows.PickLanguage(p)
+			aerr = gated(p, flows.EntryLanguage, func() error { return flows.PickLanguage(p) })
 		case 5:
-			aerr = flows.Uninstall(p)
+			aerr = gated(p, flows.EntryUninstall, func() error { return flows.Uninstall(p) })
 		}
 		if aerr != nil && !errors.Is(aerr, errs.ErrCancelled) {
 			execx.Error(aerr.Error())
 		}
 	}
+}
+
+// gated 系统模式下以普通用户运行时先提权（直接进入 entry），再执行 run。
+func gated(p paths.Paths, entry flows.Entry, run func() error) error {
+	if err := flows.RequireRoot(p, entry); err != nil {
+		return err
+	}
+	return run()
 }
 
 // runUpdate 非交互全量更新（每周定时器的执行目标）：内核 + geo 最新版先暂存，
