@@ -10,6 +10,9 @@
 - 发布门禁：`gofmt`、`go vet`、`go test -race ./...`、带随包 sing-box v1.14.4 的 `go test ./...`（含真实内核用例）、
   脚本 `bash -n`、`goreleaser check` 与三架构快照构建（tar.gz / deb / 用户模式包）通过；快照用户模式包与 deb 的
   随包内核为 v1.14.4，包内二进制含 `compat-check`。DNS 迁移提交单独检出后 `go test ./...`（1.14.1 / 1.14.3）通过。
+- 发布验证：推送 `v0.3.2` 标签后 release 工作流成功（CI 随包 sing-box v1.14.4）；9 个资产均与 `checksums.txt`
+  一致；`/releases/latest` 与预览渠道（`/releases` 首项）都指向 v0.3.2。删除 18 个历史预发布及其标签，
+  仓库仅保留 `main` 分支与 13 个稳定版标签。
 
 ## 2026-10-24：导入、重建和更新前校验配置与内核兼容性
 
