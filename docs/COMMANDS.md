@@ -17,8 +17,8 @@ sboxkit 的**推荐用法是直接运行 `sboxkit` 进入交互式终端**（TUI
 | `sboxkit diagnose [--json]` | 只读展示 watchdog 当前状态和首次故障快照；不运行探针、不写配置、不修复或重启服务。无状态时也输出稳定的 unavailable 结构 |
 | `sboxkit pause` | 暂停主服务及全部伴生单元（watchdog / 定时器一并停止，保持开机自启） |
 | `sboxkit resume` | 启动主服务及全部伴生单元 |
-| `sboxkit update` | 非交互全量更新：内核 + geo 数据强制更新 → 服务同步重启（每周定时器的执行目标） |
-| `sboxkit assets-update` | 只更新当前状态目录中的 sing-box 内核与 geo 数据，绝不操作 systemd、不提权（旧名 `portable-update` 仍可用；用户模式下 `sboxkit update` 也会重启用户服务） |
+| `sboxkit update` | 非交互全量更新：内核 + geo 数据最新版先暂存，与当前生成器、生效订阅和生效配置的组合通过 `sing-box check` 后才换入并同步重启服务（每周定时器的执行目标）；不兼容时放弃更新、保持原组合运行并以非零状态退出 |
+| `sboxkit assets-update` | 只更新当前状态目录中的 sing-box 内核与 geo 数据，绝不操作 systemd、不提权（旧名 `portable-update` 仍可用；用户模式下 `sboxkit update` 也会重启用户服务）；与 `update` 相同的兼容性校验不通过时放弃更新 |
 | `sboxkit uninstall` | 勾选式卸载：服务 / 自愈 / 定时器 / 产物 / 全部状态 |
 | `sboxkit version` | 显示版本 |
 
@@ -31,12 +31,13 @@ printf '3\ny\n' | sboxkit        # 例：进入主菜单第 3 项并确认
 
 ## 内部子命令
 
-由 systemd 单元调用，一般无需手动执行：
+由 systemd 单元或 sboxkit 自身调用，一般无需手动执行：
 
 | 命令 | 说明 |
 |---|---|
 | `sboxkit healthcheck` | `sing-box-watchdog.service` 与 NetworkManager dispatcher 的执行目标；分层分类故障，再按持久冷却/熔断策略决定是否重启 |
 | `sboxkit bootstrap-dns` | 独立 relay 单元的执行目标；只监听 loopback，按有序 IP 字面量上游直连转发 DNS |
+| `sboxkit compat-check --kernel K --geosite G --geoip I --report R [--out O]` | 自更新 / 回退稳定版切换前由旧版本调用：用本版本生成器为生效订阅重新生成配置，以指定内核与规则集执行 `sing-box check`，结论以 JSON 写入 `R`，兼容时把配置写入 `O`（0600）；写出报告即退出 0，参数错误退出 2 |
 
 ## 环境变量
 

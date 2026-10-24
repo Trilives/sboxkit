@@ -105,14 +105,39 @@ func registerService(p paths.Paths) (bool, error) {
 		if err := ensureStartupResources(p); err != nil {
 			return err
 		}
-		t.AddUndo(i18n.T("卸载服务 sing-box"), func() error { return sysd.Remove(p, sysd.DefaultName, true) })
-		if err := sysd.Install(p, sysd.DefaultName, true); err != nil {
+		if err := installService(p, t); err != nil {
 			return err
 		}
 		installed = true
 		return nil
 	})
 	return installed, err
+}
+
+// 可在测试中替换。
+var (
+	serviceInstalled = func() bool { return sysd.IsInstalled(sysd.DefaultName) }
+	installUnit      = func(p paths.Paths) error { return sysd.Install(p, sysd.DefaultName, true) }
+	removeUnit       = func(p paths.Paths) error { return sysd.Remove(p, sysd.DefaultName, true) }
+)
+
+// installService 注册并启动服务。只为本次新建的服务登记卸载回退，且校验失败
+// （PrecheckError，运行时未被改动）时不卸载：已有的单元与运行时文件不会因回退被删除。
+func installService(p paths.Paths, t *txn.Transaction) error {
+	fresh := !serviceInstalled()
+	runtimeChanged := false
+	if fresh {
+		t.AddUndo(i18n.T("卸载服务 sing-box"), func() error {
+			if !runtimeChanged {
+				return nil
+			}
+			return removeUnit(p)
+		})
+	}
+	err := installUnit(p)
+	var pre *sysd.PrecheckError
+	runtimeChanged = err != nil && !errors.As(err, &pre)
+	return err
 }
 
 // initialConfigSource 添加首个订阅。若状态目录（/var/lib/sboxkit）里已有
@@ -197,13 +222,9 @@ func optionalPostStartUpdate(p paths.Paths) {
 		return
 	}
 	execx.Info(i18n.T("正在自动下载/更新内核与 geo 数据…"))
-	if _, err := kernel.DownloadAll(p, kernel.Options{Force: true}); err != nil {
-		execx.Warn(fmt.Sprintf(i18n.T("内核/geo 数据下载失败（服务仍按现有资源正常运行），可稍后在主菜单『运行时管理 → 内核更新』里重试：%v"), err))
-		return
-	}
-	execx.Info(i18n.T("已更新资源，重新部署运行时并重启服务…"))
-	if err := sysd.Install(p, sysd.DefaultName, true); err != nil {
-		execx.Warn(fmt.Sprintf(i18n.T("重新部署运行时失败（可稍后在设置里重试）：%v"), err))
+	opts := kernel.StageOptions{Core: true, Geo: true, Force: true}
+	if err := UpdateAssets(p, opts, false, true); err != nil {
+		execx.Warn(fmt.Sprintf(i18n.T("内核/geo 数据未更新（服务仍按现有资源正常运行），可稍后在主菜单『运行时管理 → 内核更新』里重试：%v"), err))
 	}
 }
 

@@ -15,7 +15,6 @@ func init() {
 		"检测到内置 Web 面板有更新，正在同步到运行时…":                        "A newer built-in web panel was detected; syncing it to the runtime…",
 		"更新内置 Web 面板":                                      "Update built-in web panel",
 		"内置 Web 面板已更新（浏览器刷新 http://host:9090/ui/ 即可看到新版）。": "Built-in web panel updated (refresh http://host:9090/ui/ in your browser to see the new version).",
-		"校验配置":    "Validate config",
 		"写服务单元":   "Write service unit",
 		"服务已启动: ": "Service started: ",
 		"服务已设为开机自启（未启动）: ": "Service set to start on boot (not started): ",

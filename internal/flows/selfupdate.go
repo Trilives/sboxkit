@@ -8,7 +8,6 @@ import (
 	"github.com/Trilives/sboxkit/internal/i18n"
 	"github.com/Trilives/sboxkit/internal/paths"
 	"github.com/Trilives/sboxkit/internal/selfupdate"
-	"github.com/Trilives/sboxkit/internal/sysd"
 	"github.com/Trilives/sboxkit/internal/tui"
 )
 
@@ -48,34 +47,30 @@ func doSelfUpdate(p paths.Paths, currentVersion string, channel selfupdate.Chann
 	if err != nil || !ok {
 		return err
 	}
-	version, alreadyLatest, err := selfupdate.Update(p, currentVersion, channel)
+	tool, alreadyLatest, err := selfupdate.Prepare(p, currentVersion, channel)
 	if err != nil {
 		return err
 	}
 	if alreadyLatest {
-		execx.Ok(fmt.Sprintf(i18n.T("已是最新版本（%s）。"), version))
+		execx.Ok(fmt.Sprintf(i18n.T("已是最新版本（%s）。"), currentVersion))
 		return nil
 	}
-	execx.Ok(fmt.Sprintf(i18n.T("sboxkit 已更新到 %s，下次运行即生效。"), version))
-	return syncRestartAfterSelfUpdate(p)
-}
-
-func syncRestartAfterSelfUpdate(p paths.Paths) error {
-	if !sysd.IsInstalled(sysd.DefaultName) {
-		return nil
-	}
-	ok, err := tui.Confirm(i18n.T("重新生成当前配置并重启服务？"), false)
-	if err != nil || !ok {
+	if err := runUpgrade(p, &upgrade{tool: tool}, upgradeMode{interactive: true, sync: true}); err != nil {
 		return err
 	}
-	return sysd.SyncAndRestart(p, sysd.DefaultName)
+	execx.Ok(fmt.Sprintf(i18n.T("sboxkit 已更新到 %s，下次运行即生效。"), tool.Version))
+	return nil
 }
 
+// doRollbackStable 回退到已记录的稳定版：与更新一样先校验该版本的生成器与当前内核的组合。
 func doRollbackStable(p paths.Paths) error {
-	version, err := selfupdate.RollbackToStable(p)
+	tool, err := selfupdate.PrepareStable(p)
 	if err != nil {
 		return err
 	}
-	execx.Ok(fmt.Sprintf(i18n.T("已回退到稳定版 %s，下次运行即生效。"), version))
+	if err := runUpgrade(p, &upgrade{tool: tool}, upgradeMode{interactive: true, sync: true}); err != nil {
+		return err
+	}
+	execx.Ok(fmt.Sprintf(i18n.T("已回退到稳定版 %s，下次运行即生效。"), tool.Version))
 	return nil
 }

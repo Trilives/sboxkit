@@ -29,11 +29,10 @@ func init() {
 		"生成 sing-box 配置…":                       "Generating sing-box config…",
 		"订阅「%s」就绪：%v 个节点":                       "Subscription \"%s\" ready: %v node(s)",
 
-		"已切换生效订阅: ":                "Active subscription switched to: ",
-		"配置已切换，但同步到服务失败：%v":        "Config switched, but syncing to the service failed: %v",
+		"已切换生效订阅: ": "Active subscription switched to: ",
 		"已删除当前生效订阅；请切换到其它订阅或重新添加。": "The active subscription was deleted; please switch to another subscription or add a new one.",
-		"已删除订阅: ":                  "Subscription deleted: ",
-		"目标名已存在: %s":               "Target name already exists: %s",
-		"已改名: %s → %s":             "Renamed: %s → %s",
+		"已删除订阅: ":      "Subscription deleted: ",
+		"目标名已存在: %s":   "Target name already exists: %s",
+		"已改名: %s → %s": "Renamed: %s → %s",
 	})
 }

@@ -2,6 +2,7 @@
 //
 // 每个订阅存于 state/subscriptions/<name>/：meta.json + raw.* + config.json。
 // active 指针（state/active）决定哪份部署生效；切换会同步 state/config.json 并重启服务。
+// 生成、刷新、重建与切换都先校验候选配置再落盘（见 candidate.go）。
 //
 // 与 mihomo 版最大的不同：sing-box 不能直接解析 Clash 配置，因此这里按来源类型
 // 分流到 internal/converter：clash → ClashToSingBox；sing-box 原生 → SingBoxDirect；
@@ -12,7 +13,6 @@ package subscription
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,12 +21,10 @@ import (
 	"time"
 
 	"github.com/Trilives/sboxkit/internal/config"
-	"github.com/Trilives/sboxkit/internal/converter"
 	"github.com/Trilives/sboxkit/internal/execx"
 	"github.com/Trilives/sboxkit/internal/i18n"
 	"github.com/Trilives/sboxkit/internal/jsonx"
 	"github.com/Trilives/sboxkit/internal/paths"
-	"github.com/Trilives/sboxkit/internal/sysd"
 )
 
 // Subscription 元数据；JSON 字段与 Python 版 meta.json 完全一致（老数据直读）。
@@ -120,10 +118,10 @@ func GetActive(p paths.Paths) *Subscription {
 // 增 / 改
 // --------------------------------------------------------------------------
 
-// Add 新增订阅（拉取 → 生成配置）；setActive 时切换生效。fetchViaProxy 为 false
-// （默认）时本次拉取强制直连，忽略 customize.json 里配置的下载代理——避免像
-// api.github.com 这类被单独封锁的域名因为下载代理默认启用而不必要地绕路，
-// 也让用户能按订阅逐个选择是否需要代理。
+// Add 新增订阅（拉取 → 生成并校验配置 → 写盘）；setActive 时切换生效并同步服务。
+// fetchViaProxy 为 false（默认）时本次拉取强制直连，忽略 customize.json 里配置的
+// 下载代理——避免像 api.github.com 这类被单独封锁的域名因为下载代理默认启用而
+// 不必要地绕路，也让用户能按订阅逐个选择是否需要代理。
 func Add(p paths.Paths, name, subURL, sourceType string, applyOverlay, setActive, fetchViaProxy bool) (*Subscription, error) {
 	name = Slug(name)
 	if _, err := os.Stat(metaFile(p, name)); err == nil {
@@ -137,15 +135,11 @@ func Add(p paths.Paths, name, subURL, sourceType string, applyOverlay, setActive
 	if !fetchViaProxy {
 		cfg.DownloadProxy = ""
 	}
-	if err := build(p, sub, cfg); err != nil {
+	raw, err := fetchRaw(sub, cfg)
+	if err != nil {
 		return nil, err
 	}
-	if setActive {
-		if err := applyActive(p, name); err != nil {
-			return sub, err
-		}
-	}
-	return sub, nil
+	return sub, regenerate(p, sub, raw, cfg, setActive)
 }
 
 // Refresh 联网重新拉取订阅原文并重建（用于「刷新订阅」/ 定时更新）；
@@ -156,15 +150,12 @@ func Refresh(p paths.Paths, name string) (*Subscription, error) {
 		return nil, fmt.Errorf(i18n.T("订阅不存在: %s"), name)
 	}
 	sub.UpdatedAt = now()
-	if err := build(p, sub, config.Load(p)); err != nil {
+	cfg := config.Load(p)
+	raw, err := fetchRaw(sub, cfg)
+	if err != nil {
 		return nil, err
 	}
-	if active := GetActive(p); active != nil && active.Name == name {
-		if err := applyActive(p, name); err != nil {
-			return sub, err
-		}
-	}
-	return sub, nil
+	return sub, regenerate(p, sub, raw, cfg, isActive(p, name))
 }
 
 // Rebuild 基于本地已存订阅原文重新生成（不联网），用于应用定制层等本地改动；
@@ -181,177 +172,49 @@ func Rebuild(p paths.Paths, name string) (*Subscription, error) {
 	}
 	sub.UpdatedAt = now()
 	execx.Info(fmt.Sprintf(i18n.T("用本地原文重新生成「%s」（不重新拉取）…"), sub.Name))
-	if err := convertAndWrite(p, sub, raw, config.Load(p)); err != nil {
-		return nil, err
-	}
-	if active := GetActive(p); active != nil && active.Name == name {
-		if err := applyActive(p, name); err != nil {
-			return sub, err
-		}
-	}
-	return sub, nil
+	return sub, regenerate(p, sub, raw, config.Load(p), isActive(p, name))
 }
 
-// build 拉取（或读本地文件）→ 写 raw → 生成配置写盘；cfg.DownloadProxy 决定
-// 本次拉取是否走下载代理（调用方按场景决定传入原样加载的 cfg 还是清空代理后的）。
-func build(p paths.Paths, sub *Subscription, cfg config.Config) error {
-	var raw []byte
-	var err error
-	if sub.SourceType == "local" {
-		// URL 字段复用为本地文件绝对路径（由 flows.resolveLocalPath 校验过）；
-		// 不联网，也不做 WarnIfMismatch——那是给"URL 拉取内容 vs 声明类型"的
-		// 探测，本地文件是用户直接指定的，没有这个歧义。
-		execx.Info(fmt.Sprintf(i18n.T("读取本地文件生成订阅「%s」…"), sub.Name))
-		raw, err = os.ReadFile(sub.URL)
-		if err != nil {
-			return fmt.Errorf(i18n.T("读取本地文件: %w"), err)
-		}
-	} else {
-		execx.Info(fmt.Sprintf(i18n.T("拉取订阅「%s」…"), sub.Name))
-		raw, err = Fetch(sub.URL, sub.SourceType, cfg.DownloadProxy)
-		if err != nil {
-			return err
-		}
-		if msg := WarnIfMismatch(SourceKind(sub.SourceType), raw); msg != "" {
-			execx.Warn(msg)
-		}
-	}
-	if err := os.MkdirAll(p.SubscriptionDir(sub.Name), 0o755); err != nil {
-		return err
-	}
-	if err := os.WriteFile(rawFile(p, sub), raw, 0o644); err != nil {
-		return err
-	}
-	return convertAndWrite(p, sub, raw, cfg)
-}
-
-// convertAndWrite 把订阅原文转换为 sing-box 配置，写 config.json/meta。
-//
-// 来源类型决定走哪条转换路径：
-//   - clash：converter.ClashToSingBox 现场生成整份 sing-box 配置（inbounds / dns /
-//     route / outbounds 分组，含 AI / 流媒体 / 地区自动测速组，均一次性生成）。
-//   - sing-box：converter.SingBoxDirect；ApplyOverlay 复用为「是否用 sboxkit 统一
-//     规则重建」开关——关闭则仅信任用户原配置、只патч clash_api；开启则提取
-//     节点重新走一遍与 clash 来源一致的生成管线（分组 / TUN / DNS 与其它订阅一致）。
-//   - base64：先经 ToClashDict 转成 Clash 字典，序列化后走 ClashToSingBox。
-//
-// "local" 来源只是拉取方式的旁路标记（URL 字段复用为本地文件路径，build 时
-// os.ReadFile 而非联网拉取），并不代表内容格式——本地文件既可以是 Clash YAML
-// 也可以是 sing-box JSON（见 askNewSubscription 的提示文案）。sub.SourceType
-// 本身继续保留字面量 "local"（Refresh/build 依赖它判断要不要重新按本地路径
-// 读取，而不是当成 URL 去发起 HTTP 请求），真正决定走哪条转换路径的是这里
-// 按内容现场探测出的 kind，无法判断时回退按 Clash YAML 处理。
-func convertAndWrite(p paths.Paths, sub *Subscription, raw []byte, cfg config.Config) error {
-	text := string(raw)
-
-	kind := SourceKind(sub.SourceType)
-	if sub.SourceType == "local" {
-		kind = SourceClash
-		if detected := Detect(raw); detected != SourceUnknown {
-			kind = detected
-		}
-	}
-
-	var (
-		result converter.Config
-		info   converter.Info
-		err    error
-	)
-	switch kind {
-	case SourceSingBox:
-		execx.Info(i18n.T("生成 sing-box 配置（原生订阅）…"))
-		result, info, err = converter.SingBoxDirect(text, cfg, p, sub.ApplyOverlay)
-	case SourceBase64:
-		execx.Info(i18n.T("经 subconverter/本地解析将 base64 转为 Clash…"))
-		clash, cerr := ToClashDict(text, cfg)
-		if cerr != nil {
-			return cerr
-		}
-		clashJSON, merr := json.Marshal(clash)
-		if merr != nil {
-			return merr
-		}
-		execx.Info(i18n.T("生成 sing-box 配置…"))
-		result, info, err = converter.ClashToSingBox(string(clashJSON), cfg, p)
-	default: // clash（含未探测出具体格式的本地文件，回退按 Clash YAML 处理）
-		execx.Info(i18n.T("生成 sing-box 配置…"))
-		result, info, err = converter.ClashToSingBox(text, cfg, p)
-	}
+// regenerate 生成并校验候选配置，通过后写入（activate 时切换生效并同步服务）。
+func regenerate(p paths.Paths, sub *Subscription, raw []byte, cfg config.Config, activate bool) error {
+	c, err := prepareCandidate(p, sub, raw, cfg)
 	if err != nil {
 		return err
 	}
-	if skipped, ok := info["fake_ip_filter_skipped"].([]string); ok && len(skipped) > 0 {
-		execx.Warn(fmt.Sprintf(i18n.T("以下 fake-ip-filter 依赖外部规则集，尚未转换：%s"), strings.Join(skipped, ", ")))
-	}
-	if skipped, ok := info["custom_fake_ip_filter_skipped"].([]string); ok && len(skipped) > 0 {
-		execx.Warn(fmt.Sprintf(i18n.T("以下用户追加的 fake-ip-filter 依赖外部规则集，尚未转换：%s"), strings.Join(skipped, ", ")))
-	}
-	if skipped, ok := info["host_entries_skipped"].([]string); ok && len(skipped) > 0 {
-		execx.Warn(fmt.Sprintf(i18n.T("以下 hosts 条目无法安全转换，已跳过：%s"), strings.Join(skipped, ", ")))
-	}
-
-	if n, ok := info["converted"].(int); ok {
-		sub.LastNodeCount = n
-	} else if n, ok := info["auto_count"].(int); ok {
-		sub.LastNodeCount = n
-	}
-
-	cfgJSON, err := jsonx.MarshalPretty(result)
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(configFile(p, sub.Name), cfgJSON, 0o644); err != nil {
-		return err
-	}
-	metaJSON, err := jsonx.MarshalPretty(sub)
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(metaFile(p, sub.Name), metaJSON, 0o644); err != nil {
+	if err := c.deploy(p, activate); err != nil {
 		return err
 	}
 	execx.Ok(fmt.Sprintf(i18n.T("订阅「%s」就绪：%v 个节点"), sub.Name, sub.LastNodeCount))
 	return nil
 }
 
+func isActive(p paths.Paths, name string) bool {
+	active := GetActive(p)
+	return active != nil && active.Name == name
+}
+
 // --------------------------------------------------------------------------
 // 切换 / 删除 / 改名
 // --------------------------------------------------------------------------
 
-// Switch 切换生效订阅。
+// Switch 切换生效订阅：先用当前内核校验该订阅已存的配置，通过后才替换生效配置、
+// active 指针并同步服务。
 func Switch(p paths.Paths, name string) error {
-	if _, err := os.Stat(metaFile(p, name)); err != nil {
+	sub := Get(p, name)
+	if sub == nil {
 		return fmt.Errorf(i18n.T("订阅不存在: %s"), name)
-	}
-	if err := applyActive(p, name); err != nil {
-		return err
-	}
-	execx.Ok(i18n.T("已切换生效订阅: ") + name)
-	return nil
-}
-
-func applyActive(p paths.Paths, name string) error {
-	if err := p.EnsureStateDirs(); err != nil {
-		return err
 	}
 	data, err := os.ReadFile(configFile(p, name))
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(p.ConfigFile, data, 0o644); err != nil {
+	if err := checkConfig(p, data); err != nil {
+		return fmt.Errorf(i18n.T("订阅「%s」的配置未通过校验，未切换（原配置与服务保持不变）；可先对它执行「重新生成配置」：%w"), name, err)
+	}
+	if err := (&candidate{sub: sub, config: data}).deploy(p, true); err != nil {
 		return err
 	}
-	if err := os.WriteFile(p.ActiveFile, []byte(name+"\n"), 0o644); err != nil {
-		return err
-	}
-	if sysd.IsInstalled(sysd.DefaultName) {
-		if err := sysd.SyncAndRestart(p, sysd.DefaultName); err != nil {
-			var ce *execx.CommandError
-			if errors.As(err, &ce) || err != nil {
-				execx.Warn(fmt.Sprintf(i18n.T("配置已切换，但同步到服务失败：%v"), err))
-			}
-		}
-	}
+	execx.Ok(i18n.T("已切换生效订阅: ") + name)
 	return nil
 }
 

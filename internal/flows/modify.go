@@ -73,14 +73,9 @@ func ModifyRuntime(p paths.Paths) error {
 // modifySession 更改配置的公共会话骨架：快照 + 回退钩子 + 菜单循环。
 func modifySession(p paths.Paths, title string, options []string, handlers []func() error) error {
 	return txn.Run(i18n.T(title), func(session *txn.Transaction) error {
-		// 会话开始即快照配置类路径，使任意改动都能被 ^R 统一回退
-		for _, path := range []string{p.ConfigFile, p.ActiveFile, p.CustomizeFile, p.Subscriptions} {
-			if err := session.Snapshot(path); err != nil {
-				return err
-			}
+		if err := guardSession(session, p); err != nil {
+			return err
 		}
-		// 回退发生在文件还原之后（LIFO，最先登记 → 最后执行）：把运行中的服务对齐回退后的配置
-		session.AddUndo(i18n.T("同步服务到回退后的配置"), func() error { resyncService(p); return nil })
 
 		translated := make([]string, len(options))
 		for i, o := range options {
@@ -109,6 +104,21 @@ func modifySession(p paths.Paths, title string, options []string, handlers []fun
 		}
 	})
 }
+
+// guardSession 会话开始即快照配置类路径，使任意改动都能被 ^R 统一回退。重新同步
+// 最先登记 → 最后执行（LIFO）：快照全部还原后，再把运行中的服务对齐回退后的配置。
+func guardSession(session *txn.Transaction, p paths.Paths) error {
+	session.AddUndo(i18n.T("同步服务到回退后的配置"), func() error { resyncAfterRollback(p); return nil })
+	for _, path := range []string{p.ConfigFile, p.ActiveFile, p.CustomizeFile, p.Subscriptions} {
+		if err := session.Snapshot(path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// resyncAfterRollback 可在测试中替换。
+var resyncAfterRollback = resyncService
 
 func resyncService(p paths.Paths) {
 	if sysd.IsInstalled(sysd.DefaultName) && fileExists(p.ConfigFile) {

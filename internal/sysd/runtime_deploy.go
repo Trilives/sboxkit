@@ -69,16 +69,24 @@ func deployRuntimeAssets(p paths.Paths, rt runtimePaths, staged string) error {
 	return nil
 }
 
-func deployRuntimeCore(p paths.Paths, rt runtimePaths, staged string) error {
-	needCaps := false
-	if rt.Scope.User {
-		need, err := runtimeConfigNeedsNetAdmin(staged)
-		if err != nil {
-			return err
-		}
-		needCaps = need
+// planRuntimeCore 按暂存配置是否需要 CAP_NET_ADMIN 决定运行时内核的处理方式。
+func planRuntimeCore(p paths.Paths, rt runtimePaths, staged string) (coreAction, bool, error) {
+	if !rt.Scope.User {
+		return planCoreDeploy(p, rt, false), false, nil
 	}
-	switch planCoreDeploy(p, rt, needCaps) {
+	needCaps, err := runtimeConfigNeedsNetAdmin(staged)
+	if err != nil {
+		return coreKeep, false, err
+	}
+	return planCoreDeploy(p, rt, needCaps), needCaps, nil
+}
+
+func deployRuntimeCore(p paths.Paths, rt runtimePaths, staged string) error {
+	action, needCaps, err := planRuntimeCore(p, rt, staged)
+	if err != nil {
+		return err
+	}
+	switch action {
 	case coreKeep:
 		return nil
 	case coreDefer:
@@ -98,7 +106,7 @@ func deployRuntimeCore(p paths.Paths, rt runtimePaths, staged string) error {
 			return err
 		}
 	}
-	_, err := s.run([]string{"mv", "-f", staging, rt.Bin}, i18n.T("部署运行时"), nil)
+	_, err = s.run([]string{"mv", "-f", staging, rt.Bin}, i18n.T("部署运行时"), nil)
 	return err
 }
 

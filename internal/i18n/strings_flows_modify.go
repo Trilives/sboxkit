@@ -8,7 +8,7 @@ func init() {
 
 		"订阅管理（增 / 删 / 改名 / 切换 / 刷新 / 重建）": "Subscription management (add / remove / rename / switch / refresh / rebuild)",
 		"重新初始化": "Reinitialize",
-		"确认移除现有服务并重新初始化？订阅原文和定制配置会保留。": "Remove the existing service and reinitialize? Subscription originals and customization will be preserved.",
+		"确认重新初始化？新配置通过校验后才替换现有服务；订阅原文和定制配置会保留。": "Reinitialize? The existing service is replaced only after the new config passes the check; subscription originals and customization will be preserved.",
 
 		"节点切换":    "Node switch",
 		"固定节点":    "Pin node",

@@ -13,8 +13,8 @@
 // 链接——此后再更新只需要原子重写 current 指向，不用碰 /usr/bin 下的文件。
 //
 // 更新流程：下载发行包 → 校验 SHA-256 → 解压到独立版本目录 → 试跑新二进制确认
-// 能正常执行 → 原子切换 current 符号链接 → 再次试跑确认成功；若启动校验失败，
-// 回退 current 指向。sing-box 内核是完全独立的另一个二进制，不受影响，本流程
+// 能正常执行（Prepare）→ 调用方经 compat-check 校验新生成器与内核的组合 → 原子切换
+// current 符号链接 → 再次试跑确认成功（Activate）；若启动校验失败，回退 current 指向。sing-box 内核是完全独立的另一个二进制，不受影响，本流程
 // 不涉及任何 systemd 单元的停止/启动。仅保留 current 指向的版本、紧邻的上一
 // 个版本、以及 last-stable 记录的稳定版（如果三者不同），其余版本目录清理掉。
 //
@@ -124,127 +124,6 @@ func LastStableVersion(p paths.Paths) (string, bool) {
 		return "", false
 	}
 	return filepath.Base(filepath.Dir(target)), true
-}
-
-// RollbackToStable 把 current 切回 last-stable 记录的稳定版（试跑校验通过才
-// 切换），供切到预览版后想回退的用户使用。返回切回的版本号。
-func RollbackToStable(p paths.Paths) (string, error) {
-	target, err := os.Readlink(lastStableLink(p))
-	if err != nil {
-		return "", fmt.Errorf("%s", i18n.T("尚未记录过稳定版，无法回退"))
-	}
-	if err := probeBinary(target); err != nil {
-		return "", fmt.Errorf(i18n.T("记录的稳定版二进制无法正常运行：%w"), err)
-	}
-	if err := swapCurrentLink(p, target); err != nil {
-		return "", err
-	}
-	if err := probeBinary(currentLink(p)); err != nil {
-		return "", fmt.Errorf(i18n.T("回退后校验失败：%w"), err)
-	}
-	return filepath.Base(filepath.Dir(target)), nil
-}
-
-// Update 把 sboxkit 自身更新到最新版本；currentVersion 是当前运行版本号
-// （main.version，"dev" 视为无基线）。返回 (最新版本号, 是否已是最新, error)。
-func Update(p paths.Paths, currentVersion string, channel Channel) (string, bool, error) {
-	f, s := kernel.NewFetcher(p)
-	rel, err := fetchRelease(f, channel)
-	if err != nil {
-		return "", false, err
-	}
-	version := strings.TrimPrefix(rel.TagName, "v")
-	if version == "" {
-		return "", false, fmt.Errorf("%s", i18n.T("发行版没有有效的版本号"))
-	}
-	if version == strings.TrimPrefix(currentVersion, "v") {
-		return version, true, nil
-	}
-
-	name := assetName(version)
-	assetURL := findAssetURL(rel, name)
-	if assetURL == "" {
-		return "", false, fmt.Errorf(i18n.T("未找到本机架构的发行包: %s"), name)
-	}
-	sumsURL := findAssetURL(rel, "checksums.txt")
-	if sumsURL == "" {
-		return "", false, fmt.Errorf("%s", i18n.T("发行版缺少 checksums.txt，无法校验完整性"))
-	}
-
-	if err := os.MkdirAll(p.Downloads, 0o755); err != nil {
-		return "", false, err
-	}
-	archivePath := filepath.Join(p.Downloads, name)
-	sumsPath := filepath.Join(p.Downloads, name+".sha256")
-	defer os.Remove(archivePath)
-	defer os.Remove(sumsPath)
-
-	execx.Info(i18n.T("下载 sboxkit: ") + assetURL)
-	if err := f.FetchFile(kernel.Mirror(assetURL, s.GithubMirror), archivePath); err != nil {
-		return "", false, err
-	}
-	if err := f.FetchFile(kernel.Mirror(sumsURL, s.GithubMirror), sumsPath); err != nil {
-		return "", false, err
-	}
-	if err := verifySHA256(archivePath, sumsPath, name); err != nil {
-		return "", false, err
-	}
-	execx.Ok(i18n.T("SHA-256 校验通过。"))
-
-	verDir := filepath.Join(versionsDir(p), version)
-	if err := os.RemoveAll(verDir); err != nil {
-		return "", false, err
-	}
-	if err := os.MkdirAll(verDir, 0o755); err != nil {
-		return "", false, err
-	}
-	if err := extractTarGz(archivePath, verDir); err != nil {
-		return "", false, err
-	}
-	newBin := versionBin(p, version)
-	if _, err := os.Stat(newBin); err != nil {
-		return "", false, fmt.Errorf("%s", i18n.T("解压后未找到 sboxkit 可执行文件"))
-	}
-	if err := os.Chmod(newBin, 0o755); err != nil {
-		return "", false, err
-	}
-	if err := probeBinary(newBin); err != nil {
-		os.RemoveAll(verDir)
-		return "", false, fmt.Errorf(i18n.T("新版本二进制无法正常运行，已放弃更新：%w"), err)
-	}
-
-	if err := ensureManagedByCurrentLink(p, currentVersion); err != nil {
-		return "", false, err
-	}
-
-	prevTarget, _ := os.Readlink(currentLink(p))
-
-	if err := swapCurrentLink(p, newBin); err != nil {
-		return "", false, err
-	}
-
-	// 注意：不能用 os.Executable() 来试跑"切换后的版本"——它在 Linux 上读
-	// /proc/self/exe，返回的是当前进程加载时就已解析到底的真实文件（也就是
-	// 切换前那个版本），并不会因为重写了 current 符号链接而改变。要验证刚
-	// 切换到的新版本，必须显式执行 currentLink（符号链接，每次 exec 都会
-	// 重新解析到它当前指向的文件）。
-	if err := probeBinary(currentLink(p)); err != nil {
-		execx.Warn(fmt.Sprintf(i18n.T("新版本启动校验失败，回退到旧版本：%v"), err))
-		if prevTarget != "" {
-			swapCurrentLink(p, prevTarget) //nolint:errcheck // 回退已在出错路径，尽力而为
-		}
-		return "", false, fmt.Errorf(i18n.T("已回退到原版本：%w"), err)
-	}
-
-	if channel == Stable {
-		// 记录本次稳定版，供之后切到预览版的用户一键回退；失败不影响本次更新
-		// 结果本身，下次稳定渠道更新时会自然覆盖重试。
-		atomicSymlink(newBin, lastStableLink(p)) //nolint:errcheck
-	}
-
-	pruneOldVersions(p, version)
-	execx.Ok(fmt.Sprintf(i18n.T("sboxkit 已更新到 %s。"), version))
-	return version, false, nil
 }
 
 func exeSelf() string {

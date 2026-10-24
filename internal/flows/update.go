@@ -8,7 +8,6 @@ import (
 	"github.com/Trilives/sboxkit/internal/i18n"
 	"github.com/Trilives/sboxkit/internal/kernel"
 	"github.com/Trilives/sboxkit/internal/paths"
-	"github.com/Trilives/sboxkit/internal/sysd"
 	"github.com/Trilives/sboxkit/internal/tui"
 )
 
@@ -39,25 +38,22 @@ func updateMenuFlow(p paths.Paths, currentVersion string) error {
 
 func updateCoreOnly(p paths.Paths) error {
 	ensureGithubToken(p)
-	f, settings := kernel.NewFetcher(p)
-	if _, err := kernel.UpdateCore(p, f, settings, true); err != nil {
-		return err
-	}
-	return syncRestartIfInstalled(p)
+	return UpdateAssets(p, kernel.StageOptions{Core: true, Force: true}, true, true)
 }
 
 func updateGeoOnly(p paths.Paths) error {
 	ensureGithubToken(p)
-	f, settings := kernel.NewFetcher(p)
-	if err := kernel.UpdateGeodata(p, f, settings, true); err != nil {
-		return err
-	}
-	return syncRestartIfInstalled(p)
+	return UpdateAssets(p, kernel.StageOptions{Geo: true, Force: true}, true, true)
 }
 
-func syncRestartIfInstalled(p paths.Paths) error {
-	if fileExists(p.ConfigFile) && sysd.IsInstalled(sysd.DefaultName) {
-		return sysd.SyncAndRestart(p, sysd.DefaultName)
+// UpdateAssets 更新内核和/或规则集（菜单「内核」「geo 数据」、`sboxkit update`、
+// `sboxkit assets-update` 与初始化后的自动更新共用）：最新版先暂存，校验组合通过后
+// 才换入状态目录并同步服务。interactive=false 时凡需用户决定的情形一律放弃更新；
+// sync=false 时只更新状态目录、不碰服务。
+func UpdateAssets(p paths.Paths, opts kernel.StageOptions, interactive, sync bool) error {
+	staged, err := kernel.Stage(p, opts)
+	if err != nil {
+		return err
 	}
-	return nil
+	return runUpgrade(p, &upgrade{assets: staged}, upgradeMode{interactive: interactive, sync: sync})
 }

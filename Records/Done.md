@@ -1,5 +1,52 @@
 # 已完成
 
+## 2026-10-24：导入、重建和更新前校验配置与内核兼容性
+
+- 部署前闸门（`internal/compat`、`internal/deploy`）：订阅添加 / 刷新 / 重建 / 切换与「本地文件覆盖」
+  导入先在内存生成候选配置，用即将部署的内核与规则集在私有临时目录 `sing-box check`（`external_ui`、
+  `cache_file` 重定向到校验目录，规则集路径换成暂存文件，相对路径先转绝对）；通过后才经
+  `deploy.Apply` 一个事务写入订阅原文 / 生成配置 / meta / `config.json` / active 指针并同步服务。
+  失败时提示内核版本、校验输出与处理方向（旧内核不认识新写法 → 更新内核；新内核弃用 / 要求
+  `match_response` → 更新 sboxkit 后重新生成）。状态文件改为同目录临时文件 + 改名的原子写入。
+- 服务注册 / 同步：前置检查 → 暂存运行时配置 → 用部署后实际运行的内核校验 → 提权，全部通过后才
+  覆盖运行时文件、停止或替换旧服务；这一阶段失败以 `sysd.PrecheckError` 返回，不删除既有 unit 或
+  运行时文件。运行时已被改动后的失败（如重启失败）先还原状态路径，再按还原后的状态重新同步；
+  重新同步也失败时一并报告。「重新初始化」不再预先卸载服务。
+- 组件更新（`internal/flows/upgrade.go`、`internal/kernel/stage.go`、`internal/selfupdate/prepare.go`）：
+  内核 / 规则集先暂存到 `state/downloads/staged-*`，sboxkit 新版本先解压到独立版本目录；校验
+  「生成器 + 内核 + 规则集 + 生效订阅」组合（换 sboxkit 时由旧版本调用新版本的内部子命令
+  `compat-check`，以 `compat.Report` JSON 交回）以及现有生效配置在新组合下能否启动。不兼容时说明
+  所需版本与影响，并按方向询问是否同时更新内核或 sboxkit、是否重新生成生效订阅；无人值守、用户
+  拒绝或补充组件不可用时放弃，原组合继续运行。全部通过后在一个事务里换入组件、写入重新生成的配置
+  并同步服务，失败整体回退。早于该机制、无法自检的 sboxkit 版本需用户明确同意（默认否）。
+- 测试：`go test ./...`、`go test -race ./...`、`go vet`、`gofmt`、`git diff --check`、i18n 覆盖检查通过；
+  真实内核用例（`SING_BOX_BIN` 指向 sing-box 1.14.1 / 1.14.3）复现 v0.3.1 Hua 配置被拒、切换被拒、
+  当前生成器重建通过后才部署。
+- 远程验收（`machine.md` 主机，Ubuntu 24.04 用户模式，合成 Hua 订阅：hosts CNAME + FakeIP + `geoip-cn`）：
+  基线为 v0.3.1 `init`（无 TUN）+ 随包内核 1.13.21，服务运行；sing-box 1.14.3 对该配置 `check` 报
+  `dns rule[1]: Response Match Fields … require match_response to be enabled`，复现失败。
+  - 换入新构建（0.3.2-dev）、内核仍为 1.13.21：重建、刷新、添加（设为生效）、「本地文件覆盖」导入、
+    切换到含 1.14 写法配置的订阅均被拒绝并给出 `unknown DNS rule action: evaluate` 与处理方向；主服务
+    PID、运行时 / 状态配置哈希、active 指针与订阅目录哈希均不变，mixed 端口持续可用。
+  - `sboxkit update`（非交互）：暂存 1.14.4 后判定现有生效配置被拒、需重新生成，放弃并退出 1，原组合
+    继续运行；下载失败（GitHub EOF）同样退出 1、不改动任何文件。
+  - 交互（纯文本模式）：只更新规则集时说明生成器要求 ≥ 1.14.0 并提议同时更新内核；暂存 1.14.4 后
+    拒绝重新生成即放弃，内核、规则集、配置均不变；补充内核查询失败（HTTP 401）时同样放弃并说明原组合不变。
+  - 交互（TTY TUI）：更新内核并同意重新生成后，1.14.4 与新配置一起换入并重启；运行时配置经 1.14.4、
+    状态配置经 1.14.3 真实 `check` 通过，日志无错误。随后切换、重建与导入兼容配置均先校验再部署。
+  - sboxkit 自身：从 0.3.2-dev「更新到稳定版」下载 v0.3.1 并通过 SHA-256；v0.3.1 无 `compat-check`，
+    询问（默认否）后拒绝，仍为 0.3.2-dev，版本目录已清理。`compat-check` 实机：对 1.13.21 报
+    `该生成器要求 sing-box ≥ 1.14.0`，对 1.14.3 为 compatible（相对路径参数同样可用）。
+  - 验收中发现并修复（均先补失败用例）：真实内核输出未被归类，处理方向为空；`compat-check` 相对路径
+    在校验目录下解析错位；只更新规则集时提议更新 sboxkit 而非内核；补充组件不可用时未说明原组合不变。
+  - 主机网络较慢：内核与 sboxkit 发行包在本机下载、校验后上传，经测试状态内的回环 `github_mirror` 提供。
+  - 现场恢复：停用并删除 sing-box / bootstrap-dns 用户单元及 wants 链接，`daemon-reload`；删除测试目录、
+    `$XDG_RUNTIME_DIR/sboxkit`、回环镜像进程与 tmux 会话。`~/.bashrc`、`~/.profile` 哈希、`~/.local/bin`、
+    crontab 与 linger 均与验证前一致。
+- 已知限制：初始化「注册服务」若重装既有服务后校验通过、但重启失败，之前步骤已提交新状态，没有
+  可恢复的旧组合，只报告失败。尚无含 `compat-check` 的稳定版发布，「新版本自检通过后切换」只由单元测试
+  与 `compat-check` 实机输出覆盖；实机只验证了无法自检时的拒绝路径。
+
 ## 2026-10-24：DNS 地址过滤迁移到 sing-box 1.14 响应匹配
 
 - 故障：ares 的 Hua 配置在 sing-box 1.14.3 下 `check` / 启动即 `FATAL initialize dns router:

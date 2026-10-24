@@ -223,41 +223,23 @@ func preflight(p paths.Paths) error {
 	return scopeFor(p).userManagerReady()
 }
 
-// Install 注册并（可选）启动主服务。会先移除同名及冲突的 mihomo 服务。
+// Install 注册并（可选）启动主服务。会先移除同名及冲突的 mihomo 服务；
+// 校验暂存配置失败时（PrecheckError）旧服务与运行时文件保持原样。
 func Install(p paths.Paths, name string, start bool) error {
 	if name == "" {
 		name = DefaultName
 	}
 	if err := validateManagedServiceName(name); err != nil {
-		return err
+		return precheckFailed(err)
 	}
-	if err := preflight(p); err != nil {
-		return err
-	}
-	rt := rtPathsFor(scopeFor(p), name)
-	s := rt.Scope
-	if err := s.ensurePrivilege(i18n.T("注册系统服务")); err != nil {
-		return err
-	}
-	if err := checkScopeConflict(s, name); err != nil {
-		return err
-	}
-
-	staged, err := stageRuntimeConfig(p, rt)
+	rt, staged, err := prepareRuntime(p, name, i18n.T("注册系统服务"), true)
 	if err != nil {
 		return err
 	}
 	defer os.Remove(staged)
+	s := rt.Scope
 
-	if err := deployRuntimeAssets(p, rt, staged); err != nil {
-		return err
-	}
-	// UI（内置静态面板，见 internal/uiassets；缺失也不影响内核运行）
-	if err := syncUIRuntime(rt); err != nil {
-		execx.Warn(i18n.T("刷新内置 Web 面板资源失败：") + err.Error())
-	}
-	// 配置 + 运行时校验
-	if err := installRuntimeConfig(rt, staged); err != nil {
+	if err := deployRuntime(p, rt, staged); err != nil {
 		return err
 	}
 
@@ -312,39 +294,27 @@ func renderUnit(name string, rt runtimePaths) (string, error) {
 	return sb.String(), err
 }
 
-// SyncAndRestart 把当前 state 中的配置、内核与 geo 规则集同步到运行时并重启服务。
+// SyncAndRestart 把当前 state 中的配置、内核与 geo 规则集同步到运行时并重启服务；
+// 校验暂存配置失败时（PrecheckError）运行时与运行中的服务保持原样。
 func SyncAndRestart(p paths.Paths, name string) error {
 	if name == "" {
 		name = DefaultName
 	}
 	if err := validateManagedServiceName(name); err != nil {
-		return err
+		return precheckFailed(err)
 	}
 	if !IsInstalled(name) {
 		execx.Warn(i18n.T("服务 ") + name + i18n.T(" 未安装，跳过同步。"))
 		return nil
 	}
-	if err := preflight(p); err != nil {
-		return err
-	}
-	rt := rtPathsFor(scopeFor(p), name)
-	s := rt.Scope
-	if err := s.ensurePrivilege(i18n.T("更新服务配置")); err != nil {
-		return err
-	}
-	staged, err := stageRuntimeConfig(p, rt)
+	rt, staged, err := prepareRuntime(p, name, i18n.T("更新服务配置"), false)
 	if err != nil {
 		return err
 	}
 	defer os.Remove(staged)
+	s := rt.Scope
 	// 更新（含每周定时器）下载的新内核/规则在这里进入运行时
-	if err := deployRuntimeAssets(p, rt, staged); err != nil {
-		return err
-	}
-	if err := syncUIRuntime(rt); err != nil {
-		execx.Warn(i18n.T("刷新内置 Web 面板资源失败：") + err.Error())
-	}
-	if err := installRuntimeConfig(rt, staged); err != nil {
+	if err := deployRuntime(p, rt, staged); err != nil {
 		return err
 	}
 	if err := installBootstrapDNS(p, name, rt); err != nil {

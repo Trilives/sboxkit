@@ -145,15 +145,12 @@ func reloadService(p paths.Paths) error {
 	return nil
 }
 
+// reinitializeFlow 重新初始化不预先删除现有服务：注册步骤（sysd.Install）在新配置通过
+// 校验后才替换旧单元，校验失败时旧服务继续运行。
 func reinitializeFlow(p paths.Paths) error {
-	ok, err := tui.Confirm(i18n.T("确认移除现有服务并重新初始化？订阅原文和定制配置会保留。"), false)
+	ok, err := tui.Confirm(i18n.T("确认重新初始化？新配置通过校验后才替换现有服务；订阅原文和定制配置会保留。"), false)
 	if err != nil || !ok {
 		return err
-	}
-	if sysd.IsInstalled(sysd.DefaultName) {
-		if err := sysd.Remove(p, sysd.DefaultName, true); err != nil {
-			return err
-		}
 	}
 	if err := Init(p); err != nil {
 		return err

@@ -108,7 +108,33 @@ config.json / active / customize.json / subscriptions/，esc 提交、^R 整体�
 的 undo（删订阅 / 卸服务 / 撤防火墙），某一步取消或出错只回退它自己，不会连带撤销
 更早已经提交的步骤——例如服务一旦注册启动成功，后续「顺带更新内核/geo 数据」
 失败只会警告，不会把已经跑起来的服务卸载回退。系统类操作（更新内核 / 重启服务等）
-标注「※即时」，不参与回退。
+标注「※即时」，不参与会话回退（各自在内部事务里原子完成，见下）。
+
+**部署前的兼容性闸门**（`internal/compat` + `internal/deploy`）：生成、导入或升级得到的
+候选配置，都先在私有临时目录（0700，含节点凭据，校验后删除）里用**准备实际部署**的
+sing-box 内核与规则集执行 `sing-box check`，通过后才写入状态目录并同步服务。拒绝信息
+带内核版本与处理方向（已弃用 / 移除的写法 → 更新 sboxkit 后重新生成；内核尚不支持的
+写法 → 更新内核）。
+
+- 订阅添加 / 刷新 / 重建 / 切换与「本地文件覆盖」导入：候选配置在内存中生成，用 state
+  现用内核校验；通过后经 `deploy.Apply` 一个事务写入订阅原文 / 生成配置 / meta /
+  config.json / active 指针并 `sysd.SyncAndRestart`。任一步失败都还原这些路径；同步失败
+  发生在运行时被改动之后时，再按还原后的状态重新同步，运行时文件与服务回到改动前的组合。
+  首次初始化下载内核前无法校验，推迟到注册服务时校验。校验失败时按内核输出给出处理方向：
+  旧内核不认识新写法（`unknown DNS rule action` 等）提示更新内核，新内核弃用 / 要求新写法
+  （`require match_response` 等）提示更新 sboxkit 后重新生成。
+- `sysd.Install` / `SyncAndRestart`：前置检查 → 暂存运行时配置 → 用部署后服务实际运行的
+  内核（用户模式 + TUN 推迟切换内核时仍是运行时旧内核）校验 → 提权，全部通过后才覆盖
+  运行时文件、停止或替换旧服务。这一阶段的失败以 `sysd.PrecheckError` 返回，调用方据此
+  不回退运行时；初始化「注册服务」的回退只卸载本次新建且已部署的服务。
+- 内核 / 规则集更新（菜单、`sboxkit update` 定时器、`assets-update`、初始化后的自动更新）：
+  最新版先暂存到 `state/downloads/staged-*`，同时校验现有生效配置与「当前生成器 + 新内核 +
+  新规则集 + 生效订阅」，通过后才原子换入状态目录。生效配置不被接受、而重新生成的配置
+  可通过时，交互模式询问是否一并重新生成；生成器本身不兼容时说明所需版本与影响，并询问
+  是否同时更新相关组件：内核低于生成器要求（`compat.Report.NeedsNewerKernel`）时提议更新
+  内核（只更新规则集时也一样），否则提议更新 sboxkit。无人值守、用户拒绝或补充组件不可用
+  （如下载失败）时放弃更新，原组合继续运行。
+- sboxkit 自更新 / 回退稳定版：见第 8 节。
 
 主菜单原「更改配置」按「改动是否需要重启服务生效」拆成两个入口：`flows.ModifyConfig`
 （订阅管理 + 定制层字段分组编辑，写的是 sing-box 运行配置本身）与 `flows.ModifyRuntime`
@@ -149,8 +175,9 @@ config.json / active / customize.json / subscriptions/，esc 提交、^R 整体�
 新鲜度义务，可以放心冻结进安装包；仍支持在线『更新 geo 数据』获取最新版本。
 发布流水线每次都强制重新下载 sing-box 最新稳定版，并执行二进制版本一致性校验；
 内核版本文件随 deb 打包，首次接管时会准确写入 state，而非仅标记为 `bundled`。
-随后使用该内核对默认 TUN 与 FakeIP 代表配置执行 `sing-box check`，同时运行全部
-Go 测试和静态检查；任何配置破坏性变更都会在创建 GitHub Release 前阻断流水线。
+随后使用该内核对默认 TUN、FakeIP 与 hosts 代表配置（含、不含随包 geo 规则集）执行
+`sing-box check`，同时运行全部 Go 测试和静态检查；任何配置破坏性变更都会在创建
+GitHub Release 前阻断流水线。
 
 ## 7. 自愈与守护
 
@@ -186,8 +213,14 @@ Go 测试和静态检查；任何配置破坏性变更都会在创建 GitHub Rel
 `current` 符号链接方案，与 `internal/kernel` 更新 sing-box 内核/geo 数据完全独立
 （更新的是 sboxkit 自身这个程序）。流程：查询最新 GitHub release → 下载对应架构的
 `sboxkit_<version>_linux_<arch>.tar.gz` → 按 `checksums.txt` 校验 SHA-256 → 解压到
-独立版本目录 → 试跑新二进制（`sboxkit version`）确认能执行 → 原子重写 `current`
-符号链接 → 再次试跑确认成功；启动校验失败则回退 `current` 指向。首次自更新时若正在
+独立版本目录 → 试跑新二进制（`sboxkit version`）确认能执行 → 兼容性校验 → 原子重写
+`current` 符号链接 → 再次试跑确认成功；启动校验失败则回退 `current` 指向。兼容性校验由
+旧版本调用新版本的内部子命令 `compat-check` 完成：新生成器为生效订阅重新生成配置，并以
+即将使用的内核与规则集执行 `sing-box check`，结论以 `compat.Report`（JSON，字段只增不改）
+交回。不兼容时说明所需版本与影响并询问是否同时更新内核，内核暂存后连同现有生效配置一起
+复验；早于该机制、无法自检的版本需用户明确同意（默认否）。全部通过后在同一事务里切换
+`current`、换入内核，并可选写入新生成器的配置后同步服务；用户拒绝或升级不可用时放弃，
+旧版本与旧组合保持不变。回退稳定版走同一校验。首次自更新时若正在
 运行的可执行文件（一般是 apt 装的 `/usr/bin/sboxkit`）还不是托管符号链接，会先把它
 原样迁移进版本目录作为基线版本，再把该路径替换成指向 `current` 的符号链接（这一步
 需要 root，走 `execx.RunRoot`；此后的更新只需重写 `current`，不再需要碰 `/usr/bin`）。
@@ -200,7 +233,7 @@ Go 测试和静态检查；任何配置破坏性变更都会在创建 GitHub Rel
 后缀（如 `v0.1.7-beta.1`）会被 GoReleaser 自动标记为 GitHub prerelease，不占用
 "Latest release"、也不会被 `/releases/latest` 返回。每次稳定渠道更新成功都会把
 `current` 同时记到 `<state>/sboxkit-versions/last-stable`，供切到预览版后想
-回退的用户一键切回（`RollbackToStable`）。
+回退的用户一键切回（`PrepareStable` + 同上的兼容性校验）。
 
 ## 9. 包结构
 
@@ -213,9 +246,11 @@ internal/config       customize.json：类型化 Config struct，默认值 / 读
 internal/bootstrapdns loopback UDP/TCP relay：物理接口直连、UDP/TCP/DoH 有序故障转移
 internal/converter    Clash / sing-box 原生 / base64 → sing-box 配置的核心转换器
 internal/txn          事务：BackupFile / Snapshot / TrackPath / AddUndo，LIFO 回滚
+internal/compat       部署前兼容性校验：私有目录内以指定内核 / 规则集执行 sing-box check；Report 契约
+internal/deploy       状态目录改动 + 服务同步的单一事务：失败还原状态，运行时已改动时按旧状态重新同步
 internal/tui          Bubble Tea 四类提示 + 非 TTY 回退
 internal/fetchx       HTTP 下载通道
-internal/kernel       sing-box 内核 / geo 规则集下载部署 + deb 种子接管
+internal/kernel       sing-box 内核 / geo 规则集下载、暂存后原子换入 + deb 种子接管
 internal/uiassets     内置 Web 面板静态资源（go:embed，无需联网下载）
 internal/selfupdate   sboxkit 自更新：版本化目录 + 原子符号链接切换
 internal/subscription 订阅域：fetch / detect（三态）/ b64（分享链接解析）/ manager

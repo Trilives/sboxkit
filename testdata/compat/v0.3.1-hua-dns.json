@@ -1,0 +1,25 @@
+{
+  "log": {"level": "warn"},
+  "dns": {
+    "servers": [
+      {"type": "udp", "tag": "dns-direct", "server": "127.0.0.1", "server_port": 6450, "detour": "DIRECT"},
+      {"type": "fakeip", "tag": "dns-fakeip", "inet4_range": "198.18.0.0/15", "inet6_range": "fc00::/18"}
+    ],
+    "rules": [
+      {"domain": ["agent.example"], "query_type": ["A", "AAAA"], "action": "predefined", "answer": ["agent.example. IN CNAME origin.example."]},
+      {"domain": ["localhost"], "action": "route", "server": "dns-direct"},
+      {"rule_set": "geosite-cn", "action": "route", "server": "dns-direct"},
+      {"rule_set": "geoip-cn", "action": "route", "server": "dns-direct"},
+      {"query_type": ["A", "AAAA"], "action": "route", "server": "dns-fakeip"}
+    ],
+    "final": "dns-direct"
+  },
+  "outbounds": [{"type": "direct", "tag": "DIRECT"}],
+  "route": {
+    "rule_set": [
+      {"type": "local", "tag": "geosite-cn", "format": "binary", "path": "__GEOSITE__"},
+      {"type": "local", "tag": "geoip-cn", "format": "binary", "path": "__GEOIP__"}
+    ],
+    "final": "DIRECT"
+  }
+}

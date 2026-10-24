@@ -5,16 +5,24 @@ import (
 
 	"github.com/Trilives/sboxkit/internal/execx"
 	"github.com/Trilives/sboxkit/internal/i18n"
+	"github.com/Trilives/sboxkit/internal/paths"
 )
 
-// installRuntimeConfig 把暂存配置装入运行时并用运行时内核校验；校验失败发生在
-// 替换单元之前，旧服务保持原样。
-func installRuntimeConfig(rt runtimePaths, staged string) error {
-	s := rt.Scope
-	if _, err := s.run([]string{"install", "-m", runtimeConfigMode, staged, rt.Config}, "", nil); err != nil {
+// deployRuntime 部署内核、规则集、面板与已校验的暂存配置（prepareRuntime 之后调用）。
+func deployRuntime(p paths.Paths, rt runtimePaths, staged string) error {
+	if err := deployRuntimeAssets(p, rt, staged); err != nil {
 		return err
 	}
-	if _, err := s.run([]string{rt.Bin, "check", "-c", rt.Config}, i18n.T("校验配置"), nil); err != nil {
+	// UI（内置静态面板，见 internal/uiassets；缺失也不影响内核运行）
+	if err := syncUIRuntime(rt); err != nil {
+		execx.Warn(i18n.T("刷新内置 Web 面板资源失败：") + err.Error())
+	}
+	return installRuntimeConfig(rt, staged)
+}
+
+// installRuntimeConfig 把已校验的暂存配置装入运行时，并按需授予网络能力。
+func installRuntimeConfig(rt runtimePaths, staged string) error {
+	if _, err := rt.Scope.run([]string{"install", "-m", runtimeConfigMode, staged, rt.Config}, "", nil); err != nil {
 		return err
 	}
 	return ensureNetCapabilities(rt)

@@ -52,9 +52,6 @@ func init() {
 		"下载内核/基础规则失败（可稍后在主菜单『运行时管理 → 内核更新』重试）：%w": "Failed to download core/basic rules (you can retry later via the main menu 'Runtime management → Update core'): %w",
 
 		"正在自动下载/更新内核与 geo 数据…": "Automatically downloading/updating the core and geo data…",
-		"已更新资源，重新部署运行时并重启服务…":  "Resources updated; redeploying the runtime and restarting the service…",
-		"内核/geo 数据下载失败（服务仍按现有资源正常运行），可稍后在主菜单『运行时管理 → 内核更新』里重试：%v": "Core/geo data download failed (the service keeps running fine on its existing resources); you can retry later via the main menu 'Runtime management → Update core': %v",
-		"重新部署运行时失败（可稍后在设置里重试）：%v":                                 "Failed to redeploy the runtime (you can retry later in settings): %v",
 
 		"安装网络切换自愈？":      "Install network self-healing?",
 		"卸载网络自愈":         "Uninstall network self-healing",

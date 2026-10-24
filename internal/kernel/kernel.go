@@ -214,6 +214,19 @@ func UpdateCore(p paths.Paths, f *fetchx.Fetcher, s Settings, force bool) (strin
 	if err := p.EnsureStateDirs(); err != nil {
 		return "", err
 	}
+	version, err := fetchCore(p, f, s, force, p.SingBoxBin)
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(p.SingBoxVersion, []byte(version+"\n"), 0o644); err != nil {
+		return "", err
+	}
+	execx.Ok(i18n.T("内核已部署: ") + version)
+	return version, nil
+}
+
+// fetchCore 下载最新 sing-box 发行包（缓存于 state/downloads）并把二进制解压到 dst。
+func fetchCore(p paths.Paths, f *fetchx.Fetcher, s Settings, force bool, dst string) (string, error) {
 	execx.Info(i18n.T("查找最新 sing-box 版本…"))
 	rel, err := latestRelease(f, SingBoxRepo)
 	if err != nil {
@@ -224,19 +237,13 @@ func UpdateCore(p paths.Paths, f *fetchx.Fetcher, s Settings, force bool) (strin
 	if u == "" {
 		return "", fmt.Errorf(i18n.T("未找到架构 %s 的 Linux sing-box 资源"), archName())
 	}
-
 	archive := filepath.Join(p.Downloads, filepath.Base(u))
 	if err := downloadTo(f, Mirror(u, s.GithubMirror), archive, force); err != nil {
 		return "", err
 	}
-
-	if err := extractSingBoxBinary(archive, p.SingBoxBin); err != nil {
+	if err := extractSingBoxBinary(archive, dst); err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(p.SingBoxVersion, []byte(version+"\n"), 0o644); err != nil {
-		return "", err
-	}
-	execx.Ok(i18n.T("内核已部署: ") + version)
 	return version, nil
 }
 
@@ -287,11 +294,20 @@ func UpdateGeodata(p paths.Paths, f *fetchx.Fetcher, s Settings, force bool) err
 	if err := p.EnsureStateDirs(); err != nil {
 		return err
 	}
+	if err := fetchGeo(p, f, s, force, p.GeositeCN, p.GeoIPCN); err != nil {
+		return err
+	}
+	execx.Ok(i18n.T("geo 数据已更新"))
+	return nil
+}
+
+// fetchGeo 下载两份规则集（缓存于 state/downloads）并复制到 geosite / geoip。
+func fetchGeo(p paths.Paths, f *fetchx.Fetcher, s Settings, force bool, geosite, geoip string) error {
 	for _, item := range []struct{ url, dest string }{
-		{GeositeCNURL, p.GeositeCN},
-		{GeoIPCNURL, p.GeoIPCN},
+		{GeositeCNURL, geosite},
+		{GeoIPCNURL, geoip},
 	} {
-		cache := filepath.Join(p.Downloads, filepath.Base(item.dest))
+		cache := filepath.Join(p.Downloads, filepath.Base(item.url))
 		if err := downloadTo(f, Mirror(item.url, s.GithubMirror), cache, force); err != nil {
 			return err
 		}
@@ -299,7 +315,6 @@ func UpdateGeodata(p paths.Paths, f *fetchx.Fetcher, s Settings, force bool) err
 			return err
 		}
 	}
-	execx.Ok(i18n.T("geo 数据已更新"))
 	return nil
 }
 

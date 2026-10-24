@@ -39,7 +39,11 @@ func TestImportConfigFromFileCopiesConfigAndClearsActiveSubscription(t *testing.
 		t.Fatal(err)
 	}
 
-	if err := importConfigFromFile(p, sourceFile); err != nil {
+	raw, err := loadImportConfig(p, sourceFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := applyImportConfig(p, raw, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -57,8 +61,54 @@ func TestImportConfigFromFileCopiesConfigAndClearsActiveSubscription(t *testing.
 
 func TestImportConfigFromFileRejectsDirectoryPath(t *testing.T) {
 	root := t.TempDir()
-	err := importConfigFromFile(paths.Paths{State: filepath.Join(root, "state")}, root)
+	_, err := loadImportConfig(paths.Paths{State: filepath.Join(root, "state")}, root)
 	if err == nil || !strings.Contains(err.Error(), "文件路径") {
 		t.Fatalf("expected file path error, got %v", err)
+	}
+}
+
+// fakeKernel 在 path 写一个 sing-box 替身：check 拒绝含 marker 的配置。
+func fakeKernel(t *testing.T, path, marker string) {
+	t.Helper()
+	script := `#!/bin/sh
+case "$1" in
+version) echo "sing-box version 1.14.3" ;;
+check) if grep -q '` + marker + `' "$3"; then echo "FATAL[0000] unknown field" >&2; exit 1; fi ;;
+esac
+`
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestImportRejectedByKernelKeepsActiveConfigAndSubscription(t *testing.T) {
+	p := paths.FromRoot(t.TempDir())
+	if err := p.EnsureStateDirs(); err != nil {
+		t.Fatal(err)
+	}
+	fakeKernel(t, p.SingBoxBin, "future_field")
+	source := filepath.Join(t.TempDir(), "config.json")
+	for path, content := range map[string]string{
+		source:       `{"future_field":true}`,
+		p.ConfigFile: "deployed",
+		p.ActiveFile: "Hua\n",
+	} {
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	_, err := loadImportConfig(p, source)
+
+	if err == nil || !strings.Contains(err.Error(), "1.14.3") || !strings.Contains(err.Error(), "保持不变") {
+		t.Fatalf("expected a kernel rejection that names the version, got %v", err)
+	}
+	for path, want := range map[string]string{p.ConfigFile: "deployed", p.ActiveFile: "Hua\n"} {
+		if got, _ := os.ReadFile(path); string(got) != want {
+			t.Fatalf("%s changed to %q", path, got)
+		}
 	}
 }

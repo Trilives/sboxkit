@@ -6,10 +6,13 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/Trilives/sboxkit/internal/compat"
 	"github.com/Trilives/sboxkit/internal/paths"
 )
 
@@ -210,23 +213,83 @@ func TestLastStableVersionAndRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := RollbackToStable(p)
+	stable, err := PrepareStable(p)
 	if err != nil {
-		t.Fatalf("RollbackToStable: %v", err)
+		t.Fatalf("PrepareStable: %v", err)
 	}
-	if got != "0.1.0" {
-		t.Errorf("RollbackToStable() = %q, want 0.1.0", got)
+	if stable.Version != "0.1.0" {
+		t.Errorf("PrepareStable().Version = %q, want 0.1.0", stable.Version)
+	}
+	if target, _ := os.Readlink(currentLink(p)); target != previewBin {
+		t.Fatalf("prepare must not switch current, got -> %s", target)
+	}
+	undo, err := stable.Activate(p)
+	if err != nil {
+		t.Fatalf("Activate: %v", err)
 	}
 	if target, _ := os.Readlink(currentLink(p)); target != stableBin {
 		t.Errorf("current -> %s, want %s", target, stableBin)
 	}
+	if err := undo(); err != nil {
+		t.Fatal(err)
+	}
+	if target, _ := os.Readlink(currentLink(p)); target != previewBin {
+		t.Errorf("undo: current -> %s, want %s", target, previewBin)
+	}
+	stable.Discard()
+	if _, err := os.Stat(stableBin); err != nil {
+		t.Fatalf("discarding a recorded stable version deleted it: %v", err)
+	}
 }
 
-func TestRollbackToStableWithoutRecordFails(t *testing.T) {
+func TestPrepareStableWithoutRecordFails(t *testing.T) {
 	dir := t.TempDir()
 	p := paths.Paths{State: dir}
-	if _, err := RollbackToStable(p); err == nil {
+	if _, err := PrepareStable(p); err == nil {
 		t.Error("expected error when no stable version has been recorded")
+	}
+}
+
+// fakeSboxkit 写一个 sboxkit 替身：compat-check 按 handler 处理（空表示旧版本，未知子命令）。
+func fakeSboxkit(t *testing.T, handler string) *Prepared {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "sboxkit")
+	script := "#!/bin/sh\ncase \"$1\" in\nversion) echo sboxkit 9.9.9 ;;\n"
+	if handler != "" {
+		script += "compat-check)\n" + handler + "\n;;\n"
+	}
+	script += "*) echo \"unknown subcommand: $1\" >&2; exit 2 ;;\nesac\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return &Prepared{Version: "9.9.9", Bin: bin}
+}
+
+func TestCompatCheckReportsOldVersionsAsUnverifiable(t *testing.T) {
+	tool := fakeSboxkit(t, "")
+
+	_, _, err := tool.CompatCheck(paths.Paths{State: t.TempDir()}, compat.Bundle{Kernel: "/k"})
+
+	if !errors.Is(err, ErrNoCompatCheck) || !strings.Contains(err.Error(), "unknown subcommand") {
+		t.Fatalf("expected ErrNoCompatCheck with the child's output, got %v", err)
+	}
+}
+
+func TestCompatCheckReadsReportAndGeneratedConfigFromSameState(t *testing.T) {
+	// 参数布局：compat-check --kernel K --geosite G --geoip I --report R --out O（$9 = R，${11} = O）
+	tool := fakeSboxkit(t, `[ "$SBOXKIT_HOME" = "$EXPECT_HOME" ] || exit 3
+echo '{"generator":"9.9.9","min_kernel":"1.14.0","kernel":"1.14.3","subscription":"Hua","compatible":true}' > "$9"
+echo '{"generated":true}' > "${11}"`)
+	home := t.TempDir()
+	t.Setenv("EXPECT_HOME", home)
+
+	report, cfg, err := tool.CompatCheck(paths.Paths{State: home}, compat.Bundle{Kernel: "/k", Geosite: "/g", GeoIP: "/i"})
+
+	if err != nil || !report.Compatible || report.Subscription != "Hua" {
+		t.Fatalf("report = %+v, %v", report, err)
+	}
+	if strings.TrimSpace(string(cfg)) != `{"generated":true}` {
+		t.Fatalf("generated config = %q", cfg)
 	}
 }
 
@@ -242,5 +305,55 @@ func TestReplaceExecutableLinkWithoutRoot(t *testing.T) {
 	got, err := os.Readlink(exe)
 	if err != nil || got != target {
 		t.Fatalf("executable link = %q, %v; want %q", got, err, target)
+	}
+}
+
+// 回退切换失败时 current 仍指向新版本：Discard 不得删除该版本目录。
+func TestDiscardKeepsVersionWhenUndoCannotSwitchBack(t *testing.T) {
+	p := paths.Paths{State: t.TempDir()}
+	running := versionBin(p, "0.3.1")
+	fakeExecutable(t, running)
+	if err := atomicSymlink(running, currentLink(p)); err != nil {
+		t.Fatal(err)
+	}
+	tool := &Prepared{Version: "0.3.2", Bin: versionBin(p, "0.3.2"), created: true}
+	fakeExecutable(t, tool.Bin)
+	undo, err := tool.Activate(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(versionsDir(p), 0o555); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(versionsDir(p), 0o755)
+
+	if err := undo(); err == nil {
+		t.Skip("switching back unexpectedly succeeded in a read-only directory (running as root?)")
+	}
+	tool.Discard()
+
+	if _, err := os.Stat(tool.Bin); err != nil {
+		t.Fatalf("binary that current still points at was deleted: %v", err)
+	}
+}
+
+// 解压或试跑失败时，已存在（可能被 last-stable 引用）的版本目录保持原样。
+func TestExtractFailureKeepsExistingVersionDirectory(t *testing.T) {
+	p := paths.Paths{State: t.TempDir()}
+	tool := &Prepared{Version: "0.3.2", Bin: versionBin(p, "0.3.2")}
+	fakeExecutable(t, tool.Bin)
+	archive := writeTarGz(t, t.TempDir(), map[string]string{"README": "no binary"})
+
+	if err := tool.extract(p, archive); err == nil {
+		t.Fatal("archive without a binary accepted")
+	}
+	if _, err := os.Stat(tool.Bin); err != nil {
+		t.Fatalf("existing version binary removed by a failed extract: %v", err)
+	}
+	entries, _ := os.ReadDir(versionsDir(p))
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".incoming-") {
+			t.Fatalf("temporary extract directory left behind: %s", e.Name())
+		}
 	}
 }

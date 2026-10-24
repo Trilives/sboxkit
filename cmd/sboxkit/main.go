@@ -26,6 +26,7 @@ func usageText() string {
 }
 
 func main() {
+	flows.Version = version
 	p := paths.Detect()
 	setupLanguage(p)
 	setupLogging(p)
@@ -69,6 +70,8 @@ func main() {
 		os.Exit(sysd.RunHealthcheck(args[1:]))
 	case "bootstrap-dns":
 		os.Exit(bootstrapdns.Run(args[1:]))
+	case "compat-check": // 内部：自更新前由旧版本调用，校验本版本生成器与指定内核的组合
+		os.Exit(flows.RunCompatCheck(p, args[1:], os.Stderr))
 	default:
 		fmt.Fprintf(os.Stderr, i18n.T("未知子命令: %s\n%s\n"), args[0], usageText())
 		os.Exit(2)
@@ -217,27 +220,26 @@ func interactive(p paths.Paths) int {
 	}
 }
 
-// runUpdate 非交互全量更新（每周定时器的执行目标）：内核+geo 强制更新 →
-// 服务同步重启。
+// runUpdate 非交互全量更新（每周定时器的执行目标）：内核 + geo 最新版先暂存，
+// 与当前生成器、生效订阅和生效配置的组合校验通过后才换入并同步重启服务；
+// 不兼容时放弃更新、原组合继续运行，并以非零状态退出。
 func runUpdate(p paths.Paths) int {
-	if _, err := kernel.DownloadAll(p, kernel.Options{Force: true}); err != nil {
+	opts := kernel.StageOptions{Core: true, Geo: true, Force: true}
+	if err := flows.UpdateAssets(p, opts, false, true); err != nil {
 		execx.Error(err.Error())
 		return 1
-	}
-	if sysd.IsInstalled(sysd.DefaultName) {
-		if err := sysd.SyncAndRestart(p, sysd.DefaultName); err != nil {
-			execx.Error(err.Error())
-			return 1
-		}
 	}
 	return 0
 }
 
 // runAssetsUpdate updates managed assets but deliberately never touches
-// systemd (formerly `portable-update`, still accepted as an alias).
-// sboxkit itself remains available through Tools > Update.
+// systemd (formerly `portable-update`, still accepted as an alias). The same
+// compatibility check as runUpdate guards the state, because the next service
+// sync or restart picks the new kernel and rule sets up. sboxkit itself remains
+// available through Tools > Update.
 func runAssetsUpdate(p paths.Paths) int {
-	if _, err := kernel.DownloadAll(p, kernel.Options{Force: true}); err != nil {
+	opts := kernel.StageOptions{Core: true, Geo: true, Force: true}
+	if err := flows.UpdateAssets(p, opts, false, false); err != nil {
 		execx.Error(err.Error())
 		return 1
 	}

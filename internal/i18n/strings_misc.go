@@ -35,7 +35,11 @@ func init() {
 		"正在回退「%s」已应用的改动…": "Rolling back changes applied by \"%s\"…",
 		"  回退失败: %s (%v)": "  Rollback failed: %s (%v)",
 		"  已回退: ":         "  Rolled back: ",
-		"回退完成，但有 %d 项失败，请手动检查。": "Rollback finished, but %d item(s) failed; please check manually.",
-		"已回退到操作前状态。":            "Rolled back to the state before the operation.",
+		"回退完成，但有 %d 项失败，请手动检查。":    "Rollback finished, but %d item(s) failed; please check manually.",
+		"已回退到操作前状态。":               "Rolled back to the state before the operation.",
+		"序列化 customize.json: %w":   "Serialize customize.json: %w",
+		"日志启用失败：":                  "Failed to enable logging: ",
+		"配置里没有 selector 分组，无法切换节点": "The config has no selector group, so nodes cannot be switched",
+		"写 bootstrap DNS 单元":       "Write bootstrap DNS unit",
 	})
 }
