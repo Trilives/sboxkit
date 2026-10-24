@@ -29,10 +29,9 @@ func init() {
 		"暂停":        "pause",
 		"确认%s全部服务？": "Confirm %s all services?",
 
-		"服务设置":            "Service Settings",
-		"查看状态":            "View status",
-		"重启服务":            "Restart service",
-		"同步当前配置并重启":       "Sync current config and restart",
+		"服务设置": "Service Settings",
+		"查看状态": "View status",
+		"重启服务": "Restart service",
 		"重载服务（重建订阅与服务）":   "Reload service (rebuild subscription and service)",
 		"没有生效订阅，无法重载服务":   "No active subscription; cannot reload the service",
 		"正在从订阅原文重新生成配置…":  "Regenerating configuration from the subscription original…",

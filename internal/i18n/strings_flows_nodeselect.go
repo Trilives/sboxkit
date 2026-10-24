@@ -2,9 +2,8 @@ package i18n
 
 func init() {
 	register(map[string]string{
-		"配置里没有 select 策略组，无法切换节点": "No select proxy group in the config; cannot switch node",
-		"指定分组 '%s' 不存在":           "Specified group '%s' does not exist",
-		"分组 '%s' 下没有可选项":          "No selectable items under group '%s'",
+		"指定分组 '%s' 不存在":  "Specified group '%s' does not exist",
+		"分组 '%s' 下没有可选项": "No selectable items under group '%s'",
 
 		"已连上 Clash API，列表将实时测速。":     "Connected to the Clash API; the list will show live latency.",
 		"Clash API 不可达，跳过测速。":        "Clash API unreachable, skipping latency test.",

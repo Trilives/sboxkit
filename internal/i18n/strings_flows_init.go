@@ -28,11 +28,7 @@ func init() {
 		"订阅名称不能为空":       "Subscription name cannot be empty",
 		"UID 必须是非负整数：%s": "UID must be a non-negative integer: %s",
 
-		"启用 TUN 模式？（整机流量自动走代理；否=纯代理，需各 App 手动设代理）":   "Enable TUN mode? (all system traffic auto-routes through the proxy; no = pure proxy mode, each app must set its own proxy)",
-		"开启局域网代理？（让局域网其他主机可用本机作为代理，监听 0.0.0.0:%d）":   "Enable LAN proxy? (lets other hosts on the LAN use this machine as a proxy, listening on 0.0.0.0:%d)",
-		"把代理环境变量写入 ~/.bashrc？（新开终端自动走 127.0.0.1:%d）": "Write proxy environment variables to ~/.bashrc? (new terminals will automatically use 127.0.0.1:%d)",
-		"更新防火墙放行 %d 端口？": "Update firewall to allow port %d?",
-		"撤销防火墙放行 %d":     "Revoke firewall rule for port %d",
+		"撤销防火墙放行 %d": "Revoke firewall rule for port %d",
 
 		"已跳过订阅与服务注册，结束初始化。设置已保存，":    "Skipped subscription and service registration; initialization ended. Settings have been saved; ",
 		"稍后可在主菜单「订阅 → 添加订阅」补配并启动服务。": "you can later finish setup via the main menu 'Subscriptions → Add subscription' and start the service.",
