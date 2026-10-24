@@ -1,5 +1,20 @@
 # 已完成
 
+## 2026-10-25：v0.4.0 稳定版
+
+- 按需提权、dpkg 自更新、下载摘要校验、sing-box 非 root 运行与一键安装脚本，验收记录见下一节。
+- 发布门禁：`gofmt`、`go vet`、`go test ./...`、`go test -race ./...`、带 sing-box v1.14.4 的真实内核用例、
+  安装脚本测试、i18n 覆盖检查在 `machine.md` 主机通过，`goreleaser check` 与快照构建通过；提交的代码与主机上
+  验证的 0.4.0-rc4 源码逐文件一致（此后只改了文档、记录与 `VERSION`）。
+- 发布验证：推送 `v0.4.0` 标签后 release 与 CI 工作流成功；10 个资产（新增 `install.sh`）均与 `checksums.txt`
+  一致；`/releases/latest` 与预览渠道（`/releases` 首项）都指向 v0.4.0，`releases/latest/download/install.sh`
+  可取用。在 `machine.md` 主机用发布的脚本 `install.sh --user --version 0.4.0` 装到临时目录：SHA-256 校验通过，
+  `sboxkit version` 为 0.4.0、随包内核 v1.14.4；解包（未安装）发布的 amd64 deb：摘要一致、数据段为
+  `data.tar.gz`、版本 0.4.0、二进制含 `LoadCredential` 单元模板。临时目录与 `~/.local/bin` 链接已清理。
+- 发布说明：release 工作流写入的是提交信息而不是标签说明——actions/checkout 最后以
+  `+<sha>:refs/tags/<tag>` 取回触发的标签，附注标签被换成轻量标签（在主机上按任务日志中的 git 命令复现）。
+  v0.4.0 的发布说明已改为标签内容；工作流改为先强制取回标签对象。v0.3.1–v0.3.3 的发布说明同样受影响，未改动。
+
 ## 2026-10-25：按需提权、dpkg 自更新、下载摘要校验、sing-box 非 root 运行与一键安装脚本（v0.4.0）
 
 - 按需提权（用户选定「Only when changing」）：系统模式下交互菜单先以当前用户打开，查看状态、信息、日志、
