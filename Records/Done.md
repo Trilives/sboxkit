@@ -1,5 +1,16 @@
 # 已完成
 
+## 2026-10-24：v0.3.2 稳定版
+
+- 生成的 DNS 地址过滤迁移到 sing-box 1.14 响应匹配（`evaluate` + `match_response` + `respond`），修复含 hosts
+  CNAME / FakeIP + `geoip-cn` 的订阅在 1.14.x 下 `check` / 启动失败；生成器自此要求 sing-box ≥ 1.14.0。
+- 导入、刷新、重建、切换订阅以及内核 / 规则集 / sboxkit 更新前，先用即将部署的内核与规则集执行 `sing-box check`；
+  不兼容时说明所需版本与影响并提议同时更新相关组件，拒绝或无法升级时保持原组合运行；服务同步的校验前移到
+  覆盖运行时文件、停止旧服务之前。验收记录见下方两节。
+- 发布门禁：`gofmt`、`go vet`、`go test -race ./...`、带随包 sing-box v1.14.4 的 `go test ./...`（含真实内核用例）、
+  脚本 `bash -n`、`goreleaser check` 与三架构快照构建（tar.gz / deb / 用户模式包）通过；快照用户模式包与 deb 的
+  随包内核为 v1.14.4，包内二进制含 `compat-check`。DNS 迁移提交单独检出后 `go test ./...`（1.14.1 / 1.14.3）通过。
+
 ## 2026-10-24：导入、重建和更新前校验配置与内核兼容性
 
 - 部署前闸门（`internal/compat`、`internal/deploy`）：订阅添加 / 刷新 / 重建 / 切换与「本地文件覆盖」
