@@ -27,6 +27,7 @@ func usageText() string {
 
 func main() {
 	flows.Version = version
+	sysd.Version = version
 	p := paths.Detect()
 	setupLanguage(p)
 	setupLogging(p)
@@ -172,9 +173,9 @@ func maybeOfferFirstRunInit(p paths.Paths, deps firstRunDeps) {
 }
 
 func interactive(p paths.Paths) int {
-	// 自更新换了新面板后，运行时目录仍是旧副本；这里在进入主菜单前用当前二进制
-	// 的内置面板对齐运行时（仅在检测到过期时才动，日常启动零打扰）。
-	sysd.RefreshPanelIfStale(p, sysd.DefaultName)
+	// 升级后首次运行：运行时资源（单元、面板、内核与规则集、运行时配置）仍由旧版本生成，
+	// 按版本记录整体同步一次；版本未变时不读运行时目录、不请求授权。
+	sysd.ReconcileRuntime(p, sysd.DefaultName)
 	// 用户模式下定时更新可能因 TUN 无法无人值守授权而推迟切换内核
 	sysd.WarnPendingCore(p, sysd.DefaultName)
 	if err := sysd.ReconcileResilience(p, sysd.DefaultName); err != nil {

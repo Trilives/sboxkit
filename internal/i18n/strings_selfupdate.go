@@ -2,10 +2,10 @@ package i18n
 
 func init() {
 	register(map[string]string{
-		"当前版本：%s，正在查询最新版本…":        "Current version: %s, checking for the latest…",
-		"已是最新版本（%s）。":              "Already on the latest version (%s).",
-		"发现新版本 %s（当前 %s），现在更新？":    "New version %s available (current %s). Update now?",
-		"sboxkit 已更新到 %s，下次运行即生效。": "sboxkit updated to %s; takes effect next run.",
+		"当前版本：%s，正在查询最新版本…":     "Current version: %s, checking for the latest…",
+		"已是最新版本（%s）。":           "Already on the latest version (%s).",
+		"发现新版本 %s（当前 %s），现在更新？": "New version %s available (current %s). Update now?",
+		"sboxkit 已更新到 %s，下次运行即生效（届时自动同步服务单元、Web 面板等运行时资源）。": "sboxkit updated to %s; takes effect next run (service units, the web panel and other runtime resources are synced then).",
 
 		"发行版没有有效的版本号":                 "The release has no valid version number",
 		"未找到本机架构的发行包: %s":             "No release asset found for this architecture: %s",
@@ -24,13 +24,13 @@ func init() {
 		"首次自更新需要把 ":                   "First self-update needs to take over ",
 		" 接管为指向托管版本的符号链接":             " as a symlink pointing at the managed version",
 
-		"更新 sboxkit 自身":       "Update sboxkit itself",
-		"更新到稳定版":              "Update to stable",
-		"更新到预览版（尝鲜，可能不稳定）":    "Update to preview (early access, may be unstable)",
-		"回退到稳定版 %s":           "Roll back to stable %s",
-		"已回退到稳定版 %s，下次运行即生效。": "Rolled back to stable %s; takes effect next run.",
-		"仓库还没有任何发行版":          "The repository has no releases yet",
-		"尚未记录过稳定版，无法回退":       "No stable version recorded yet; cannot roll back",
-		"记录的稳定版二进制无法正常运行：%w":  "The recorded stable binary failed to run: %w",
+		"更新 sboxkit 自身":    "Update sboxkit itself",
+		"更新到稳定版":           "Update to stable",
+		"更新到预览版（尝鲜，可能不稳定）": "Update to preview (early access, may be unstable)",
+		"回退到稳定版 %s":        "Roll back to stable %s",
+		"已回退到稳定版 %s，下次运行即生效（届时自动同步服务单元、Web 面板等运行时资源）。": "Rolled back to stable %s; takes effect next run (service units, the web panel and other runtime resources are synced then).",
+		"仓库还没有任何发行版":         "The repository has no releases yet",
+		"尚未记录过稳定版，无法回退":      "No stable version recorded yet; cannot roll back",
+		"记录的稳定版二进制无法正常运行：%w": "The recorded stable binary failed to run: %w",
 	})
 }

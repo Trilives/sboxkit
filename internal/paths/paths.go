@@ -38,6 +38,7 @@ type Paths struct {
 	CustomizeFile  string
 	GeositeCN      string // sing-box rule-set（.srs，二进制格式）
 	GeoIPCN        string
+	RuntimeVersion string // 最近一次部署运行时资源（单元 / 面板 / 内核等）的 sboxkit 版本
 }
 
 func stateRoot(bundleRoot string) string {
@@ -80,6 +81,7 @@ func FromRoot(s string) Paths {
 		CustomizeFile:  filepath.Join(s, "customize.json"),
 		GeositeCN:      filepath.Join(rs, "geosite-cn.srs"),
 		GeoIPCN:        filepath.Join(rs, "geoip-cn.srs"),
+		RuntimeVersion: filepath.Join(s, "runtime.version"),
 	}
 }
 

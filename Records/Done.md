@@ -1,5 +1,29 @@
 # 已完成
 
+## 2026-10-24：版本变化后整体同步运行时资源（修复每次运行都提示更新 Web 面板）
+
+- 根因：系统模式运行时目录 `/var/lib/sboxkit-runtime` 为 `root:root 0700`，交互启动时以普通用户比对
+  `ui/` 内容必然读取失败，面板每次都被判为过期，于是每次运行都请求 sudo 并重写面板。
+- 修复（`internal/sysd/runtime_version.go`）：`SyncAndRestart` / `Install` 成功后把当前 sboxkit 版本记入
+  `state/runtime.version`（0644）；交互启动的 `sysd.ReconcileRuntime` 只比较该记录与当前版本，不同时整体
+  同步一次（服务单元、bootstrap DNS relay、Web 面板、内核与规则集、运行时配置），相同则不读运行时目录、
+  不请求授权。服务未安装或已暂停时不同步；同步失败不记版本，下次启动重试。移除面板专用的
+  `RefreshPanelIfStale`；自更新 / 回退成功提示补充「下次运行自动同步运行时资源」。
+- 测试：新增 `runtime_version_test.go`（升级后同步一次、无记录的旧部署、同版本不动、未安装 / 暂停跳过、
+  失败重试、记录可读）；`gofmt`、`go vet`、`go test ./...`、`go test -race ./...`、带 sing-box 1.14.4 的真实
+  内核用例、`git diff --check`、i18n 覆盖检查通过（本机与 `machine.md` 主机各跑一遍）。
+- 远程验收（`machine.md` 主机，系统模式，v0.3.2 deb，TUN 关闭、合成订阅经本机回环 HTTP 提供）：
+  - v0.3.2 复现：连续三次运行都提示「检测到内置 Web 面板有更新」并请求 sudo，`ui/index.html` 每次被重写；
+    普通用户对 `/var/lib/sboxkit-runtime/ui` 为 `Permission denied`。
+  - 换入新构建（0.3.3-dev，模拟 apt 升级）：首次运行提示「sboxkit 版本已变化（? → 0.3.3-dev）」，授权一次后
+    单元、运行时配置、bootstrap DNS、面板、内核与规则集全部重新部署，主服务与 relay 重启，记录写为
+    0.3.3-dev；此后两次运行（清空 sudo 缓存）直接进菜单，无提示、无授权、文件与服务启动时间不变。
+  - 暂停服务后换入 0.3.3-dev2：运行不同步、服务保持停止；恢复后再运行同步一次（0.3.3-dev → 0.3.3-dev2）。
+    同步时拒绝授权则记录不变，下次启动重试成功。root 写入的记录（模拟周更定时器）可被普通用户的同步替换。
+  - 恢复：经 sboxkit 卸载（全选）后 purge deb，清除空状态目录、`/run/sboxkit`、测试目录、回环 HTTP 与 Go
+    遥测目录；与验证前快照比对一致（防火墙哈希仅计数器变化，无 sboxkit 规则；无残留监听端口）。
+  - 观察：卸载「清理所有订阅与配置」后仍留下空的 `/var/lib/sboxkit` 与 tmpfs 上的 `/run/sboxkit`。
+
 ## 2026-10-24：v0.3.2 稳定版
 
 - 生成的 DNS 地址过滤迁移到 sing-box 1.14 响应匹配（`evaluate` + `match_response` + `respond`），修复含 hosts

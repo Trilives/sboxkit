@@ -58,7 +58,7 @@ func doSelfUpdate(p paths.Paths, currentVersion string, channel selfupdate.Chann
 	if err := runUpgrade(p, &upgrade{tool: tool}, upgradeMode{interactive: true, sync: true}); err != nil {
 		return err
 	}
-	execx.Ok(fmt.Sprintf(i18n.T("sboxkit 已更新到 %s，下次运行即生效。"), tool.Version))
+	execx.Ok(fmt.Sprintf(i18n.T("sboxkit 已更新到 %s，下次运行即生效（届时自动同步服务单元、Web 面板等运行时资源）。"), tool.Version))
 	return nil
 }
 
@@ -71,6 +71,6 @@ func doRollbackStable(p paths.Paths) error {
 	if err := runUpgrade(p, &upgrade{tool: tool}, upgradeMode{interactive: true, sync: true}); err != nil {
 		return err
 	}
-	execx.Ok(fmt.Sprintf(i18n.T("已回退到稳定版 %s，下次运行即生效。"), tool.Version))
+	execx.Ok(fmt.Sprintf(i18n.T("已回退到稳定版 %s，下次运行即生效（届时自动同步服务单元、Web 面板等运行时资源）。"), tool.Version))
 	return nil
 }

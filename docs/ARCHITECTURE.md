@@ -43,7 +43,7 @@ clashdock 的生效配置 `config.yaml` 内容其实是 JSON（利用"JSON 是�
 
 | 位置 | 内容 |
 |---|---|
-| `/var/lib/sboxkit`（固定工作目录，`SBOXKIT_HOME` 可覆盖） | 状态数据：内核、geo 规则集、`subscriptions/<name>/{meta.json,raw.*,config.json}`、`active` 指针、`customize.json`。首次使用经 sudo 创建并交回调用者属主，root 定时器与用户会话共享同一份数据；旧版留下的 `ui/` 不再作为运行来源 |
+| `/var/lib/sboxkit`（固定工作目录，`SBOXKIT_HOME` 可覆盖） | 状态数据：内核、geo 规则集、`subscriptions/<name>/{meta.json,raw.*,config.json}`、`active` 指针、`customize.json`、记录运行时资源部署版本的 `runtime.version`。首次使用经 sudo 创建并交回调用者属主，root 定时器与用户会话共享同一份数据；旧版留下的 `ui/` 不再作为运行来源 |
 | `/var/lib/sboxkit-runtime` | root 态自包含运行时：内核 + 配置 + geo 规则集 + 面板资源，以及仅含 IP 字面量上游的 `bootstrap-dns.json`（服务与用户目录解耦） |
 | `/run/sboxkit` | watchdog 跨 invocation 状态与当前 incident 的首份脱敏诊断快照；原子写入并由文件锁串行化 |
 | `/etc/systemd/system` | `sing-box` 主服务、bootstrap DNS relay、watchdog 与自动更新单元 |
@@ -85,6 +85,14 @@ sboxkit 自己写了一个极简面板（`internal/uiassets`，go:embed 打进�
 服务安装、重载和自更新会先在私有临时目录物化二进制内嵌资源，再经提权操作替换
 `/var/lib/sboxkit-runtime/ui`；订阅重建不再改写共享状态目录，避免 root 周更把
 `state/ui` 变成普通用户不可写并导致后续刷新失败。
+
+**运行时资源随版本同步**：服务单元、bootstrap DNS relay、面板、内核与规则集、运行时
+配置都由部署它们的 sboxkit 版本生成。每次 `SyncAndRestart` / `Install` 成功后把当前版本
+记入 `state/runtime.version`（0644，root 定时更新写入后普通用户仍可读）。交互启动时
+`sysd.ReconcileRuntime` 只比较这条记录与当前版本：不同（自更新、apt 升级或换包后的首次
+运行，或尚无记录的旧部署）就整体 `SyncAndRestart` 一次；相同则什么都不做——不读 root
+专属（0700）的运行时目录，也不请求授权。服务未安装或已暂停时不同步（避免顺带拉起暂停
+的服务）；同步失败不记版本，下次启动重试。
 
 普通用户运行，特权操作全部经 `sudo` 子进程（`internal/execx`），凭证会话内缓存。
 运行时目录、bootstrap relay 端口及 watchdog 单元是共享单例，因此服务变更入口只接受

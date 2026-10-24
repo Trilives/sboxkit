@@ -14,11 +14,9 @@
 package sysd
 
 import (
-	"bytes"
 	_ "embed"
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -161,49 +159,6 @@ func syncUIRuntime(rt runtimePaths) error {
 	return syncUIRuntimeWith(rt, rt.Scope.run)
 }
 
-// panelUpToDate 比对运行时目录里的面板与当前二进制内置的面板是否一致。运行时目录
-// 内容世界可读（cp -a 保留 0644/0755），因此这一步无需 root 即可判定。
-func panelUpToDate(rt runtimePaths) bool {
-	src := uiassets.FS()
-	for _, name := range []string{"index.html", "app.js", "styles.css"} {
-		want, err := fs.ReadFile(src, name)
-		if err != nil {
-			return true // 内置资源异常，无从比对，别误判为过期
-		}
-		got, err := os.ReadFile(filepath.Join(rt.UI, name))
-		if err != nil || !bytes.Equal(want, got) {
-			return false
-		}
-	}
-	return true
-}
-
-// RefreshPanelIfStale 若服务已安装、且运行时面板与当前二进制内置面板不一致（典型
-// 场景：sboxkit 自更新后二进制带了新面板，但运行时目录仍是旧副本），就把内置面板
-// 重新物化并同步到运行时目录。面板由 sing-box 内置文件服务实时读取，刷新文件即时
-// 生效，无需重启服务。仅在检测到过期时才请求 sudo，日常启动零打扰。
-func RefreshPanelIfStale(p paths.Paths, name string) {
-	if name == "" {
-		name = DefaultName
-	}
-	if !IsInstalled(name) {
-		return
-	}
-	rt := rtPaths(name)
-	if panelUpToDate(rt) {
-		return
-	}
-	execx.Info(i18n.T("检测到内置 Web 面板有更新，正在同步到运行时…"))
-	if err := rt.Scope.ensurePrivilege(i18n.T("更新内置 Web 面板")); err != nil {
-		return
-	}
-	if err := syncUIRuntime(rt); err != nil {
-		execx.Warn(i18n.T("刷新内置 Web 面板资源失败：") + err.Error())
-		return
-	}
-	execx.Ok(i18n.T("内置 Web 面板已更新（浏览器刷新 http://host:9090/ui/ 即可看到新版）。"))
-}
-
 func preflight(p paths.Paths) error {
 	if _, err := os.Stat(p.SingBoxBin); err != nil {
 		return fmt.Errorf("%s", i18n.T("未找到 sing-box 内核，请先执行『下载内核/geo 数据』"))
@@ -269,6 +224,7 @@ func Install(p paths.Paths, name string, start bool) error {
 	} else {
 		execx.Ok(i18n.T("服务已设为开机自启（未启动）: ") + name + ".service")
 	}
+	recordRuntimeVersionBestEffort(p)
 	reconcileResilienceBestEffort(p, name)
 	return nil
 }
@@ -327,6 +283,7 @@ func SyncAndRestart(p paths.Paths, name string) error {
 		return err
 	}
 	execx.Ok(i18n.T("已同步配置并重启: ") + name + ".service")
+	recordRuntimeVersionBestEffort(p)
 	reconcileResilienceBestEffort(p, name)
 	return nil
 }
