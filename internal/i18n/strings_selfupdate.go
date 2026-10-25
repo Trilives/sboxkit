@@ -2,9 +2,10 @@ package i18n
 
 func init() {
 	register(map[string]string{
-		"当前版本：%s，正在查询最新版本…":     "Current version: %s, checking for the latest…",
-		"已是最新版本（%s）。":           "Already on the latest version (%s).",
-		"发现新版本 %s（当前 %s），现在更新？": "New version %s available (current %s). Update now?",
+		"当前版本：%s，正在查询最新版本…":        "Current version: %s, checking for the latest…",
+		"已是最新版本（%s）。":              "Already on the latest version (%s).",
+		"发现新版本 %s（当前 %s），现在更新？":    "New version %s available (current %s). Update now?",
+		"稳定版 %s 早于当前版本 %s，切换到稳定版？": "Stable %s is older than the current %s. Switch to the stable version?",
 		"sboxkit 已更新到 %s，下次运行即生效（届时自动同步服务单元、Web 面板等运行时资源）。": "sboxkit updated to %s; takes effect next run (service units, the web panel and other runtime resources are synced then).",
 
 		"发行版没有有效的版本号":                 "The release has no valid version number",

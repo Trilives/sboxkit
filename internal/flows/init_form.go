@@ -2,6 +2,7 @@ package flows
 
 import (
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -71,10 +72,10 @@ func initFormFields(p paths.Paths, cfg config.Config) []tui.FormField {
 		systemModeOnly(p, tui.FormField{Key: "allow_firewall", Label: i18n.T("放行代理端口"), Kind: tui.FormBool, Value: "true", Enabled: enabledWhen("lan_proxy", true)}),
 		{Key: "write_proxy_env", Label: i18n.T("写入 shell 代理变量"), Kind: tui.FormBool, Value: "true", Enabled: enabledWhen("enable_tun", false)},
 		{Key: "tun_uids", Label: i18n.T("TUN 直连 UID"), Kind: tui.FormText, Value: joinInts(cfg.TunExcludeUIDs), Placeholder: "1000, 1001", Enabled: enabledWhen("enable_tun", true), Validate: validateUIDs},
-		{Key: "process_names", Label: i18n.T("TUN 直连进程名"), Kind: tui.FormText, Value: strings.Join(cfg.BypassProcessNames, ", "), Placeholder: "tailscale, tailscaled", Enabled: enabledWhen("enable_tun", true)},
+		{Key: "process_names", Label: i18n.T("TUN 直连进程名"), Kind: tui.FormText, Value: strings.Join(cfg.BypassProcessNames, ", "), Placeholder: "qbittorrent-nox, aria2c", Enabled: enabledWhen("enable_tun", true)},
 		{Key: "sub_name", Label: i18n.T("订阅名称"), Kind: tui.FormText, Value: time.Now().Format("sub-20060102-150405")},
 		{Key: "source", Label: i18n.T("订阅类型"), Kind: tui.FormChoice, Value: sourceValues[0], Options: sourceValues, OptionLabels: sourceLabels},
-		{Key: "sub_url", Label: i18n.T("订阅地址 / 本地路径"), Kind: tui.FormText, Placeholder: "https://example.com/sub"},
+		{Key: "sub_url", Label: i18n.T("订阅地址 / 本地路径"), Kind: tui.FormText, Placeholder: "https://example.com/sub", Validate: validateSubscriptionInput},
 		{Key: "fetch_proxy", Label: i18n.T("使用代理拉取"), Kind: tui.FormBool, Value: "false", Enabled: fetchThroughProxyAvailable},
 		{Key: "customize", Label: i18n.T("按 sboxkit 规则重建"), Kind: tui.FormBool, Value: "true", Enabled: func(v tui.FormResult) bool { return v["source"] == "sing-box" }},
 	}
@@ -101,9 +102,13 @@ func initSubscriptionFromForm(values tui.FormResult) (*newSub, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%s", i18n.T("订阅名称不能为空"))
 	}
-	sourceType := values["source"]
-	if !knownSourceType(sourceType) {
-		sourceType = subscriptionSources[0].Type
+	chosen := values["source"]
+	if !knownSourceType(chosen) {
+		chosen = subscriptionSources[0].Type
+	}
+	sourceType, err := subscriptionSourceType(chosen, rawURL)
+	if err != nil {
+		return nil, err
 	}
 	if sourceType == "local" {
 		resolved, err := resolveLocalPath(rawURL)
@@ -113,13 +118,33 @@ func initSubscriptionFromForm(values tui.FormResult) (*newSub, error) {
 		rawURL = resolved
 	}
 	rebuild := true
-	if sourceType == "sing-box" {
+	if chosen == "sing-box" {
 		rebuild = values.Bool("customize")
 	}
+	fetchViaProxy := sourceType != "local" && fetchThroughProxyAvailable(values) && values.Bool("fetch_proxy")
 	return &newSub{
 		Name: name, URL: rawURL, SourceType: sourceType,
-		ApplyOverlay: rebuild, FetchViaProxy: fetchThroughProxyAvailable(values) && values.Bool("fetch_proxy"),
+		ApplyOverlay: rebuild, FetchViaProxy: fetchViaProxy,
 	}, nil
+}
+
+// validateSubscriptionInput 远程订阅只支持 http(s)；不带 scheme 的输入按本地文件校验。
+func validateSubscriptionInput(value string) error {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	if !isRemoteSource(value) {
+		if _, err := resolveLocalPath(value); err != nil {
+			return fmt.Errorf(i18n.T("%w（远程订阅地址须以 http:// 或 https:// 开头）"), err)
+		}
+		return nil
+	}
+	u, err := url.Parse(value)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("%s", i18n.T("订阅地址须以 http:// 或 https:// 开头，本地文件请直接填写路径"))
+	}
+	return nil
 }
 
 func applyInitDeployment(p paths.Paths, plan initFormPlan) error {

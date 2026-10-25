@@ -87,7 +87,10 @@ func Defaults() Config {
 			"10.0.0.0/8", "192.168.0.0/16", "169.254.0.0/16", "fc00::/7", "fe80::/10",
 			"100.64.0.0/10",
 		},
-		BypassProcessNames:        []string{"tailscale", "tailscaled"},
+		// 默认不按进程直连：按进程匹配需要 sing-box 以 root 运行。Tailscale 自身流量带 fwmark，
+		// 由其优先级 5210–5270 的策略路由走主路由表，先于 TUN 的 9000 起的规则，tailnet 网段
+		// 已在上面排除，无需进程规则。
+		BypassProcessNames:        []string{},
 		TunExcludeUIDs:            []int{},
 		EnableTun:                 true,
 		LanPanel:                  false,

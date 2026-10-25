@@ -132,6 +132,11 @@ func TestInstalledPackageVersionReadsDpkgStatus(t *testing.T) {
 	if v, err := installedPackageVersion(); err != nil || v != "0.3.3" {
 		t.Fatalf("installedPackageVersion = %q, %v", v, err)
 	}
+	// nfpm 把预发布后缀写成 Debian 的 ~；撤销更新要按发行版标签找回原版本。
+	f.installed = "0.4.1~beta.1"
+	if v, err := installedPackageVersion(); err != nil || v != "0.4.1-beta.1" {
+		t.Fatalf("installedPackageVersion for a preview = %q, %v, want the release version", v, err)
+	}
 	f.installed = ""
 	if _, err := installedPackageVersion(); err == nil {
 		t.Fatal("missing package reported as installed")
@@ -413,4 +418,23 @@ func sha256Hex(t *testing.T, s string) string {
 	t.Helper()
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])
+}
+
+func TestOlderRanksReleasesAboveTheirPreviews(t *testing.T) {
+	cases := []struct {
+		a, b string
+		want bool
+	}{
+		{"0.4.0", "0.4.1-beta.1", true},  // 预览版切回更旧的稳定版
+		{"0.4.1", "0.4.1-beta.1", false}, // 预览版转正后的稳定版更新
+		{"0.4.1-beta.1", "0.4.1", true},
+		{"0.3.9", "0.3.10", true},
+		{"0.4.1", "0.4.0", false},
+		{"0.4.0", "0.4.0", false},
+	}
+	for _, c := range cases {
+		if got := Older(c.a, c.b); got != c.want {
+			t.Errorf("Older(%q, %q) = %v, want %v", c.a, c.b, got, c.want)
+		}
+	}
 }

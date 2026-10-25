@@ -202,9 +202,6 @@ func interactive(p paths.Paths) int {
 		execx.Warn(fmt.Sprintf(i18n.T("修复网络自愈失败（主服务不受影响）：%v"), err))
 	}
 	maybeOfferFirstRunInit(p, defaultFirstRunDeps())
-	if !p.UserMode && !execx.IsRoot() {
-		execx.Info(i18n.T("以当前用户浏览：查看状态、切换节点和网络测试无需密码，改动配置或服务时会请求一次 sudo。"))
-	}
 	idx := 0
 	for {
 		// 顺序按常用程度排列：运行时管理/配置变更/网络测试等日常操作在前，

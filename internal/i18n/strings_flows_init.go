@@ -28,6 +28,9 @@ func init() {
 		"订阅名称不能为空":       "Subscription name cannot be empty",
 		"UID 必须是非负整数：%s": "UID must be a non-negative integer: %s",
 
+		"订阅地址须以 http:// 或 https:// 开头，本地文件请直接填写路径": "Subscription URLs must start with http:// or https://; for a local file, enter its path",
+		"%w（远程订阅地址须以 http:// 或 https:// 开头）":       "%w (remote subscription URLs must start with http:// or https://)",
+
 		"撤销防火墙放行 %d": "Revoke firewall rule for port %d",
 
 		"已跳过订阅与服务注册，结束初始化。设置已保存，":    "Skipped subscription and service registration; initialization ended. Settings have been saved; ",

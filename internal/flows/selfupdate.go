@@ -43,7 +43,12 @@ func doSelfUpdate(p paths.Paths, currentVersion string, channel selfupdate.Chann
 		execx.Ok(fmt.Sprintf(i18n.T("已是最新版本（%s）。"), currentVersion))
 		return nil
 	}
-	ok, err := tui.Confirm(fmt.Sprintf(i18n.T("发现新版本 %s（当前 %s），现在更新？"), latest, currentVersion), true)
+	prompt := i18n.T("发现新版本 %s（当前 %s），现在更新？")
+	if channel == selfupdate.Stable && selfupdate.Older(latest, currentVersion) {
+		// 从更新的预览版切回稳定渠道：目标版本更旧，不是「新版本」。
+		prompt = i18n.T("稳定版 %s 早于当前版本 %s，切换到稳定版？")
+	}
+	ok, err := tui.Confirm(fmt.Sprintf(prompt, latest, currentVersion), true)
 	if err != nil || !ok {
 		return err
 	}

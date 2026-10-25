@@ -52,6 +52,9 @@ if release_arch riscv64 >/dev/null; then
   fail "riscv64 has no release asset and must be rejected"
 fi
 
+assert_eq "$(deb_version 0.4.1-beta.1)" "0.4.1~beta.1" "dpkg version of a preview"
+assert_eq "$(deb_version 0.4.0)" "0.4.0" "dpkg version of a stable release"
+
 assert_eq "$(tag_name <<<"${RELEASE_JSON}")" "v9.9.9" "tag_name"
 assert_eq "$(tag_name <<<'{"message": "Not Found"}')" "" "tag_name without a release"
 assert_eq "$(tr -d '\n' <<<"${RELEASE_JSON}" | asset_digest sboxkit_9.9.9_linux_amd64.deb)" "sha256:${good}" "digest from the asset, not the notes"

@@ -489,6 +489,10 @@ func routeRules(t *testing.T, cfg config.Config) string {
 func TestProcessBypassOnlyWithTUN(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.EnableTun = true
+	if strings.Contains(routeRules(t, cfg), "process_name") {
+		t.Fatal("the default TUN deployment must not need process rules, which force sing-box to run as root")
+	}
+	cfg.BypassProcessNames = []string{"tailscale", "tailscaled"}
 	if !strings.Contains(routeRules(t, cfg), `"process_name":["tailscale","tailscaled"]`) {
 		t.Fatal("TUN mode lost the process bypass")
 	}

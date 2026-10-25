@@ -37,11 +37,31 @@ func TestReexecAsRootStopsAfterOneSudoHop(t *testing.T) {
 		t.Skip("running as root")
 	}
 	t.Setenv("SUDO_UID", "1000")
+	t.Setenv("SUDO_COMMAND", "/usr/bin/sboxkit --resume=tools/update")
 
 	err := ReexecAsRoot("/usr/bin/sboxkit", nil)
 
 	if err == nil || !strings.Contains(err.Error(), "sudo") {
 		t.Fatalf("ReexecAsRoot after a sudo hop = %v, want an explanatory error instead of looping", err)
+	}
+}
+
+func TestReexecutedBySudoIgnoresSudoVariablesLeftByAnotherCommand(t *testing.T) {
+	cases := []struct {
+		name string
+		env  map[string]string
+		want bool
+	}{
+		{"plain login", map[string]string{}, false},
+		{"su back from a sudo root shell", map[string]string{"SUDO_UID": "1000", "SUDO_COMMAND": "/bin/bash"}, false},
+		{"sudo ran sboxkit", map[string]string{"SUDO_UID": "1000", "SUDO_COMMAND": "/usr/bin/sboxkit --resume=tools/update"}, true},
+		{"sudo without SUDO_COMMAND", map[string]string{"SUDO_UID": "1000"}, true},
+	}
+	for _, c := range cases {
+		getenv := func(key string) string { return c.env[key] }
+		if got := reexecutedBySudo("/usr/bin/sboxkit", getenv); got != c.want {
+			t.Errorf("%s: reexecutedBySudo = %v, want %v", c.name, got, c.want)
+		}
 	}
 }
 

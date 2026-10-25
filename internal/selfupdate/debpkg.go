@@ -94,7 +94,9 @@ func invokedPath() string {
 	return abs
 }
 
-// installedPackageVersion dpkg 记录的已安装 sboxkit 版本（未安装时报错）。
+// installedPackageVersion dpkg 记录的已安装 sboxkit 版本（未安装时报错），换回发行版标签的写法：
+// nfpm 按 Debian 习惯把预发布后缀写成 ~（0.4.1-beta.1 记为 0.4.1~beta.1，才排在 0.4.1 之前），
+// 撤销更新时要凭它找回原版本的发行版。
 func installedPackageVersion() (string, error) {
 	out, err := runCommand("dpkg-query", "-W", "-f=${db:Status-Status} ${Version}", packageName)
 	if err != nil {
@@ -104,7 +106,7 @@ func installedPackageVersion() (string, error) {
 	if status != "installed" || version == "" {
 		return "", fmt.Errorf("package %s is not installed (%s)", packageName, strings.TrimSpace(string(out)))
 	}
-	return version, nil
+	return strings.Replace(version, "~", "-", 1), nil
 }
 
 // prepareDeb 下载并校验 version 的 .deb，解出其中的 sboxkit 试跑；不安装。
@@ -360,7 +362,8 @@ func latestBelow(versions []string, version string) (string, bool) {
 	return best, found
 }
 
-// compareVersions 按 compat.AtLeast 的数值规则比较；无法解析时退回字符串比较。
+// compareVersions 按 compat.AtLeast 的数值规则比较；数值相同时正式版高于其预发布版本
+// （0.4.1 高于 0.4.1-beta.1），预发布版本之间及无法解析时退回字符串比较。
 func compareVersions(a, b string) int {
 	if a == b {
 		return 0
@@ -368,14 +371,26 @@ func compareVersions(a, b string) int {
 	aGE, ok1 := compat.AtLeast(a, b)
 	bGE, ok2 := compat.AtLeast(b, a)
 	switch {
-	case !ok1 || !ok2 || aGE == bGE:
+	case !ok1 || !ok2:
 		return strings.Compare(a, b)
-	case aGE:
+	case aGE && !bGE:
+		return 1
+	case bGE && !aGE:
+		return -1
+	}
+	aPre, bPre := strings.Contains(a, "-"), strings.Contains(b, "-")
+	switch {
+	case aPre == bPre:
+		return strings.Compare(a, b)
+	case bPre:
 		return 1
 	default:
 		return -1
 	}
 }
+
+// Older 版本 a 是否低于 b（规则同 compareVersions）。
+func Older(a, b string) bool { return compareVersions(a, b) < 0 }
 
 func lastStableDebVersion(p paths.Paths) (string, bool) {
 	raw, err := os.ReadFile(lastStableRecord(p))

@@ -6,7 +6,9 @@
 package flows
 
 import (
+	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/Trilives/sboxkit/internal/config"
@@ -40,6 +42,22 @@ type newSub struct {
 	FetchViaProxy bool
 }
 
+// isRemoteSource 带 scheme 的输入按远程订阅拉取，其余按本地文件路径。
+func isRemoteSource(value string) bool { return strings.Contains(value, "://") }
+
+// subscriptionSourceType 按输入决定实际来源：不带 scheme 的输入不论所选类型都按本地文件导入
+// （本地导入按内容识别 Clash / sing-box / base64，与选对类型的结果相同）；选了「本地文件」
+// 却填写远程地址时无从判断格式，报错让用户改选。
+func subscriptionSourceType(chosen, input string) (string, error) {
+	switch {
+	case !isRemoteSource(input):
+		return "local", nil
+	case chosen == "local":
+		return "", fmt.Errorf("%s", i18n.T("订阅类型为「本地文件」时请填写文件路径；远程订阅请选择 Clash、sing-box 或 base64"))
+	}
+	return chosen, nil
+}
+
 // askNewSubscription 交互收集新订阅信息；订阅链接留空 → (nil, nil) 表示「暂不配置」。
 func askNewSubscription() (*newSub, error) {
 	defaultName := time.Now().Format("sub-20060102-150405")
@@ -55,9 +73,9 @@ func askNewSubscription() (*newSub, error) {
 	if err != nil {
 		return nil, err
 	}
-	sourceType := subscriptionSources[idx].Type
-	prompt := i18n.T("订阅链接，留空=暂不配置")
-	if sourceType == "local" {
+	chosen := subscriptionSources[idx].Type
+	prompt := i18n.T("订阅链接（也可填写本地文件路径），留空=暂不配置")
+	if chosen == "local" {
 		prompt = i18n.T("本地文件路径（Clash YAML 或 sing-box JSON），留空=暂不配置")
 	}
 	subURL, err := tui.Ask(prompt, tui.AskOpts{AllowEmpty: true})
@@ -66,6 +84,10 @@ func askNewSubscription() (*newSub, error) {
 	}
 	if subURL == "" {
 		return nil, nil
+	}
+	sourceType, err := subscriptionSourceType(chosen, subURL)
+	if err != nil {
+		return nil, err
 	}
 	if sourceType == "local" {
 		subURL, err = resolveLocalPath(subURL)
@@ -77,7 +99,7 @@ func askNewSubscription() (*newSub, error) {
 	// 含 AI / 流媒体 / 地区自动测速组，无需额外确认）；只有 sing-box 原生订阅
 	// 需要用户选择「信任原配置只补面板」还是「按 sboxkit 统一规则重建」。
 	rebuild := true
-	if sourceType == "sing-box" {
+	if chosen == "sing-box" {
 		rebuild, err = tui.Confirm(i18n.T("按 sboxkit 统一规则重建该订阅（TUN / DNS / AI / 流媒体 / 地区自动测速组）？否则仅信任你的原生配置，只补齐面板/控制器设置。"), true)
 		if err != nil {
 			return nil, err

@@ -103,7 +103,10 @@ sboxkit 自己写了一个极简面板（`internal/uiassets`，go:embed 打进�
 - 改动状态或服务的子命令（`init` / `modify` / `update` / `pause` / `uninstall` 等，见
   `cmd/sboxkit/privilege.go`）在系统模式下启动时经 `execx.ReexecAsRoot` 以
   `sudo [SBOXKIT_*=…] -- <调用路径> 参数…` 整体重新执行；之后的特权操作直接执行，
-  不再中途逐条 sudo。`nettest` / `diagnose` / `version` 以调用用户运行。
+  不再中途逐条 sudo。`nettest` / `diagnose` / `version` 以调用用户运行。经 sudo 重新执行后
+  仍不是 root（sudoers 的 `runas_default` 指向他人等）时报错而不循环：判断依据是 `SUDO_COMMAND`
+  正是 sboxkit（`execx.reexecutedBySudo`）。从 sudo 打开的 root shell 里 `su` 回普通用户残留的
+  `SUDO_*` 记的是那个 shell，照常提权；不设 `SUDO_COMMAND` 的实现按已经过 sudo 处理。
 - 交互菜单先以调用用户打开（只读状态、不写日志、不做事务快照）：状态、连接信息、节点热切换
   （Clash API）、网络测试、诊断与日志不需要密码。改动入口调用 `flows.RequireRoot(entry)`：
   先 `sudo -v`（失败或取消时留在原菜单），再以 `--resume=<入口>` 经 sudo 重新执行；root
@@ -131,6 +134,10 @@ sboxkit 自己写了一个极简面板（`internal/uiassets`，go:embed 打进�
   而改用 root 后能稳定运行（`verifyIdentitySwitch` 在 `state/runtime.identity-fallback` 记下
   版本，版本变化后再试）。root 同样起不来说明故障与身份无关：恢复非特权单元、不记录，并报错让
   这次部署回退到原配置。
+  `bypass_process_names` 默认为空，启用 TUN 的默认部署因此同样以非 root 运行：Tailscale 给
+  自身流量打 fwmark，由其优先级 5210–5270 的策略路由走主路由表，先于 TUN 自 9000 起的规则；
+  tailnet 网段已在 `route_exclude_address` 中排除。旧部署的 `customize.json` 保存了旧默认值
+  （tailscale、tailscaled），升级不改写，清空后即不再需要 root。
   bootstrap DNS relay 仍以 root 运行并自带沙箱。
 - root 代 `SUDO_USER` 写入其家目录（`~/.bashrc` 代理变量）时不跟随符号链接，只改写该用户
   自己的普通文件（`proxyenv.writeOwnedFile`）；`~/` 展开同样指向 `SUDO_USER`。
@@ -274,7 +281,8 @@ GitHub Release 前阻断流水线。
 文件，而是下载同版本的 `sboxkit_<version>_linux_<arch>.deb`（按 release API 摘要校验），用
 纯 Go 解析 ar + `data.tar.gz` 取出 `usr/bin/sboxkit` 试跑并做兼容性校验（同下），再经
 `dpkg -i` 安装（dpkg 锁被占用时重试）；回滚即重新安装上一版本的 .deb（缓存优先，否则下载并
-校验）。.deb 缓存在 `downloads/packages/`，只保留当前、上一个与 `last-stable` 记录的版本。
+校验）。nfpm 把预发布后缀按 Debian 习惯写成 `~`（`0.4.1-beta.1` 记为 `0.4.1~beta.1`，排在
+`0.4.1` 之前），读取 dpkg 记录的版本时换回发行版标签的写法，安装脚本判断「已安装」时反向换算。.deb 缓存在 `downloads/packages/`，只保留当前、上一个与 `last-stable` 记录的版本。
 旧版本把 `/usr/bin/sboxkit` 接管成指向版本库的符号链接，dpkg 安装后它重新成为普通文件，
 此时旧的 `sboxkit-versions/` 随之删除。包管理器的记录因此始终与实际文件一致，`apt remove`
 / 后续 `.deb` 升级照常工作。暂不提供 apt 仓库：签名仓库需要在 CI 中长期保管签名私钥并托管
@@ -304,7 +312,9 @@ GitHub Release 前阻断流水线。
 后缀（如 `v0.1.7-beta.1`）会被 GoReleaser 自动标记为 GitHub prerelease，不占用
 "Latest release"、也不会被 `/releases/latest` 返回。每次稳定渠道更新成功都会把
 `current` 同时记到 `<state>/sboxkit-versions/last-stable`，供切到预览版后想
-回退的用户一键切回（`PrepareStable` + 同上的兼容性校验）。
+回退的用户一键切回（`PrepareStable` + 同上的兼容性校验）。稳定渠道查到的版本低于当前版本
+（从预览版切回）时提示「切换到稳定版」而不是「发现新版本」；版本比较按数值，数值相同时正式版
+高于其预发布版本（`selfupdate.Older`）。
 
 ## 9. 包结构
 

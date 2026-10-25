@@ -1,6 +1,8 @@
 package flows
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/Trilives/sboxkit/internal/config"
@@ -155,5 +157,53 @@ func TestInitSubscriptionDoesNotFetchThroughUnconfiguredProxy(t *testing.T) {
 	}
 	if got.FetchViaProxy {
 		t.Fatal("subscription must not request a download proxy the user declined")
+	}
+}
+
+func TestInitSubscriptionImportsAPathAsALocalFileWhateverTheType(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "sub.yaml")
+	if err := os.WriteFile(file, []byte("proxies: []\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, source := range []string{"clash", "sing-box", "base64", "local"} {
+		values := tui.FormResult{
+			"sub_name": "demo", "source": source, "sub_url": file, "customize": "false",
+			"use_download_proxy": "true", "fetch_proxy": "true",
+		}
+		got, err := initSubscriptionFromForm(values)
+		if err != nil {
+			t.Fatalf("%s: %v", source, err)
+		}
+		if got.SourceType != "local" || got.URL != file || got.FetchViaProxy {
+			t.Fatalf("%s: a path must be imported as a local file without the proxy, got %#v", source, got)
+		}
+		// 选 sing-box 时「是否重建」仍按表单取值，本地导入识别出 sing-box JSON 后照此处理。
+		if wantRebuild := source != "sing-box"; got.ApplyOverlay != wantRebuild {
+			t.Fatalf("%s: ApplyOverlay = %v, want %v", source, got.ApplyOverlay, wantRebuild)
+		}
+	}
+}
+
+func TestInitSubscriptionRejectsAURLForTheLocalType(t *testing.T) {
+	values := tui.FormResult{"sub_name": "demo", "source": "local", "sub_url": "https://example.com/sub"}
+	if got, err := initSubscriptionFromForm(values); err == nil {
+		t.Fatalf("a URL with the local type has no known format, want an error, got %#v", got)
+	}
+}
+
+func TestValidateSubscriptionInput(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "sub.yaml")
+	if err := os.WriteFile(file, []byte("proxies: []\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, ok := range []string{"", "https://example.com/sub", "http://127.0.0.1:8080/s", file} {
+		if err := validateSubscriptionInput(ok); err != nil {
+			t.Errorf("validateSubscriptionInput(%q) = %v, want nil", ok, err)
+		}
+	}
+	for _, bad := range []string{"ftp://example.com/sub", "https://", "example.com/sub", filepath.Dir(file)} {
+		if err := validateSubscriptionInput(bad); err == nil {
+			t.Errorf("validateSubscriptionInput(%q) = nil, want an error", bad)
+		}
 	}
 }

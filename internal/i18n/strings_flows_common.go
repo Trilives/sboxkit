@@ -8,12 +8,15 @@ func init() {
 		"本地文件（直接导入为订阅，不联网拉取）":                              "Local file (import directly as a subscription, no network fetch)",
 		"本地文件": "Local file",
 
-		"订阅名称，留空=时间戳":                                "Subscription name, empty = timestamp",
-		"选择订阅来源类型":                                   "Select subscription source type",
-		"订阅链接，留空=暂不配置":                               "Subscription URL, empty = skip for now",
-		"本地文件路径（Clash YAML 或 sing-box JSON），留空=暂不配置": "Local file path (Clash YAML or sing-box JSON), empty = skip for now",
+		"订阅名称，留空=时间戳": "Subscription name, empty = timestamp",
+		"选择订阅来源类型":    "Select subscription source type",
+		"本地文件路径（Clash YAML 或 sing-box JSON），留空=暂不配置":                                   "Local file path (Clash YAML or sing-box JSON), empty = skip for now",
 		"按 sboxkit 统一规则重建该订阅（TUN / DNS / AI / 流媒体 / 地区自动测速组）？否则仅信任你的原生配置，只补齐面板/控制器设置。": "Rebuild this subscription using sboxkit's unified rules (TUN / DNS / AI / streaming / region auto-test groups)? Otherwise trust your native config as-is, only filling in panel/controller settings.",
-		"使用下载代理拉取此订阅？默认否＝直连": "Use the download proxy to fetch this subscription? Default no = direct connection",
+		"使用下载代理拉取此订阅？默认否＝直连":                                                           "Use the download proxy to fetch this subscription? Default no = direct connection",
+
+		"订阅链接（也可填写本地文件路径），留空=暂不配置": "Subscription URL (or a local file path), empty = skip for now",
+
+		"订阅类型为「本地文件」时请填写文件路径；远程订阅请选择 Clash、sing-box 或 base64": "With the source type “Local file”, enter a file path; for a remote subscription choose Clash, sing-box or base64",
 
 		"系统模式的数据目录 %s 只能由 root 管理，请用 sudo 运行": "the system mode data directory %s is managed by root only; run with sudo",
 		"收归数据目录 %s 为 root 属主失败：%w":            "failed to hand data directory %s over to root: %w",

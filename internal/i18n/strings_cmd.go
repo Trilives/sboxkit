@@ -25,6 +25,5 @@ func init() {
 		"%s：正在通过 sudo 以 root 重新启动 sboxkit…": "%s: restarting sboxkit as root through sudo…",
 		"该命令会改动系统服务或配置":                     "This command changes the system service or config",
 		"无效的内部参数：%s":                        "Invalid internal argument: %s",
-		"以当前用户浏览：查看状态、切换节点和网络测试无需密码，改动配置或服务时会请求一次 sudo。": "Browsing as the current user: status, node switching and network tests need no password; changing the config or service asks for sudo once.",
 	})
 }

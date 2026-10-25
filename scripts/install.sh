@@ -168,11 +168,18 @@ install_deb() {
   ' sh "$1" "$2"
 }
 
+# deb_version prints how dpkg records release version $1: nfpm writes a
+# pre-release suffix the Debian way (0.4.1-beta.1 becomes 0.4.1~beta.1) so that
+# it sorts below the final release.
+deb_version() {
+  printf '%s\n' "${1/-/\~}"
+}
+
 install_system() {
   command -v dpkg >/dev/null || die "system mode needs dpkg (Debian/Ubuntu); use --user on other distributions"
   local installed asset
   installed="$(dpkg-query -W -f='${db:Status-Status} ${Version}' sboxkit 2>/dev/null || true)"
-  if [[ "${installed}" == "installed ${VERSION}" ]]; then
+  if [[ "${installed}" == "installed $(deb_version "${VERSION}")" ]]; then
     info "sboxkit ${VERSION} is already installed; run: sboxkit"
     return
   fi
