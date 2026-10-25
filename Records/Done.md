@@ -1,5 +1,42 @@
 # 已完成
 
+## 2026-10-25：清理 ares 临时修正、默认不按进程直连与 v0.4.0 后的小问题（v0.4.1-beta.1）
+
+- ares 临时修正（原 P0 两项）：ares 已升级到 0.4.0，生成的中继单元自带 `AF_NETLINK`，订阅配置的
+  `dns-proxy` 自带 `detour=Proxy`。以独立的 systemd 临时单元执行（失败自动恢复）：备份后删除
+  `sing-box-bootstrap-dns.service.d/override.conf`、`sing-box.service.d/50-remote-dns-detour.conf` 与
+  `/usr/local/libexec/sboxkit-remote-dns-detour`，`daemon-reload` + `reset-failed` 后重启。复验全部通过、
+  未触发恢复：两个单元 active、`NRestarts=0`、无 drop-in；中继生效的 `RestrictAddressFamilies` 含
+  `AF_NETLINK`，经中继解析节点域名 `NOERROR`；不设代理变量时 TUN 下 `api.anthropic.com`、
+  `api.openai.com` 解析 `NOERROR`，Google 204、Anthropic 405、OpenAI 401；本次 Claude Code 会话即经该 TUN
+  运行。备份在确认稳定后删除。
+- 默认不按进程直连（原 P2）：`bypass_process_names` 默认改为空，启用 TUN 的默认部署不再需要 root。依据：
+  ares 上 Tailscale 在线（6 个节点在线）时，其策略路由（fwmark `0x80000`，优先级 5210–5270）先于
+  sing-box 自 9000 起的规则，Clash API 连接列表中没有任何 Tailscale 连接，tailnet 网段也已在
+  `route_exclude_address` 中排除。旧部署保存的旧默认值升级不改写，在「配置变更 → 部署设置」清空即可；
+  初始化表单的示例改为非 Tailscale 进程。
+- 残留 `SUDO_UID` 误判（原 P3）：防循环提权改为看 `SUDO_COMMAND` 是否正是 sboxkit（`execx.reexecutedBySudo`）；
+  从 sudo 打开的 root shell 里 `su` 回普通用户时照常提权，sudo 仍未给 root 时照旧报错不循环。
+- 订阅地址自动识别本地路径（原 P3）：初始化表单与「添加订阅」中，不带 scheme 的输入不论所选类型都按本地
+  文件导入（本地导入按内容识别 Clash / sing-box / base64，选 sing-box 时仍按「是否重建」处理，不经代理拉取）；
+  初始化表单当场拒绝非 http(s) 地址与不存在的路径并提示 http(s)；选「本地文件」却填远程地址时报错。
+- 预览版切回稳定版的提示（原 P3）：稳定渠道版本低于当前版本时提示「稳定版 %s 早于当前版本 %s，切换到稳定版？」；
+  版本比较改为数值相同时正式版高于其预发布版本（0.4.1 高于 0.4.1-beta.1），回退缓存选择同样受益。
+- 发布预览版前发现：nfpm 按 Debian 习惯把预发布后缀写成 `~`（deb 控制字段为 `0.4.1~beta.1`，资产名仍是
+  `sboxkit_0.4.1-beta.1_linux_<arch>.deb`，已在 goreleaser 二进制内的模板中确认）。从预览版更新失败时，
+  撤销会按 `v0.4.1~beta.1` 查找发行版而失败。读取 dpkg 版本时换回 `-`；安装脚本判断「已安装」时反向换算
+  （原先总是重装，无害）。
+- 按用户要求去掉管理界面以当前用户打开时的「以当前用户浏览：…」提示及其翻译（README 的权限表已说明）。
+- 验证（`machine.md` 主机）：`gofmt`、`go vet`、`go test ./...`、`go test -race ./...`、带 sing-box v1.14.4 与
+  ares 现用规则集的真实内核用例、安装脚本测试、i18n 覆盖检查通过。以 `0.4.1-beta.1` 版本号构建、
+  `SBOXKIT_HOME` 指向临时目录，在 `sudo -s` 后 `su ordin` 的 shell（残留 `SUDO_UID=1000`、
+  `SUDO_COMMAND=/bin/bash`）中：TTY 与非 TTY 均经 sudo 提权成功；Clash 类型填本地路径时读取本地文件生成
+  订阅（列表显示 `local`）；稳定渠道显示新提示；初始化表单 TTY 与非 TTY 均拒绝 `example.com/sub`、
+  `ftp://…` 并接受文件路径，TUN 直连进程名默认为空；取消初始化后主机没有 sing-box 单元。
+- 未覆盖：sudoers `runas_default` 指向他人的真实循环场景（单元测试覆盖）；Codex 本身的交互（只验证了 API
+  可达）；订阅刷新的联网拉取（需用户开放拉取，生成部分与重建同一路径）。ares 的 dpkg 仍记录 0.2.3、
+  `/usr/bin/sboxkit` 仍是旧版自更新的符号链接，下次自更新经 dpkg 安装后自动归位。
+
 ## 2026-10-25：v0.4.0 稳定版
 
 - 按需提权、dpkg 自更新、下载摘要校验、sing-box 非 root 运行与一键安装脚本，验收记录见下一节。
