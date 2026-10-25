@@ -35,6 +35,10 @@ func prepareRuntime(p paths.Paths, name, reason string, checkConflict bool) (run
 		return runtimePaths{}, "", precheckFailed(err)
 	}
 	rt := rtPathsFor(scopeFor(p), name)
+	// 随后写入的单元会执行 sboxkit 自身，路径不可信时在改动运行时之前拒绝（见 service_exe.go）。
+	if _, err := serviceExecutable(rt.Scope); err != nil {
+		return runtimePaths{}, "", precheckFailed(err)
+	}
 	staged, err := stageRuntimeConfig(p, rt)
 	if err != nil {
 		return runtimePaths{}, "", precheckFailed(err)
@@ -43,28 +47,35 @@ func prepareRuntime(p paths.Paths, name, reason string, checkConflict bool) (run
 		os.Remove(staged)
 		return runtimePaths{}, "", precheckFailed(err)
 	}
-	if rt.Identity, err = runtimeIdentity(p, rt, staged); err != nil {
+	if rt, err = withRuntimeIdentity(p, rt, staged); err != nil {
 		os.Remove(staged)
 		return runtimePaths{}, "", precheckFailed(err)
 	}
 	return rt, staged, nil
 }
 
-// runtimeIdentity 按暂存配置决定系统单元的运行身份；仍以 root 运行时说明原因。
-func runtimeIdentity(p paths.Paths, rt runtimePaths, staged string) (serviceIdentity, error) {
+// withRuntimeIdentity 按暂存配置决定系统单元的运行身份，非特权运行时一并列出需代为登记的
+// TUN DNS；仍以 root 运行时说明原因。
+func withRuntimeIdentity(p paths.Paths, rt runtimePaths, staged string) (runtimePaths, error) {
 	raw, err := os.ReadFile(staged)
 	if err != nil {
-		return identityRoot, err
+		return rt, err
 	}
 	var doc map[string]any
 	if err := json.Unmarshal(raw, &doc); err != nil {
-		return identityRoot, err
+		return rt, err
 	}
 	identity, reason := chooseIdentity(p, rt.Scope, doc)
 	if reason != "" {
 		execx.Info(reason)
 	}
-	return identity, nil
+	rt.Identity = identity
+	if identity == identityDynamic {
+		if rt.TunDNS, err = tunDNSLinks(doc); err != nil {
+			return rt, err
+		}
+	}
+	return rt, nil
 }
 
 func admitRuntime(p paths.Paths, rt runtimePaths, name, reason, staged string, checkConflict bool) error {

@@ -20,12 +20,16 @@ func deployRuntime(p paths.Paths, rt runtimePaths, staged string) error {
 	return installRuntimeConfig(rt, staged)
 }
 
-// installRuntimeConfig 把已校验的暂存配置装入运行时，并按需授予网络能力。
+// installRuntimeConfig 把已校验的暂存配置装入运行时，并按需授予网络能力；用户模式启用 TUN 时
+// 还要安装代为登记系统 DNS 的系统单元（见 tundns_user.go）。
 func installRuntimeConfig(rt runtimePaths, staged string) error {
 	if _, err := rt.Scope.run([]string{"install", "-m", runtimeConfigMode, staged, rt.Config}, "", nil); err != nil {
 		return err
 	}
-	return ensureNetCapabilities(rt)
+	if err := ensureNetCapabilities(rt); err != nil {
+		return err
+	}
+	return ensureUserTunDNS(rt)
 }
 
 // writeMainUnit 渲染并写入主服务单元，随后 daemon-reload。

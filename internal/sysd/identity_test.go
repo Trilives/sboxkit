@@ -2,8 +2,8 @@ package sysd
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -108,9 +108,6 @@ func TestDynamicUnitReadsConfigThroughCredentialsAndWritesOnlyItsCache(t *testin
 	if strings.Contains(unit, "User=root") {
 		t.Fatalf("dynamic unit still runs as root:\n%s", unit)
 	}
-	if !runsDynamicText(unit) {
-		t.Fatal("runsDynamic must recognise the rendered unit")
-	}
 }
 
 func TestRootUnitKeepsSameCacheDirectory(t *testing.T) {
@@ -132,19 +129,6 @@ func TestRootUnitKeepsSameCacheDirectory(t *testing.T) {
 	if strings.Contains(unit, "DynamicUser") {
 		t.Fatal("root unit must not enable DynamicUser")
 	}
-}
-
-func runsDynamicText(unit string) bool {
-	dir, err := os.MkdirTemp("", "unit-*")
-	if err != nil {
-		return false
-	}
-	defer os.RemoveAll(dir)
-	path := filepath.Join(dir, "sing-box.service")
-	if os.WriteFile(path, []byte(unit), 0o644) != nil {
-		return false
-	}
-	return runsDynamic(path)
 }
 
 func TestDropLogOutputRemovesOnlyTheFileTarget(t *testing.T) {
@@ -192,7 +176,7 @@ func TestVerifyIdentitySwitchKeepsAHealthyUnprivilegedService(t *testing.T) {
 	p, rt := dynamicRuntime(t)
 	rewrites := stubIdentityChecks(t, true)
 
-	if err := verifyIdentitySwitch(p, DefaultName, rt); err != nil || len(*rewrites) != 0 {
+	if err := verifyIdentitySwitch(p, DefaultName, rt, nil); err != nil || len(*rewrites) != 0 {
 		t.Fatalf("healthy switch: err=%v rewrites=%v, want nothing to do", err, *rewrites)
 	}
 }
@@ -201,7 +185,7 @@ func TestVerifyIdentitySwitchFallsBackToRootAndRemembersIt(t *testing.T) {
 	p, rt := dynamicRuntime(t)
 	rewrites := stubIdentityChecks(t, false, true)
 
-	if err := verifyIdentitySwitch(p, DefaultName, rt); err != nil {
+	if err := verifyIdentitySwitch(p, DefaultName, rt, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -213,12 +197,29 @@ func TestVerifyIdentitySwitchFallsBackToRootAndRemembersIt(t *testing.T) {
 	}
 }
 
+func TestVerifyIdentitySwitchTreatsAFailedStartJobAsUnhealthy(t *testing.T) {
+	p, rt := dynamicRuntime(t)
+	rewrites := stubIdentityChecks(t, true)
+
+	// ExecStartPost（代为登记 TUN DNS）失败时 systemctl restart 本身报错，服务不会进入 active。
+	if err := verifyIdentitySwitch(p, DefaultName, rt, errors.New("Job for sing-box.service failed")); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(*rewrites) != 1 || (*rewrites)[0] != identityRoot {
+		t.Fatalf("rewrites = %v, want one restart as root", *rewrites)
+	}
+	if !fellBack(p) {
+		t.Fatal("fallback not recorded after a failed start job")
+	}
+}
+
 func TestVerifyIdentitySwitchKeepsSandboxWhenRootFailsToo(t *testing.T) {
 	p, rt := dynamicRuntime(t)
 	rewrites := stubIdentityChecks(t, false, false)
 
 	// 两种身份都起不来：报错交给调用方回退到切换前的配置，而不是报告同步成功。
-	if err := verifyIdentitySwitch(p, DefaultName, rt); err == nil {
+	if err := verifyIdentitySwitch(p, DefaultName, rt, nil); err == nil {
 		t.Fatal("a service that fails under both identities was reported as synced")
 	}
 

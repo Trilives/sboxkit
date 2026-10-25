@@ -34,6 +34,7 @@ func TestElevationOnlyForSystemModeWriteCommands(t *testing.T) {
 		{"diagnose reads /run only", system, "diagnose", false, false},
 		{"healthcheck runs from root unit", system, "healthcheck", false, false},
 		{"bootstrap relay", system, "bootstrap-dns", false, false},
+		{"TUN DNS hook runs from root unit", system, "tun-dns", false, false},
 		{"user mode never elevates", user, "", false, false},
 		{"user mode update", user, "update", false, false},
 	}

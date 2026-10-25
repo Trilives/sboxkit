@@ -147,9 +147,9 @@ func InstallResilience(opts ResilienceOptions) error {
 	if _, err := s.run([]string{"mkdir", "-p", rtPathsFor(s, opts.Name).Dir}, "", nil); err != nil {
 		return err
 	}
-	exe, err := StableExecutablePath()
+	exe, err := serviceExecutable(s)
 	if err != nil {
-		return fmt.Errorf(i18n.T("定位 sboxkit 可执行文件: %w"), err)
+		return err
 	}
 	if err := installDispatcher(layout, opts, exe); err != nil {
 		return err

@@ -118,6 +118,23 @@ func TestPreflightFailureIsReportedAsPrecheck(t *testing.T) {
 	}
 }
 
+// 单元要执行的 sboxkit 不可用（系统单元还包括路径不可信）时，在改动运行时之前失败，
+// 调用方据此跳过运行时回退。
+func TestUnusableServiceExecutableFailsAsPrecheck(t *testing.T) {
+	p, rt := installedUserService(t, `{"log":{"level":"info"}}`)
+	orig := executablePath
+	t.Cleanup(func() { executablePath = orig })
+	executablePath = func() (string, error) { return "", os.ErrPermission }
+
+	var pre *PrecheckError
+	if err := SyncAndRestart(p, DefaultName); !errors.As(err, &pre) || !errors.Is(err, os.ErrPermission) {
+		t.Fatalf("expected a PrecheckError wrapping the executable error, got %v", err)
+	}
+	if got := readFile(t, rt.Config); got != "config-running" {
+		t.Fatalf("runtime config changed: %q", got)
+	}
+}
+
 // 用户模式 + TUN 无法无人值守授予能力时服务继续使用运行时旧内核，校验也须用它。
 func TestDeployKernelFollowsDeferredCoreSwitch(t *testing.T) {
 	f := newDeployFixture(t, "core-v2", "core-v1", tunConfig)

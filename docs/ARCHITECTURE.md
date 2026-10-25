@@ -66,7 +66,16 @@ relay 与交互会话看到同一份数据。用户服务本身没有 CAP_NET_AD
 需要它（`tun` 入站或 `routing_mark` / `default_mark`）而运行时内核尚无对应文件能力时，
 `sysd.ensureNetCapabilities` 经 sudo `setcap` 授予与系统 unit 相同的三项能力（nosuid
 挂载或缺少 setcap 时直接报错）；内容未变的内核不会重新复制，以免丢失能力、反复提权。
-运行时目录为 0700，其他用户无法执行带能力的内核。防火墙与 NetworkManager 钩子跳过
+运行时目录为 0700，其他用户无法执行带能力的内核。带文件能力的 sing-box 同样无权向
+systemd-resolved 登记 TUN 的 DNS（见下文「TUN 的系统 DNS」），用户单元又不能以 root 执行钩子：
+`sysd.ensureUserTunDNS`（`sysd/tundns_user.go`）因此经同一次 sudo 为每个 TUN 链路写入系统单元
+`sboxkit-tun-dns-<uid>-<链路>.service`，`WantedBy` / `BindsTo` 链路的设备单元
+`sys-subsystem-net-devices-<链路>.device`，链路每次出现都以 root 执行三条 `resolvectl`
+（路径须 root 独占，否则只提示不安装）；`ConditionPathExists=/sys/class/net/<链路>/tun_flags`
+使同名的非 TUN 链路不被改写，systemd 244 起失败后每秒重试（设备单元可能先于
+systemd-resolved 认出新链路），次数受默认启动频率限制。只处理无需转义即可作单元名的链路名
+（不含 `-`），内容未变时不再提权；关闭 TUN 或改了接口名后，同步时移除不再需要的单元
+（无人值守时留到下次），卸载用户服务时全部移除。防火墙与 NetworkManager 钩子跳过
 （watchdog 兜底），注册服务时尽力开启 linger，并仅在由 sboxkit 开启时于状态目录留标记，
 卸载服务时据此 `disable-linger`（`sysd/linger.go`）。
 
@@ -139,6 +148,33 @@ sboxkit 自己写了一个极简面板（`internal/uiassets`，go:embed 打进�
   tailnet 网段已在 `route_exclude_address` 中排除。旧部署的 `customize.json` 保存了旧默认值
   （tailscale、tailscaled），升级不改写，清空后即不再需要 root。
   bootstrap DNS relay 仍以 root 运行并自带沙箱。
+- TUN 的系统 DNS（`sysd/tundns.go`、`internal/tundns`）：sing-box 以 root 运行时，TUN 启动后经
+  `org.freedesktop.resolve1` 把链路 DNS 设为 TUN 网段内的下一个地址（`172.19.0.1/30` →
+  `172.19.0.2`）、路由域 `~.`、默认 DNS 路由；以 `DynamicUser` 运行时 systemd-resolved 拒绝这些
+  调用且 sing-box 不报错，系统解析仍走物理网卡上的 DNS，单元却保持 active。非特权单元因此为每个
+  TUN 入站加一行 `ExecStartPost=+/usr/bin/sboxkit tun-dns --dev <链路> --dns <地址>`：`+` 使其以
+  root、不受沙箱限制执行；systemd-resolved 未运行（也不在启动中）时直接退出，否则等链路启用后依次
+  执行 `resolvectl dns` / `domain ~.` / `default-route yes`，失败重试至多 1 分钟（短于默认
+  `TimeoutStartSec`，单次调用限时 10 秒），仍失败则以非零退出，使服务启动失败。`systemctl restart`
+  会等 `ExecStartPost` 结束，钩子失败表现为重启命令本身报错；切换身份时 `verifyIdentitySwitch` 把这种
+  报错与未保持 active 同样处理，改回 root 重试。DNS 地址按 sing-tun 的规则
+  推导（首个 IPv4、IPv6 地址各自的下一个地址）；TUN 入站未显式指定合法的 `interface_name` 或
+  地址段内没有下一个地址时，改用 root 由 sing-box 自行登记；含多个 TUN 入站时同样改用 root（每个
+  钩子依次各等至多 1 分钟，合计可能超出启动时限）。接口名可能出自原样信任的原生订阅，钩子与
+  watchdog 因此只登记内核导出 `tun_flags` 的 TUN 设备，不改写物理网卡等其他链路的 DNS。
+  链路随 sing-box 退出而消失，systemd-resolved 同时丢弃这些设置，无需撤销。`SyncAndRestart` 在
+  非特权单元内容有变（从 root 切换，或 TUN 钩子变化）时都做一次 `verifyIdentitySwitch`。钩子与 sing-box 自己都只在启动时登记
+  一次，系统模式的 watchdog 因此每轮先核对各 TUN 链路的 `resolvectl dns|domain|default-route`，
+  缺失（例如被 `resolvectl revert` 或 NetworkManager 改动）时补登记而不重启 sing-box
+  （`tundns.Ensure`，日志 `classification=tun_dns action=reregistered`），不论 sing-box 以哪种身份
+  运行。用户模式见本节前文。
+- 系统单元以 root 执行写入其中的 sboxkit（bootstrap relay、watchdog、周更定时器、TUN DNS 钩子），
+  路径取启动 sboxkit 的调用路径（`StableExecutablePath`）。`sudo ./sboxkit` 从家目录启动时，该用户
+  之后替换这个文件即可借这些单元以 root 运行任意程序；`sysd.serviceExecutable`
+  （`sysd/service_exe.go`）因此要求路径本身、解析符号链接后的文件以及两者的每一级上级目录都归
+  root 且组和其他人不可写，否则拒绝写入单元并提示改用 deb 或 `/usr/local/bin`。检查在
+  `prepareRuntime` 阶段完成，以 `PrecheckError` 返回，运行时与服务保持原样、事务不重同步；用户
+  单元以用户自身运行，不做此检查。
 - root 代 `SUDO_USER` 写入其家目录（`~/.bashrc` 代理变量）时不跟随符号链接，只改写该用户
   自己的普通文件（`proxyenv.writeOwnedFile`）；`~/` 展开同样指向 `SUDO_USER`。
 
@@ -259,7 +295,8 @@ GitHub Release 前阻断流水线。
   `reset-failed`（watchdog 的重启仍受自身冷却 / 熔断约束，不做此清理）。
 - NetworkManager dispatcher 钩子：真实网卡 up / 连通性变化时防抖触发
   `sboxkit healthcheck --event network-change`（忽略 tun 自身），不再绕过统一限流器直接重启。
-- watchdog 定时器 + `sboxkit healthcheck` 依次判断物理上行、bootstrap DNS、当前运行时
+- watchdog 定时器 + `sboxkit healthcheck` 先补登记丢失的 TUN 系统 DNS（系统模式，见第 3 节），
+  再依次判断物理上行、bootstrap DNS、当前运行时
   selector 实际选中链路的节点入口解析、mixed 端口和端到端代理，并输出稳定故障分类。
   未使用节点不会触发误重启；物理上行故障不重启；其它失败采用跨 timer
   invocation 的指数退避和滑动窗口熔断，默认 10 分钟最多重启 2 次，连续两轮健康后复位。
@@ -271,7 +308,8 @@ GitHub Release 前阻断流水线。
   watchdog service、watchdog timer 及 timer 的 enabled/active 状态。启用时，初始化、
   服务安装/重载、更新和交互启动会幂等补齐缺失或陈旧组件；显式禁用时不自动安装。
 - watchdog unit 保留用户调用的稳定可执行路径（包括 `/usr/bin/sboxkit` 这类更新符号
-  链接），不会绑定即将被版本清理删除的真实目标；修复时保留已配置的探测间隔。
+  链接），不会绑定即将被版本清理删除的真实目标；修复时保留已配置的探测间隔。系统模式下该路径
+  须 root 独占（见第 3 节），从不可信位置启动时修复失败并提示，主服务不受影响。
 - 暂停先停止 watchdog 与更新 timer，再停止主服务；启动先恢复主服务，再按当前偏好
   reconcile watchdog，历史残留或显式禁用的 timer 不会被直接拉起。
 
@@ -336,6 +374,7 @@ internal/uiassets     内置 Web 面板静态资源（go:embed，无需联网下
 internal/selfupdate   sboxkit 自更新：系统模式经 dpkg 安装 .deb；其余为版本化目录 + 原子符号链接切换
 internal/subscription 订阅域：fetch / detect（三态）/ b64（分享链接解析）/ manager
 internal/sysd         主服务/relay/watchdog/更新单元，分层健康探测与持久熔断状态
+internal/tundns       `sboxkit tun-dns`：代非 root 的 sing-box 向 systemd-resolved 登记 TUN 链路 DNS
 internal/clashapi     Clash API：切组 / 并发测延迟（协议与 mihomo 版共用）
 internal/firewall     ufw > firewalld > nft > iptables 探测与放行
 internal/proxyenv     ~/.bashrc 代理变量标记块

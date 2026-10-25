@@ -38,8 +38,9 @@ printf '3\ny\n' | sboxkit        # 例：进入主菜单第 3 项并确认
 
 | 命令 | 说明 |
 |---|---|
-| `sboxkit healthcheck` | `sing-box-watchdog.service` 与 NetworkManager dispatcher 的执行目标；分层分类故障，再按持久冷却/熔断策略决定是否重启 |
+| `sboxkit healthcheck` | `sing-box-watchdog.service` 与 NetworkManager dispatcher 的执行目标；系统模式下先补登记丢失的 TUN 系统 DNS，再分层分类故障，按持久冷却/熔断策略决定是否重启 |
 | `sboxkit bootstrap-dns` | 独立 relay 单元的执行目标；只监听 loopback，按有序 IP 字面量上游直连转发 DNS |
+| `sboxkit tun-dns --dev <链路> --dns <地址>...` | 非 root 的系统服务单元以 root 执行的 `ExecStartPost`：等 TUN 链路启用后向 systemd-resolved 登记链路 DNS、路由域 `~.` 与默认 DNS 路由（与 sing-box 以 root 运行时一致），至多等 1 分钟；只登记 TUN 设备。systemd-resolved 未运行时直接退出 0，登记失败退出 1，参数错误退出 2 |
 | `sboxkit compat-check --kernel K --geosite G --geoip I --report R [--out O]` | 自更新 / 回退稳定版切换前由旧版本调用：用本版本生成器为生效订阅重新生成配置，以指定内核与规则集执行 `sing-box check`，结论以 JSON 写入 `R`，兼容时把配置写入 `O`（0600）；写出报告即退出 0，参数错误退出 2 |
 
 ## 环境变量
@@ -86,7 +87,9 @@ licenses/               第三方许可
 暂存并授予能力，再原子替换。无人值守的更新（每周定时器、非终端且 sudo 需要密码）拿不到
 授权时保留旧内核继续运行，规则集与配置照常更新，并在日志与下次打开菜单时提示执行
 「重载服务」。需要 `setcap`（Debian/Ubuntu: `libcap2-bin`），解压目录不能在 nosuid
-挂载上。防火墙与 NetworkManager 钩子在用户模式下不处理。需要在已登录的用户会话
+挂载上。同一次授权还会安装系统单元 `sboxkit-tun-dns-<uid>-<链路>.service`：普通用户的
+sing-box 无权向 systemd-resolved 登记 TUN 的 DNS，该单元在 TUN 链路每次出现时以 root 执行
+`resolvectl` 完成登记；内容未变不再提权，关闭 TUN 或卸载服务时移除。防火墙与 NetworkManager 钩子在用户模式下不处理。需要在已登录的用户会话
 （有 `XDG_RUNTIME_DIR`）中运行，用户实例不可达时各项服务操作会直接说明原因。
 
 用户模式必须以安装包目录的属主运行：用 sudo / root 启动会被拒绝（TUN 需要的授权由
@@ -107,3 +110,4 @@ sudo；系统模式（dpkg 安装的 `/usr/bin/sboxkit`）下载同版本 .deb�
 | `sing-box-bootstrap-dns.service` | loopback bootstrap DNS relay；主服务通过 `Requires/After` 拉起，随主服务 stop/restart |
 | `sing-box-watchdog.timer/.service` | 分层网络自愈探针；默认 10 分钟最多重启两次并指数退避 |
 | `sing-box-update.timer/.service` | 每周自动更新（`sboxkit update`） |
+| `sboxkit-tun-dns-<uid>-<链路>.service` | 仅用户模式启用 TUN 时：装在 `/etc/systemd/system` 的系统单元，TUN 链路出现时以 root 为它登记系统 DNS |

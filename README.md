@@ -48,7 +48,7 @@ GitHub 下载慢时可加 `--mirror https://<镜像>`：镜像只负责传输，
 |---|---|---|
 | 服务 | `/etc/systemd/system` 系统服务 | `systemctl --user` 用户服务 |
 | 数据 | `/var/lib/sboxkit` | 解压目录 `.sboxkit/` |
-| sudo | 改动配置 / 服务时（每次会话一次）；浏览、切节点、测速无需密码 | 仅启用 TUN 时（一次 `setcap`） |
+| sudo | 改动配置 / 服务时（每次会话一次）；浏览、切节点、测速无需密码 | 仅启用 TUN 时（`setcap` 与系统 DNS 登记单元） |
 | TUN / 防火墙 / NM 钩子 | 全部支持 | TUN 支持；防火墙与 NM 钩子不处理 |
 
 ### 方式一：系统模式（.deb）
@@ -81,6 +81,9 @@ cd sboxkit-user_*_linux_amd64
 `.sboxkit/`，单元装到 `~/.config/systemd/user/`，并尝试 `loginctl enable-linger`
 使服务在注销后继续运行、随开机启动（由 sboxkit 开启的 linger 会在卸载服务时关闭）。启用 TUN 时会请求一次 sudo，用 `setcap` 为
 运行时 sing-box 授予网络管理能力（需 `setcap`，且解压目录不能在 nosuid 挂载上）；
+同一次授权还会装一个系统单元 `sboxkit-tun-dns-<uid>-<链路>.service`，每当 TUN 链路出现即向
+systemd-resolved 登记系统 DNS（普通用户的 sing-box 无权自行登记；没有这一步，系统解析不经过 TUN），
+关闭 TUN 或卸载服务时移除；
 此后重启无需再次授权；只有新内核进入运行时（更新或重载服务且内核有变化）才会再请求一次，
 每周定时更新无法授权时保留旧内核并提示稍后「重载服务」。用户模式不修改防火墙、不安装 NetworkManager
 钩子（由 watchdog 定时器兜底）。请以普通用户运行（sudo 启动会被拒绝），系统模式服务
@@ -93,6 +96,10 @@ cd sboxkit-user_*_linux_amd64
 git clone https://github.com/Trilives/sboxkit.git && cd sboxkit
 make build && ./sboxkit
 ```
+
+系统模式下 root 运行的 watchdog、DNS 中继等单元会执行 sboxkit 自身，因此要求它所在路径归 root 且
+他人不可写；源码构建后先 `sudo install -m 0755 sboxkit /usr/local/bin/` 再运行 `sboxkit`，
+直接 `sudo ./sboxkit` 会被拒绝。
 
 ## 使用
 
@@ -162,8 +169,11 @@ root 运行的定时器与管理会话看到同一份数据）。该目录归 ro
 
 sing-box 默认以 systemd `DynamicUser` 运行：配置经 `LoadCredential` 由 systemd 交付，
 文件系统整体只读，可写的只有缓存目录，只保留 `CAP_NET_ADMIN` / `CAP_NET_BIND_SERVICE` /
-`CAP_NET_RAW`。配置按进程名 / 路径分流（需要读取其他用户的进程信息）、systemd 早于 247，
-或非 root 身份起不来而 root 可以时，自动改回 root 运行并说明原因。默认不按进程分流；
+`CAP_NET_RAW`。非 root 的 sing-box 无权向 systemd-resolved 登记 TUN 的 DNS，单元启动后由
+sboxkit 以 root 代为登记（`resolvectl status singbox` 可查看），系统解析照常进入 TUN；watchdog
+每轮核对这项登记，丢失时补上。配置按
+进程名 / 路径分流（需要读取其他用户的进程信息）、systemd 早于 247，或非 root 身份起不来而
+root 可以时，自动改回 root 运行并说明原因。默认不按进程分流；
 v0.4.0 及更早部署保存了 tailscale 进程直连，在「配置变更 → 部署设置」清空「绕过进程名」后
 即以非 root 运行（Tailscale 自身流量由其策略路由绕开 TUN，不依赖这条规则）。
 

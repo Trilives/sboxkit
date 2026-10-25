@@ -66,6 +66,7 @@ func RunHealthcheck(args []string) int {
 		logHealthcheck("classification=service_inactive service=%s event=%s action=skip", *service, *event)
 		return 0
 	}
+	ensureTunDNS(*service)
 
 	addr := strings.TrimSpace(*proxyAddr)
 	if addr == "" {

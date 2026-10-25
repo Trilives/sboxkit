@@ -145,9 +145,9 @@ WantedBy=%s
 // installBootstrapDNS writes both relay artifacts. The caller owns the single
 // daemon-reload/restart transaction shared with the main unit.
 func installBootstrapDNS(p paths.Paths, name string, rt runtimePaths) error {
-	exe, err := StableExecutablePath()
+	exe, err := serviceExecutable(rt.Scope)
 	if err != nil {
-		return fmt.Errorf(i18n.T("定位 sboxkit 可执行文件: %w"), err)
+		return err
 	}
 	return installBootstrapDNSWith(p, name, rt, exe, rt.Scope.run, rt.Scope.write)
 }

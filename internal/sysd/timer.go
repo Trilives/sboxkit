@@ -54,13 +54,13 @@ func InstallTimer(onCalendar string) error {
 	if !execx.Have("systemctl") {
 		return fmt.Errorf("%s", i18n.T("未找到 systemctl，定时器需要 systemd"))
 	}
+	s := currentScope()
 	// 与 watchdog 一致使用稳定调用路径：os.Executable 会解析到版本目录里的真实
 	// 文件，自更新清理旧版本后 ExecStart 就会失效。
-	selfExe, err := StableExecutablePath()
+	selfExe, err := serviceExecutable(s)
 	if err != nil {
 		return err
 	}
-	s := currentScope()
 	if err := s.ensurePrivilege(i18n.T("安装每周更新定时器")); err != nil {
 		return err
 	}

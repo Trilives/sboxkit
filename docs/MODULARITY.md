@@ -64,6 +64,7 @@ Go 特有的包边界与依赖方向见后半部分，非 Go 资产的约束见�
 - `internal/converter`：Clash / sing-box 原生 / base64 → sing-box 配置的协议转换。
 - `internal/kernel`：sing-box 内核/geo 规则集下载、系统包种子接管、资源更新策略。
 - `internal/sysd`：systemd unit、运行时暂存、服务/面板/自愈/定时器管理。
+- `internal/tundns`：`sboxkit tun-dns` 与 watchdog 的 TUN 链路 DNS 登记（调用 `resolvectl`），不知道单元与部署。
 - `internal/config`：`customize.json` 默认值、字段元数据、读写兼容性。
 - `internal/txn`：事务和回滚原语，不知道业务语义。
 - `internal/tui`：通用交互组件，不依赖业务包。
@@ -73,7 +74,8 @@ Go 特有的包边界与依赖方向见后半部分，非 Go 资产的约束见�
 - `flows` 可以依赖领域包。
 - 领域包不得依赖 `flows`。
 - `tui`、`txn`、`paths`、`errs` 应保持底层工具属性，避免反向依赖业务。
-- `sysd` 可以依赖 `paths/config/execx/jsonx`，不得依赖 `flows`。
+- `sysd` 可以依赖 `paths/config/execx/i18n/compat/bootstrapdns/clashapi/uiassets/tundns`，不得依赖
+  `flows`；`tundns` 只依赖标准库。
 
 ## 非 Go 资产约束
 

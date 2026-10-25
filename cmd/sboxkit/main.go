@@ -16,6 +16,7 @@ import (
 	"github.com/Trilives/sboxkit/internal/paths"
 	"github.com/Trilives/sboxkit/internal/sysd"
 	"github.com/Trilives/sboxkit/internal/tui"
+	"github.com/Trilives/sboxkit/internal/tundns"
 )
 
 // version 由构建注入：-ldflags "-X main.version=..."。
@@ -83,6 +84,8 @@ func main() {
 		os.Exit(sysd.RunHealthcheck(args[1:]))
 	case "bootstrap-dns":
 		os.Exit(bootstrapdns.Run(args[1:]))
+	case "tun-dns": // 内部：非特权系统服务的 ExecStartPost，以 root 代 sing-box 登记 TUN DNS
+		os.Exit(tundns.Run(args[1:]))
 	case "compat-check": // 内部：自更新前由旧版本调用，校验本版本生成器与指定内核的组合
 		os.Exit(flows.RunCompatCheck(p, args[1:], os.Stderr))
 	default:

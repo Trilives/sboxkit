@@ -21,12 +21,23 @@ func init() {
 		"TUN 排除 UID": "TUN excluded UIDs",
 		"主选择组识别关键词（按顺序匹配，新增项插最前）": "Main-group identification keywords (matched in order; new entries are inserted at the front)",
 		"FakeIP 排除规则（追加）":         "Additional FakeIP exclusions",
+		"AI 域名后缀":                 "AI domain suffixes",
+		"流媒体域名后缀":                 "Streaming domain suffixes",
+		"直连域名后缀":                  "Direct domain suffixes",
+		"本地域名绕过":                  "Local domain bypass",
+		"绕过进程名":                   "TUN direct process names",
+		"新加坡关键词":                  "Singapore keywords",
+		"香港关键词":                   "Hong Kong keywords",
 
 		// BoolFields
-		"TUN 模式（全局透明代理）":    "TUN mode (global transparent proxy)",
-		"局域网代理（其他主机可用本机代理）": "LAN proxy (other hosts can use this machine as a proxy)",
-		"base64 应急本地解析":     "base64 local fallback parsing",
-		"网络自愈":              "Network self-healing",
+		"TUN 模式（全局透明代理）":                  "TUN mode (global transparent proxy)",
+		"局域网代理（其他主机可用本机代理）":               "LAN proxy (other hosts can use this machine as a proxy)",
+		"base64 应急本地解析":                   "base64 local fallback parsing",
+		"网络自愈":                            "Network self-healing",
+		"面板对外监听（0.0.0.0，否则仅本机 127.0.0.1）": "Panel listens on all interfaces (0.0.0.0; otherwise 127.0.0.1 only)",
+		"生成新加坡自动测速聚合组":                    "Generate a Singapore auto url-test group",
+		"生成香港自动测速聚合组":                     "Generate a Hong Kong auto url-test group",
+		"保存文件日志":                          "Write a log file",
 
 		// ScalarFields
 		"本地代理 mixed 端口":                     "Local mixed proxy port",
@@ -44,6 +55,8 @@ func init() {
 		"subconverter 后端":                   "subconverter backend",
 		"GitHub 加速前缀":                       "GitHub mirror prefix",
 		"下载代理":                              "Download proxy",
+		"默认出站（节点切换的目标分组）":                   "Default outbound (the group that node switching targets)",
+		"日志大小上限（MB）":                        "Log size limit (MB)",
 		"下载代理需为 http(s):// 或 socks5(h):// 地址，例如 http://127.0.0.1:7890": "Download proxy must be an http(s):// or socks5(h):// URL, e.g. http://127.0.0.1:7890",
 	})
 }

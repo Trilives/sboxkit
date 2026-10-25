@@ -51,6 +51,7 @@ type runtimePaths struct {
 	Unit     string
 	Scope    unitScope
 	Identity serviceIdentity // 系统单元的运行身份（见 identity.go），由 prepareRuntime 决定
+	TunDNS   []tunDNSLink    // 非特权运行时需代为登记的 TUN DNS（见 tundns.go），由 prepareRuntime 决定
 }
 
 func rtPaths(name string) runtimePaths {
@@ -251,13 +252,12 @@ func Install(p paths.Paths, name string, start bool) error {
 	}
 	s.ensureLinger()
 	if start {
-		if err := restartMain(s, name, ""); err != nil {
-			return err
-		}
+		err = restartMain(s, name, "")
 		if rt.Identity == identityDynamic {
-			if err := verifyIdentitySwitch(p, name, rt); err != nil {
-				return err
-			}
+			err = verifyIdentitySwitch(p, name, rt, err)
+		}
+		if err != nil {
+			return err
 		}
 		execx.Ok(i18n.T("服务已启动: ") + name + ".service")
 	} else {
@@ -282,13 +282,18 @@ func renderUnit(name string, rt runtimePaths) (string, error) {
 		// 用户模式目录可能含空格或 %，用户单元统一引用/转义；系统单元路径固定，保持原样。
 		dir, bin, cfg = systemdEscape(dir), systemdExecArg(bin), systemdExecArg(cfg)
 	}
+	tunDNSExe, err := tunDNSCommand(rt)
+	if err != nil {
+		return "", err
+	}
 	var sb strings.Builder
 	err = t.Execute(&sb, struct {
-		Name, RuntimeDir, Bin, Config, BootstrapUnit, StateDir string
-		Dynamic                                                bool
+		Name, RuntimeDir, Bin, Config, BootstrapUnit, StateDir, TunDNSExe string
+		Dynamic                                                           bool
+		TunDNS                                                            []tunDNSLink
 	}{
-		name, dir, bin, cfg, bootstrapServiceName(name) + ".service", serviceStateDirName,
-		rt.Identity == identityDynamic,
+		name, dir, bin, cfg, bootstrapServiceName(name) + ".service", serviceStateDirName, tunDNSExe,
+		rt.Identity == identityDynamic, rt.TunDNS,
 	})
 	return sb.String(), err
 }
@@ -319,17 +324,16 @@ func SyncAndRestart(p paths.Paths, name string) error {
 	if err := installBootstrapDNS(p, name, rt); err != nil {
 		return err
 	}
-	switching := rt.Identity == identityDynamic && !runsDynamic(rt.Unit)
+	switching := needsIdentityCheck(name, rt)
 	if err := writeMainUnit(name, rt); err != nil {
 		return err
 	}
-	if err := restartMain(s, name, ""); err != nil {
-		return err
-	}
+	err = restartMain(s, name, "")
 	if switching {
-		if err := verifyIdentitySwitch(p, name, rt); err != nil {
-			return err
-		}
+		err = verifyIdentitySwitch(p, name, rt, err)
+	}
+	if err != nil {
+		return err
 	}
 	execx.Ok(i18n.T("已同步配置并重启: ") + name + ".service")
 	recordRuntimeVersionBestEffort(p)
@@ -358,6 +362,10 @@ func Remove(p paths.Paths, name string, purgeRuntime bool) error {
 	}
 	wasInstalled := fileExists(rt.Unit)
 	removeUnit(s, name, false)
+	var tunDNSErr error
+	if s.User {
+		tunDNSErr = removeUserTunDNS(false)
+	}
 	if purgeRuntime {
 		s.run([]string{"rm", "-f", rt.Config}, "", nil)
 		remaining, findErr := s.run(
@@ -375,7 +383,7 @@ func Remove(p paths.Paths, name string, purgeRuntime bool) error {
 	if wasInstalled { // 安装失败的回退也会走到这里，未装过就不报「已删除」
 		execx.Ok(i18n.T("服务已删除: ") + name + ".service")
 	}
-	return nil
+	return tunDNSErr
 }
 
 func removeUnit(s unitScope, name string, quiet bool) {

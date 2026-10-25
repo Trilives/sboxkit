@@ -19,9 +19,10 @@ const systemUnitDir = "/etc/systemd/system"
 //   - 系统级（零值）：/etc/systemd/system，运行时在 /var/lib/sboxkit-runtime，
 //     全部写操作经 sudo（execx.RunRoot）。
 //   - 用户级（用户模式）：~/.config/systemd/user + `systemctl --user`，运行时在
-//     状态目录内，全程以当前用户身份执行，不请求 sudo。
+//     状态目录内，以当前用户身份执行；只有启用 TUN 时经 sudo 给运行时内核授予网络能力
+//     （netcaps.go），并安装代为登记系统 DNS 的系统单元（tundns_user.go）。
 //
-// 用户级服务没有 CAP_NET_ADMIN，因此不支持 TUN、防火墙与 NetworkManager 钩子。
+// 用户级服务没有防火墙与 NetworkManager 钩子。
 type unitScope struct {
 	User       bool
 	UnitDir    string

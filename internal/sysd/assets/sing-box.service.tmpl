@@ -11,6 +11,9 @@ Type=simple
 DynamicUser=yes
 LoadCredential=config.json:{{.Config}}
 ExecStart={{.Bin}} run -c ${CREDENTIALS_DIRECTORY}/config.json
+{{- range .TunDNS}}
+ExecStartPost=+{{$.TunDNSExe}} tun-dns --dev {{.Dev}}{{range .Servers}} --dns {{.}}{{end}}
+{{- end}}
 ProtectSystem=strict
 PrivateTmp=yes
 NoNewPrivileges=yes
