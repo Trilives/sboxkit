@@ -1,6 +1,119 @@
 # 已完成
 
-## 2026-10-25：清理 ares 临时修正、默认不按进程直连与 v0.4.0 后的小问题（v0.4.1-beta.1）
+## 2026-10-25：ares 切换到内置的 TUN DNS 登记（原 P1，作为本轮预览版的实机测试）
+
+- 经用户同意直接在 ares 上验收，并约定这次实机测试即算预览版已测试。ares 原为 0.4.0（旧版自更新的版本库布局：
+  `/usr/bin/sboxkit` → `sboxkit-versions/current`，dpkg 仍记录 0.2.3），sing-box 以 `DynamicUser` 运行，靠用户
+  手工加的 `sing-box.service.d/60-resolved-tun-dns.conf` 与 `/usr/local/libexec/sboxkit-resolved-tun-dns` 登记
+  TUN DNS。
+- 做法：ares 的 TUN 承载本会话自身的 DNS，出问题时无法交互修复，因此改动以独立的 systemd 临时单元执行。动手前
+  把版本指针、四个 sing-box 单元、drop-in、手工钩子、NetworkManager 钩子、运行时目录与 `runtime.version` 备份到
+  root 独占的 `/var/backups/sboxkit-p1-20261025/`（0700，状态目录另存一份 tar 备查），并先挂上 20 分钟的 dead-man
+  定时器：到时整体恢复，只有从仍能联网的会话手动停掉它才保留改动。分三步，每步核对，失败即恢复：
+  1. 放入与测试主机门禁同一份源码（逐文件一致）构建的 0.4.1-beta.2，切换版本指针，以 root、空 stdin 打开一次
+     `sboxkit` 触发版本变化后的全量同步：单元带 `ExecStartPost=+"/usr/bin/sboxkit" tun-dns --dev singbox --dns
+     172.19.0.2`，sing-box 仍以 `sing-box` 动态用户运行，没有记下退回 root；
+  2. 删除手工 drop-in 与钩子后重启：`DropInPaths` 为空，只靠内置钩子登记；
+  3. `resolvectl revert singbox` 后触发 watchdog：记录 `classification=tun_dns link=singbox action=reregistered`。
+  每步都核对链路 DNS 172.19.0.2 / `~.` / 默认路由、`resolvectl query` 经 `singbox` 应答、`api.anthropic.com` 与
+  `api.openai.com` 解析 `NOERROR`，以及不设代理变量时 Google 204、Anthropic 405、OpenAI 401。三步全部通过
+  （17:14:24–17:14:59），本会话全程经该 TUN 正常运行；之后 sing-box `NRestarts=0`、journal 无告警，停掉 dead-man
+  定时器保留改动。备份留到稳定版在 ares 上运行一段时间后再删。
+- README 截图：在 ares 上以中文界面按原截图的顺序（主菜单 → 运行时管理 → 主菜单 → 工具）重新截取并渲染，与仓库中的
+  `docs/Pictures/sboxkit.png` 逐像素一致（本轮未改菜单），无需替换。
+
+## 2026-10-25：用户模式 TUN 的系统 DNS、watchdog 核对 TUN DNS、root 单元只认 root 独占路径、字段标签英文
+
+- 用户模式 TUN 的系统 DNS（原 P2）：带文件能力的 sing-box 同样无权登记链路 DNS。启用 TUN 时经与 `setcap`
+  同一次 sudo 为每个 TUN 链路装系统单元 `sboxkit-tun-dns-<uid>-<链路>.service`（`WantedBy` / `BindsTo`
+  链路的设备单元，oneshot 执行三条 `resolvectl`），链路每次出现由 systemd 触发；内容未变不再提权，卸载用户
+  服务时移除。没采用 polkit 规则：单元只以 root 对固定链路执行这三条命令，不向该用户开放任何权限。
+- watchdog 核对 TUN DNS（原 P3）：系统模式 watchdog 每轮先核对各 TUN 链路的 DNS、路由域 `~.` 与默认路由，
+  缺失时补登记，不重启 sing-box；日志 `classification=tun_dns link=<链路> action=reregistered`。
+- root 单元的 sboxkit 路径（原 P3）：bootstrap relay、watchdog、周更定时器与 TUN DNS 钩子只写入 root 独占的
+  路径（路径、链接目标及各级上级目录归 root 且组和其他人不可写），否则拒绝并提示改用 deb 或
+  `/usr/local/bin`。检查在服务部署的前置阶段完成：首轮演练中它放在同步中途，事务回退后又重同步失败，提示
+  「回退有 1 项失败，请手动检查」（实际什么都没改）；移到前置阶段后只还原状态文件、报一次错。README 的
+  源码构建一节补充了 `sudo install` 步骤。
+- 配置字段标签（原 P3）：补齐 13 条英文翻译；新增单元测试遍历 `ListFields` / `BoolFields` / `ScalarFields`，
+  任何标签在英文界面查不到翻译即失败。
+- 验证（`machine.md` 主机，源码与本地一致）：`gofmt`、`go vet`、`go test ./...`、`go test -race ./...`、
+  带 sing-box v1.14.4 的真实内核用例、安装脚本测试、i18n 覆盖检查（missing=0）通过。实地演练（TUN 开启，
+  Clash 夹具，Proxy 组切到 DIRECT）：
+  - 系统模式（v0.4.0 deb + 新版二进制，直接初始化）：非特权单元带钩子，解析经 `singbox`（回归）；部署设置与
+    分流增强两屏标签全部为英文；`resolvectl revert singbox` 后解析改经 `wlp8s0`，手动触发一轮 watchdog 即记录
+    `action=reregistered`，解析回到 `singbox`，sing-box 的 PID 与 `NRestarts=0` 不变；链路已登记时 watchdog
+    不记任何 `tun_dns` 日志；
+  - 以 `sudo /tmp/…/sboxkit` 启动：网络自愈修复被拒并提示（主服务不受影响），「重新生成配置」在前置阶段被拒，
+    单元哈希、sing-box PID 与链路 DNS 均不变；
+  - 用户模式（按 user-mode 包布局组装，`sudo -k` 后初始化）：一次 sudo 完成 `setcap` 与 DNS 单元，单元已启用并在
+    链路出现时执行成功，解析经 `singbox`；`systemctl --user restart` 与 `kill -9`（自动重启）后单元各再执行一次，
+    新链路照常登记；`sudo -k` 后「重新生成配置」不再请求 sudo；卸载时请求一次 sudo 移除单元及设备单元的
+    `.wants` 链接。演练中 `systemctl enable` 对尚不存在的设备单元打印警告，已改为 `--quiet`（在主机上用临时
+    单元确认该选项会屏蔽这条警告）。
+  - 演练后两种模式均已卸载清除，现场与演练前一致（见下）。
+- 复核（独立安全评审）后修正：
+  - 原生订阅关闭「按 sboxkit 规则重建」时原样信任其 TUN 入站，`interface_name` 可以写成 `eth0` 等已有网卡，
+    用户模式的 root 单元会随该网卡每次出现改写系统 DNS（系统模式的钩子与 watchdog 同理）。现在只登记内核
+    导出 `tun_flags` 的 TUN 设备：钩子与 watchdog 在 Go 中检查，用户模式单元带
+    `ConditionPathExists=/sys/class/net/<链路>/tun_flags`。
+  - 用户模式单元在 systemd 244+ 加 `Restart=on-failure`（设备单元可能先于 systemd-resolved 认出链路）；更早的
+    版本拒绝加载带 `Restart=` 的 oneshot，不加。
+  - 关闭 TUN 或改了接口名后，同步时移除本用户不再需要的单元。
+  - 含多个 TUN 入站时改用 root：每个钩子依次各等至多 1 分钟，合计可能超出启动时限而被误判为非 root 起不来。
+  - 未改：`trustedExecutable` 不检查符号链接链中间一跳所在的目录（需要 root 先建出指向用户目录的链接，评审
+    定为低）；钩子与 watchdog 仍可能登记同名的其他 TUN（如 `tailscale0`），只在原生订阅被原样信任时才会出现。
+  - 修改后重跑全部门禁（通过）并第二轮演练：系统模式钩子照常登记、watchdog 补登记照常；`sboxkit tun-dns`
+    对已启用的 dummy 链路等满 60 秒后以 1 退出、未写入任何 DNS；用户模式单元带新条件与重试、照常登记；停掉
+    sing-box 后建一个名为 `singbox` 的 dummy 链路，单元因条件不满足被跳过、链路无 DNS；把 `resolvectl` 临时绑定为
+    `/bin/false` 时单元重试 9 次后停在 failed，恢复后登记成功；关闭 TUN 后重新生成配置，请求一次 sudo 移除了单元与
+    `.wants` 链接，随后卸载不再请求 sudo。主机再次卸载清除，现场与演练前一致。
+- 未覆盖：用户模式 watchdog 不核对 TUN DNS（不是 root，无权登记；由设备单元在链路出现时登记）；链路名含 `-`
+  的用户模式 TUN 只提示不装单元（单元名需转义）；systemd 早于 244 的主机（单元不带重试，单元测试覆盖）；
+  开机自启时序（未重启主机）。
+- 另见：初始化在服务启动后已自动装好网络自愈，随后仍询问「是否安装网络自愈」（用户模式可见，旧行为，未改）。
+
+## 2026-10-25：撤回 v0.4.1-beta.1，非 root 的 TUN 代为登记系统 DNS
+
+- 事故：v0.4.1-beta.1 发布后按用户要求清空 ares 的 tailscale 绕过进程名（直接在 ares 上操作，没有先在测试主机
+  以同一模式演练），sing-box 随即从 root 切换为 `DynamicUser`，ares 系统解析约 25 分钟不可用，用户重启服务并
+  手工修正后恢复。原因：sing-box 以 root 运行时经 D-Bus 为 TUN 链路登记 DNS（resolved 日志
+  `singbox: Bus client set DNS server list to: 172.19.0.2`、路由域 `~.`、默认 DNS 路由）；非 root 时
+  systemd-resolved 拒绝这些调用，sing-box 不报错、单元保持 active，身份切换检查与 watchdog 都看不出异常，
+  系统解析却仍走 Wi-Fi 路由器。v0.4.0 中没有进程规则的 TUN 部署同样受影响；此前默认的 tailscale 进程规则使
+  多数部署仍以 root 运行，掩盖了问题。用户在 ares 上加了 `ExecStartPost=+` 的临时钩子（仍在，见 Todo）。
+- 处理：按用户要求撤回 v0.4.1-beta.1（删除 Release 与标签；`/releases` 首项与 `/releases/latest` 均回到
+  v0.4.0，旧资产链接 404）。保留非 root 运行，非特权单元为每个 TUN 入站加
+  `ExecStartPost=+/usr/bin/sboxkit tun-dns --dev <链路> --dns <地址>`，由 sboxkit 以 root 代为登记，与 sing-box
+  以 root 运行时的登记一致（设计见 `docs/ARCHITECTURE.md`）。无法确定 TUN 链路名或 DNS 地址时改用 root；
+  同步时非特权单元内容有变即复核运行身份，钩子失败会退回 root。
+- 验证（`machine.md` 主机，systemd 255、resolved stub 模式，与 ares 相同）：`gofmt`、`go vet`、`go test ./...`、
+  `go test -race ./...`、带 sing-box v1.14.4 与 ares 现用规则集的真实内核用例、安装脚本测试、i18n 覆盖检查通过；
+  新包 `internal/tundns` 覆盖率 77%（未覆盖的是调用 systemctl / resolvectl 的薄封装，由实地演练覆盖）。以发布的 v0.4.0 deb 开启 TUN 实地演练（Clash 夹具经回环 http.server 提供，Proxy 组经
+  Clash API 切到 DIRECT），以 `resolvectl query` 显示的应答链路判断解析路径：
+  - v0.4.0、root（默认 tailscale 进程规则）：链路 DNS 172.19.0.2 / `~.` / 默认路由，经 `singbox` 应答；
+  - v0.4.0 清空进程名后（非 root）：链路无 DNS，解析经 `wlp8s0` 应答，复现 ares 事故；
+  - 换上新版本后打开管理界面（版本变化触发全量同步）：单元带钩子，sing-box 以 `sing-box` 动态用户运行，
+    resolved 记录三条 `Bus client set …`，解析经 `singbox`，未退回 root；
+  - `systemctl restart` 与 `kill -9`（自动重启，`NRestarts=1`）后钩子均重新登记（新 ifindex）；
+  - 加入进程名 → root 单元（无钩子，sing-box 自行登记）→ 清空 → 非特权单元带钩子、解析经 `singbox`，即 ares
+    出事的路径；
+  - 链路不存在时 `tun-dns` 重试后以 1 退出，非法链路名以 2 退出，对现有链路重复执行无副作用。
+- 复核（独立评审）后补充：`systemctl restart` 会等 `ExecStartPost` 结束，钩子失败表现为重启命令报错，原先在
+  `verifyIdentitySwitch` 之前就返回、不会退回 root；改为把重启报错交给它按「没能启动」处理。链路等待由 10 秒
+  放宽到 1 分钟（sing-box 先初始化出站与规则集才启动 TUN），按截止时间计算并给每次调用限时 10 秒；
+  systemd-resolved 处于启动中也照常登记。修改后在同一主机重跑全部门禁（通过）并第二轮演练：新版本直接初始化
+  （`Install` 路径，表单默认不填进程名）即为带钩子的非特权单元、解析经 `singbox`；把 `resolvectl` 临时绑定为
+  `/bin/false` 后清空进程名触发 root → 非 root：钩子重试 60 秒后失败，`systemctl restart` 报错，随即改回 root 并
+  记下本版本（`runtime.identity-fallback` 为 `0.4.1-beta.2`），同步照常完成；解除绑定后 root 自行登记、解析经
+  `singbox`。两轮后主机均已卸载清除，现场与演练前一致。
+- 演练中 NetworkManager 的连通性检查经 TUN 失败（夹具节点为占位地址、远程 DNS 直连不可用），Wi-Fi 默认路由
+  metric 被加罚到 20600；卸载后强制复查恢复为 600。
+- 未覆盖：开机自启时的时序（未重启主机；systemd-resolved 排在 `network.target` 之前，主服务排在
+  `network-online.target` 之后）；systemd-resolved 未运行的主机（单元测试覆盖）；用户模式 TUN（同样受影响，
+  记入 Todo）。
+
+## 2026-10-25：清理 ares 临时修正、默认不按进程直连与 v0.4.0 后的小问题（v0.4.1-beta.1，已撤回）
 
 - ares 临时修正（原 P0 两项）：ares 已升级到 0.4.0，生成的中继单元自带 `AF_NETLINK`，订阅配置的
   `dns-proxy` 自带 `detour=Proxy`。以独立的 systemd 临时单元执行（失败自动恢复）：备份后删除
