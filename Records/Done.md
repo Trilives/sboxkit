@@ -1,5 +1,24 @@
 # 已完成
 
+## 2026-10-25：v0.4.1 稳定版
+
+- 非 root 的 sing-box 由 sboxkit 代为登记 TUN 系统 DNS（系统模式钩子 + 用户模式系统单元）、watchdog 核对
+  TUN DNS、root 单元只认 root 独占的 sboxkit 路径、默认不按进程直连、字段标签英文等，验收记录见以下几节
+  （含已撤回的 v0.4.1-beta.1）。
+- 预览测试：经用户同意，以 ares 上的实机切换（下一节）作为本轮预览版测试；提交的代码与 ares 上运行、并在
+  `machine.md` 主机通过门禁的 0.4.1-beta.2 源码逐文件一致，此后只改了记录与 `VERSION`。
+- 发布门禁：`gofmt`、`go vet`、`go test ./...`、`go test -race ./...`、带 sing-box v1.14.4 的真实内核用例、
+  安装脚本测试、i18n 覆盖检查（missing=0）在 `machine.md` 主机通过；自 v0.4.0 起 `.goreleaser.yaml` 与依赖未变，
+  工作流与安装脚本的改动已随 v0.4.1-beta.1 的发布实际运行过。
+- 发布验证：推送 `v0.4.1` 标签后 release 与 CI 工作流成功；10 个资产均与 `checksums.txt` 一致；发布说明为附注
+  标签内容；`/releases/latest` 与预览渠道（`/releases` 首项）都指向 v0.4.1（非预发布），远端与本地均无预览版
+  标签和发行版，远端只剩 `main` 分支，`releases/latest/download/install.sh` 可取用。在 `machine.md` 主机用发布的
+  脚本 `install.sh --user --version 0.4.1` 装到临时目录：SHA-256 校验通过，`sboxkit version` 为 0.4.1、随包内核
+  v1.14.4 与规则集；解包（未安装）发布的 amd64 deb：版本 0.4.1、数据段为 `data.tar.gz`、二进制含
+  `LoadCredential` 单元模板、`tun-dns --dev` 钩子与 `ConditionPathExists=/sys/class/net/` 条件，随包 sing-box
+  1.14.4。临时目录、`~/.local/bin` 链接与 tmux 会话已清理，主机现场与本轮开始前一致。
+- README 截图沿用（见下一节，与新截取的逐像素一致）。
+
 ## 2026-10-25：ares 切换到内置的 TUN DNS 登记（原 P1，作为本轮预览版的实机测试）
 
 - 经用户同意直接在 ares 上验收，并约定这次实机测试即算预览版已测试。ares 原为 0.4.0（旧版自更新的版本库布局：
